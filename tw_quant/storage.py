@@ -139,21 +139,43 @@ class SQLiteDataStore(DataStore):
             row = conn.execute(f"SELECT MAX(date) FROM {table}").fetchone()
         return pd.Timestamp(row[0]) if row and row[0] else None
 
+    def close(self) -> None:
+        """每次呼叫都各自開關連線，這裡是 no-op，純粹跟 PostgresDataStore 對稱。"""
+
 
 class PostgresDataStore(DataStore):
     """雲端 Postgres 版本。需要 `pip install psycopg2-binary`（見 pyproject.toml
     的 `cloud` extra），延遲匯入以免沒用到雲端資料庫的人也被迫安裝它。
     """
 
-    def __init__(self, dsn: str):
+    def __init__(self, dsn: str, connect_timeout: int = 10, statement_timeout_ms: int = 30_000):
         import psycopg2  # noqa: PLC0415
 
         self._psycopg2 = psycopg2
         self.dsn = dsn
+        self.connect_timeout = connect_timeout
+        self.statement_timeout_ms = statement_timeout_ms
+        self._conn = None
         self._init_schema()
 
     def _connect(self):
-        return self._psycopg2.connect(self.dsn)
+        # 重用同一條連線（psycopg2 的 `with conn:` 只管交易 commit/rollback，
+        # 不會關閉連線，所以整個 store 生命週期內可以安全重複用同一條）。
+        # 一定要帶 connect_timeout / statement_timeout：沒有這兩個保護，遇到
+        # pooler 冷啟動、網路異常等狀況，psycopg2 預設會無限期卡住，而不是
+        # 拋出清楚的錯誤（實測 GitHub Actions 上跑 ingest 卡了 8 分鐘以上，
+        # 就是這裡沒設 timeout 的直接後果）。
+        if self._conn is None or self._conn.closed:
+            self._conn = self._psycopg2.connect(
+                self.dsn,
+                connect_timeout=self.connect_timeout,
+                options=f"-c statement_timeout={self.statement_timeout_ms}",
+            )
+        return self._conn
+
+    def close(self) -> None:
+        if self._conn is not None and not self._conn.closed:
+            self._conn.close()
 
     def _init_schema(self) -> None:
         with self._connect() as conn, conn.cursor() as cur:

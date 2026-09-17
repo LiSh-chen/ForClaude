@@ -107,6 +107,8 @@ def main() -> None:
     if failures:
         print(f"[warn] {len(failures)} 檔抓取失敗: {failures}", file=sys.stderr)
 
+    store.close()
+
 
 if __name__ == "__main__":
     main()
