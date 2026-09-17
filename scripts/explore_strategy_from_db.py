@@ -14,10 +14,14 @@ regime 門檻網格只影響「何時可以進場」，進出場邏輯本身（�
   - squeeze.pr_threshold       壓縮濾網嚴格度（原始 10，太嚴會篩掉太多真訊號）
   - ignition.volume_multiplier 點火量能倍數（原始 2.0，太高會錯過訊號）
 
+每組合都完整計算報酬相關指標：total_return / cagr / max_dd / Sharpe /
+Calmar（cagr / max_dd）/ 勝率 / 風報比（平均獲利% / 平均虧損%）/
+單筆期望值 EV%（= 勝率*平均獲利% + (1-勝率)*平均虧損%）/ 獲利因子。
+
 搜尋完後：
   1. 印出依 Sharpe 排序的前 N 名（要求最低成交筆數，避免小樣本雜訊）。
-  2. 對最佳組合印出完整交易層級統計（勝率、獲利因子、平均持有天數）。
-  3. 對最佳組合做「前 24 個月 vs 後 12 個月」的簡易切分驗證——正式 WFA
+  2. 對最佳組合印出完整交易層級統計。
+  3. 對最佳組合做「前 67% vs 後 33%」的簡易切分驗證——正式 WFA
      需要 4 年以上歷史，目前資料庫只有 ~3 年，這是資料不夠長時的替代檢查，
      不能取代之後資料累積夠長後的正式 WFA。
 
@@ -31,7 +35,6 @@ from __future__ import annotations
 import argparse
 import copy
 import sys
-from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
@@ -49,6 +52,12 @@ IGNITION_VOL_MULT_GRID = (1.2, 1.5, 2.0)
 
 MIN_TRADES_FOR_RANKING = 20
 
+METRIC_KEYS = (
+    "total_return", "cagr", "max_dd", "sharpe", "calmar", "n_trades",
+    "win_rate", "annual_trades", "risk_reward_ratio", "ev_pct", "profit_factor",
+    "avg_win_pct", "avg_loss_pct", "avg_holding_days",
+)
+
 
 def build_base_config() -> StrategyConfig:
     """固定 regime 與產業曝險上限在寬鬆值，隔離掉「大盤時機」與「全域鎖單純
@@ -62,29 +71,81 @@ def build_base_config() -> StrategyConfig:
 
 
 def trade_stats(trades: pd.DataFrame) -> dict:
+    """勝率以外的交易層級統計：平均獲利/虧損報酬率、風報比、單筆期望值 EV%、
+    獲利因子、平均持有天數。
+    """
     if trades.empty:
-        return {"avg_win_pct": 0.0, "avg_loss_pct": 0.0, "profit_factor": 0.0, "avg_holding_days": 0.0}
+        return {
+            "avg_win_pct": 0.0, "avg_loss_pct": 0.0, "risk_reward_ratio": 0.0,
+            "ev_pct": 0.0, "profit_factor": 0.0, "avg_holding_days": 0.0,
+        }
 
     wins = trades[trades["pnl"] > 0]
     losses = trades[trades["pnl"] <= 0]
+    win_rate = len(wins) / len(trades)
+    avg_win_pct = wins["pnl_pct"].mean() if not wins.empty else 0.0
+    avg_loss_pct = losses["pnl_pct"].mean() if not losses.empty else 0.0  # <= 0
+
     gross_profit = wins["pnl"].sum()
     gross_loss = -losses["pnl"].sum()
     profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
+
+    risk_reward_ratio = (avg_win_pct / abs(avg_loss_pct)) if avg_loss_pct < 0 else float("inf")
+    ev_pct = win_rate * avg_win_pct + (1 - win_rate) * avg_loss_pct
+
     holding_days = (pd.to_datetime(trades["exit_date"]) - pd.to_datetime(trades["entry_date"])).dt.days
 
     return {
-        "avg_win_pct": wins["pnl_pct"].mean() if not wins.empty else 0.0,
-        "avg_loss_pct": losses["pnl_pct"].mean() if not losses.empty else 0.0,
+        "avg_win_pct": avg_win_pct,
+        "avg_loss_pct": avg_loss_pct,
+        "risk_reward_ratio": risk_reward_ratio,
+        "ev_pct": ev_pct,
         "profit_factor": profit_factor,
         "avg_holding_days": holding_days.mean(),
     }
 
 
 def run_one(prices: pd.DataFrame, margin_short: pd.DataFrame, cfg: StrategyConfig) -> dict:
+    """跑一次回測，回傳績效指標 + 交易層級統計（風報比/EV/獲利因子等）合併後的 dict，
+    另外保留 result 供呼叫端需要時取用（例如印出實際交易明細）。
+    """
     result = run_backtest(prices, margin_short, cfg, historical_mdd=None)
     metrics = summarize_performance(result, cfg.initial_capital)
+    metrics["calmar"] = (metrics["cagr"] / metrics["max_dd"]) if metrics["max_dd"] > 0 else 0.0
+    metrics.update(trade_stats(result.trades))
     metrics["result"] = result
     return metrics
+
+
+def _print_metrics_block(metrics: dict, indent: str = "  ") -> None:
+    labels = {
+        "total_return": "總報酬率",
+        "cagr": "年化報酬率 (CAGR)",
+        "max_dd": "最大回撤 (MDD)",
+        "sharpe": "夏普率 (Sharpe)",
+        "calmar": "卡瑪比率 (Calmar = CAGR / MDD)",
+        "n_trades": "成交筆數",
+        "win_rate": "勝率",
+        "annual_trades": "年化交易次數",
+        "risk_reward_ratio": "風報比（平均獲利% / 平均虧損%）",
+        "ev_pct": "單筆期望值 EV（勝率加權後平均報酬率）",
+        "profit_factor": "獲利因子（總獲利 / 總虧損）",
+        "avg_win_pct": "平均獲利交易報酬率",
+        "avg_loss_pct": "平均虧損交易報酬率",
+        "avg_holding_days": "平均持有天數",
+    }
+    pct_keys = {"total_return", "cagr", "max_dd", "win_rate", "ev_pct", "avg_win_pct", "avg_loss_pct"}
+    for k in METRIC_KEYS:
+        if k not in metrics:
+            continue
+        v = metrics[k]
+        label = labels.get(k, k)
+        if k in pct_keys:
+            print(f"{indent}{label}: {v:.2%}")
+        elif isinstance(v, float):
+            print(f"{indent}{label}: {v:.2f}")
+        else:
+            print(f"{indent}{label}: {v}")
 
 
 def main() -> None:
@@ -126,36 +187,40 @@ def main() -> None:
         cfg.ignition.volume_multiplier = vol_mult
 
         metrics = run_one(prices, margin_short, cfg)
-        rows.append(
-            {
-                "atr_mult": atr_mult,
-                "lookback": lookback,
-                "squeeze_pr": squeeze_pr,
-                "vol_mult": vol_mult,
-                "total_return": metrics["total_return"],
-                "cagr": metrics["cagr"],
-                "max_dd": metrics["max_dd"],
-                "sharpe": metrics["sharpe"],
-                "n_trades": metrics["n_trades"],
-                "win_rate": metrics["win_rate"],
-                "annual_trades": metrics["annual_trades"],
-            }
-        )
+        metrics.pop("result")
+        row = {
+            "atr_mult": atr_mult,
+            "lookback": lookback,
+            "squeeze_pr": squeeze_pr,
+            "vol_mult": vol_mult,
+        }
+        row.update(metrics)
+        rows.append(row)
 
     df = pd.DataFrame(rows)
     ranked = df[df["n_trades"] >= MIN_TRADES_FOR_RANKING].sort_values("sharpe", ascending=False)
 
     print(f"=== 搜尋結果：依 Sharpe 排序前 {args.top} 名（要求 n_trades >= {MIN_TRADES_FOR_RANKING}）===")
-    print(
-        f"{'atr_mult':>8}  {'lookback':>8}  {'squeeze_pr':>10}  {'vol_mult':>8}  "
-        f"{'total_ret':>10}  {'cagr':>8}  {'max_dd':>8}  {'sharpe':>7}  {'n_trades':>8}  {'win_rate':>8}"
+    header = (
+        f"{'atr':>5} {'lb':>4} {'sq_pr':>6} {'vol':>5}  "
+        f"{'total_ret':>10} {'cagr':>8} {'max_dd':>8} {'sharpe':>7} {'calmar':>7}  "
+        f"{'n_trd':>6} {'win%':>7} {'RR':>6} {'EV%':>8} {'PF':>6}"
     )
+    print(header)
     for _, r in ranked.head(args.top).iterrows():
+        pf = r["profit_factor"]
+        pf_str = "  inf " if pf == float("inf") else f"{pf:6.2f}"
+        rr = r["risk_reward_ratio"]
+        rr_str = "  inf" if rr == float("inf") else f"{rr:6.2f}"
         print(
-            f"{r['atr_mult']:>8.1f}  {r['lookback']:>8.0f}  {r['squeeze_pr']:>10.0f}  {r['vol_mult']:>8.1f}  "
-            f"{r['total_return']:>9.2%}  {r['cagr']:>7.2%}  {r['max_dd']:>7.2%}  {r['sharpe']:>7.2f}  "
-            f"{r['n_trades']:>8.0f}  {r['win_rate']:>7.1%}"
+            f"{r['atr_mult']:>5.1f} {r['lookback']:>4.0f} {r['squeeze_pr']:>6.0f} {r['vol_mult']:>5.1f}  "
+            f"{r['total_return']:>9.2%} {r['cagr']:>7.2%} {r['max_dd']:>7.2%} {r['sharpe']:>7.2f} {r['calmar']:>7.2f}  "
+            f"{r['n_trades']:>6.0f} {r['win_rate']:>6.1%} {rr_str} {r['ev_pct']:>7.2%} {pf_str}"
         )
+    print(
+        "\n（RR = 風報比 = 平均獲利% / 平均虧損%；EV% = 勝率加權後單筆期望報酬率；"
+        "PF = 獲利因子 = 總獲利 / 總虧損；calmar = CAGR / MDD）"
+    )
 
     n_profitable = (df["total_return"] > 0).sum()
     print(f"\n{len(df)} 組合中有 {n_profitable} 組總報酬為正（{n_profitable / len(df):.1%}）")
@@ -177,16 +242,10 @@ def main() -> None:
 
     full_metrics = run_one(prices, margin_short, best_cfg)
     result = full_metrics.pop("result")
-    for k, v in full_metrics.items():
-        print(f"  {k}: {v}")
-    stats = trade_stats(result.trades)
-    print(f"  平均獲利交易報酬率: {stats['avg_win_pct']:.2%}")
-    print(f"  平均虧損交易報酬率: {stats['avg_loss_pct']:.2%}")
-    print(f"  獲利因子 (gross profit / gross loss): {stats['profit_factor']:.2f}")
-    print(f"  平均持有天數: {stats['avg_holding_days']:.1f}")
+    _print_metrics_block(full_metrics)
     print(f"  尚未平倉部位數: {len(result.open_positions)}")
 
-    # 簡易切分驗證：前 24 個月 vs 後 12 個月（正式 WFA 需要 4 年以上歷史，
+    # 簡易切分驗證：前 67% vs 後 33%（正式 WFA 需要 4 年以上歷史，
     # 目前資料庫還不夠長，這是資料不夠長時的替代檢查）
     all_dates = sorted(prices["date"].unique())
     split_idx = int(len(all_dates) * 0.67)
@@ -204,11 +263,9 @@ def main() -> None:
     test_metrics.pop("result")
 
     print(f"  前段（訓練期，< {split_date.date()}）:")
-    for k, v in train_metrics.items():
-        print(f"    {k}: {v}")
+    _print_metrics_block(train_metrics, indent="    ")
     print(f"  後段（模擬盲測期，>= {split_date.date()}）:")
-    for k, v in test_metrics.items():
-        print(f"    {k}: {v}")
+    _print_metrics_block(test_metrics, indent="    ")
 
 
 if __name__ == "__main__":
