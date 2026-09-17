@@ -1,0 +1,31 @@
+name: Compare Alternative Strategy Entry Logic On Real Data
+
+# 手動觸發：在同一套出場/風控/成本引擎下，比較 4 種不同進場邏輯
+# （原始突破、拉回買進、相對強度動能、超跌反彈）在真實資料上的表現。
+# 不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run alternative strategy comparison
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/explore_alt_strategies_from_db.py

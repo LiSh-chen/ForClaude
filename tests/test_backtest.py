@@ -1,3 +1,5 @@
+import numpy as np
+
 from tw_quant.backtest import run_backtest, summarize_performance
 from tw_quant.config import StrategyConfig
 from tw_quant.data_provider import SyntheticUniverseConfig, generate_synthetic_universe
@@ -44,3 +46,28 @@ def test_backtest_forbids_odd_lot_positions():
 
     result = run_backtest(data["prices"], data["margin_short"], cfg)
     assert (result.trades["shares"] % cfg.sizing.lot_size == 0).all()
+
+
+def test_entry_signal_fn_overrides_default_strategy_signals():
+    """entry_signal_fn 讓呼叫端替換進場邏輯，出場/風控/成本引擎維持不變
+    （見 scripts/explore_alt_strategies_from_db.py 用來比較多種進場設計）。
+    """
+    data = generate_synthetic_universe(SyntheticUniverseConfig(n_stocks=10, n_days=400, seed=2))
+    cfg = StrategyConfig()
+
+    def always_false(master, prices, margin_short, cfg):
+        n = len(master)
+        return np.zeros(n, dtype=bool), np.zeros(n, dtype=bool)
+
+    result = run_backtest(data["prices"], data["margin_short"], cfg, entry_signal_fn=always_false)
+    assert result.trades.empty
+
+    def always_true(master, prices, margin_short, cfg):
+        n = len(master)
+        return np.ones(n, dtype=bool), np.zeros(n, dtype=bool)
+
+    cfg.regime.breadth_threshold = 0.25
+    cfg.regime.volume_ratio_threshold = 0.9
+    cfg.global_risk.max_industry_exposure_pct = 0.30
+    result = run_backtest(data["prices"], data["margin_short"], cfg, entry_signal_fn=always_true)
+    assert len(result.trades) > 0

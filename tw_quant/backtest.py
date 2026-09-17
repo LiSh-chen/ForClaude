@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -81,17 +82,32 @@ class BacktestResult:
     mdd_breach_count: int = 0
 
 
+EntrySignalFn = Callable[[pd.DataFrame, pd.DataFrame, pd.DataFrame, StrategyConfig], tuple]
+
+
+def _default_entry_signals(
+    master: pd.DataFrame, prices: pd.DataFrame, margin_short: pd.DataFrame, cfg: StrategyConfig
+) -> tuple:
+    """規格書預設的雙軌訊號（策略 A 動能突破 + 策略 B 軋空異常突破）。"""
+    sig_a = generate_strategy_a_signals(master, cfg.pool, cfg.squeeze, cfg.ignition)
+    sig_b = generate_strategy_b_signals(master, margin_short, cfg.pool, cfg.ignition, cfg.strategy_b)
+    return sig_a["entry_signal"].values, sig_b["entry_signal"].values
+
+
 def _prepare_master_frame(
-    prices: pd.DataFrame, margin_short: pd.DataFrame, cfg: StrategyConfig
+    prices: pd.DataFrame,
+    margin_short: pd.DataFrame,
+    cfg: StrategyConfig,
+    entry_signal_fn: EntrySignalFn | None = None,
 ) -> pd.DataFrame:
     master = prices.sort_values(["stock_id", "date"]).reset_index(drop=True).copy()
     master["rolling_high_10"] = ind.rolling_max(master, "high", cfg.sizing.chandelier_lookback)
     master["atr"] = ind.atr(master, cfg.sizing.atr_window)
 
-    sig_a = generate_strategy_a_signals(master, cfg.pool, cfg.squeeze, cfg.ignition)
-    sig_b = generate_strategy_b_signals(master, margin_short, cfg.pool, cfg.ignition, cfg.strategy_b)
-    master["entry_signal_a"] = sig_a["entry_signal"].values
-    master["entry_signal_b"] = sig_b["entry_signal"].values
+    entry_signal_fn = entry_signal_fn or _default_entry_signals
+    entry_a, entry_b = entry_signal_fn(master, prices, margin_short, cfg)
+    master["entry_signal_a"] = entry_a
+    master["entry_signal_b"] = entry_b
 
     regime_light = compute_regime_light(master, cfg.regime, cfg.pool.min_history_days)
     master = master.merge(
@@ -106,11 +122,19 @@ def run_backtest(
     margin_short: pd.DataFrame,
     cfg: StrategyConfig,
     historical_mdd: float | None = None,
+    entry_signal_fn: EntrySignalFn | None = None,
 ) -> BacktestResult:
     """執行完整回測。historical_mdd=None 代表不啟用 MDD 熔斷（用於第一次跑出
     基準 MDD），拿到基準值後再傳入做第二次帶熔斷機制的回測。
+
+    entry_signal_fn：選填，用來替換預設的策略 A/B 進場訊號邏輯（出場/風控/
+    成本引擎維持不變），簽名為
+    `fn(master, prices, margin_short, cfg) -> (entry_signal_a, entry_signal_b)`，
+    兩者皆為對齊 master 列順序的布林陣列。用來在同一套出場/風控引擎下比較
+    不同進場邏輯（例如拉回買進、相對強度動能、超跌反彈），見
+    scripts/explore_alt_strategies_from_db.py。
     """
-    master = _prepare_master_frame(prices, margin_short, cfg)
+    master = _prepare_master_frame(prices, margin_short, cfg, entry_signal_fn)
 
     cash = cfg.initial_capital
     positions: dict[str, Position] = {}
