@@ -14,7 +14,12 @@ on:
   schedule:
     # 14:30 Asia/Taipei（台股收盤後） = 06:30 UTC，週一到週五
     - cron: "30 6 * * 1-5"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force_backfill:
+        description: "忽略每檔股票現有資料，強制全部重新回填 3 年（用來修復中途被打斷、部分股票只有一小段資料的情況）"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -38,6 +43,7 @@ jobs:
           FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           STOCK_UNIVERSE: ${{ vars.STOCK_UNIVERSE }}
+          FORCE_BACKFILL: ${{ inputs.force_backfill }}
         run: python scripts/ingest_daily_data.py
 
       - name: Determine storage mode

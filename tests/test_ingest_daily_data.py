@@ -122,6 +122,56 @@ def test_backfill_decision_is_per_stock(tmp_path, monkeypatch):
     assert (pd.Timestamp.today().normalize() - start_2317).days >= 365 * 2
 
 
+def test_force_backfill_ignores_existing_data(tmp_path, monkeypatch):
+    """FORCE_BACKFILL=true 時，即使股票已經有資料，也要強制拿完整 3 年回填。
+
+    這是用來修復「某次執行中途被打斷，部分股票只寫進一小段資料，之後被
+    per-stock 判斷誤認為已經同步過」這種情況的手動修復開關（實測第一次接
+    Neon 時，10 檔demo股票裡有 8 檔就是卡在這個狀態）。
+    """
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "market.db"))
+    monkeypatch.setenv("STOCK_UNIVERSE", "2330")
+    monkeypatch.setenv("REQUEST_SLEEP_SECONDS", "0")
+    monkeypatch.setenv("FORCE_BACKFILL", "true")
+    monkeypatch.setattr(ingest_daily_data, "FinMindDataProvider", FakeProvider)
+
+    from tw_quant.storage import get_data_store
+
+    # 2330 只有一小段「最近」的資料（模擬被打斷後的殘缺狀態）
+    store = get_data_store()
+    store.upsert_prices(
+        pd.DataFrame(
+            {
+                "date": [pd.Timestamp.today().normalize()],
+                "stock_id": ["2330"],
+                "industry": ["半導體"],
+                "open": [500.0],
+                "high": [505.0],
+                "low": [495.0],
+                "close": [502.0],
+                "volume": [10_000_000],
+                "turnover_value": [5_020_000_000.0],
+            }
+        )
+    )
+    store.close()
+
+    requested_ranges: dict[str, tuple[str, str]] = {}
+    original_fetch_price = FakeProvider.fetch_price
+
+    def tracking_fetch_price(self, stock_id, start_date, end_date):
+        requested_ranges[stock_id] = (start_date, end_date)
+        return original_fetch_price(self, stock_id, start_date, end_date)
+
+    monkeypatch.setattr(FakeProvider, "fetch_price", tracking_fetch_price)
+
+    ingest_daily_data.main()
+
+    start_2330 = pd.Timestamp(requested_ranges["2330"][0])
+    assert (pd.Timestamp.today().normalize() - start_2330).days >= 365 * 2
+
+
 def test_load_universe_prefers_env_list(monkeypatch):
     monkeypatch.setenv("STOCK_UNIVERSE", "2330, 2317 ,2454")
     assert ingest_daily_data._load_universe() == ["2330", "2317", "2454"]
