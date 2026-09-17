@@ -155,8 +155,10 @@ class PostgresDataStore(DataStore):
 
     def __init__(self, dsn: str, connect_timeout: int = 10, statement_timeout_ms: int = 30_000):
         import psycopg2  # noqa: PLC0415
+        import psycopg2.extras  # noqa: PLC0415
 
         self._psycopg2 = psycopg2
+        self._execute_values = psycopg2.extras.execute_values
         self.dsn = dsn
         self.connect_timeout = connect_timeout
         self.statement_timeout_ms = statement_timeout_ms
@@ -216,10 +218,17 @@ class PostgresDataStore(DataStore):
         d = _normalize_dates(df)
         rows = list(d[PRICE_COLS].itertuples(index=False, name=None))
         with self._connect() as conn, conn.cursor() as cur:
-            cur.executemany(
+            # execute_values 把整批資料打包成一條多列 INSERT，而不是像
+            # cursor.executemany() 那樣每一列各自送一次網路往返——實測用
+            # executemany 全量回填一檔股票 3 年資料（~729 列）要將近 6 分鐘，
+            # 換成 execute_values 後同樣的資料量應該是幾百毫秒等級，這才是
+            # 之前每次全量回填 workflow 卡到超過 15 分鐘上限的真正原因
+            # （不是連線卡住、不是速率限制，是逐列寫入太慢）。
+            self._execute_values(
+                cur,
                 """
                 INSERT INTO prices (date, stock_id, industry, open, high, low, close, volume, turnover_value)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES %s
                 ON CONFLICT (date, stock_id) DO UPDATE SET
                     industry = EXCLUDED.industry, open = EXCLUDED.open, high = EXCLUDED.high,
                     low = EXCLUDED.low, close = EXCLUDED.close, volume = EXCLUDED.volume,
@@ -235,10 +244,11 @@ class PostgresDataStore(DataStore):
         d = _normalize_dates(df)
         rows = list(d[MARGIN_COLS].itertuples(index=False, name=None))
         with self._connect() as conn, conn.cursor() as cur:
-            cur.executemany(
+            self._execute_values(
+                cur,
                 """
                 INSERT INTO margin_short (date, stock_id, margin_purchase_balance, short_balance)
-                VALUES (%s,%s,%s,%s)
+                VALUES %s
                 ON CONFLICT (date, stock_id) DO UPDATE SET
                     margin_purchase_balance = EXCLUDED.margin_purchase_balance,
                     short_balance = EXCLUDED.short_balance

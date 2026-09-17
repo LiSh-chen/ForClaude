@@ -1,14 +1,18 @@
 """PostgresDataStore 的連線行為測試（用 mock psycopg2，不碰真實網路）。
 
-這裡存在的原因：第一次接上真實 Neon 資料庫時，GitHub Actions 的
-ingest workflow 卡在 "Run ingestion" 步驟超過 8 分鐘沒有任何輸出或錯誤，
-根本原因是 psycopg2.connect() 沒有帶 connect_timeout，遇到連線異常時會
-無限期卡住而不是快速失敗。修好 connect_timeout 後又踩到第二個真實問題：
-把 statement_timeout 塞進 connect() 的 options 參數，Neon 的 pooler
-endpoint 直接拒絕連線（"unsupported startup parameter in options:
-statement_timeout"），改成連線建立後另外執行 SET 指令才行。這裡釘住
-「一定要帶 connect_timeout」「statement_timeout 用 SET 而非 options 設定」
-與「同一個 store 物件要重用同一條連線」這三個行為，防止回歸。
+這裡存在的原因：第一次接上真實 Neon 資料庫時，一路踩過幾個只有實測才會
+暴露的問題：
+1. psycopg2.connect() 沒有帶 connect_timeout，遇到連線異常會無限期卡住。
+2. 把 statement_timeout 塞進 connect() 的 options 參數，Neon 的 pooler
+   endpoint 直接拒絕連線，改成連線建立後另外執行 SET 指令才行。
+3. 全量回填一檔股票 3 年資料（~729 列）用 cursor.executemany() 要將近
+   6 分鐘——executemany 對 psycopg2 來說不會真的打包成一次網路往返，是
+   每一列各自送一次，729 列就是 729 次往返。這才是每次「全量回填」的
+   GitHub Actions 執行一路卡到 15 分鐘逾時上限的真正原因，不是任何一次
+   之前懷疑的連線/速率限制問題。改用 psycopg2.extras.execute_values()
+   把整批資料打包成一條多列 INSERT。
+
+這裡的測試釘住這幾個行為，防止回歸。
 """
 
 import sys
@@ -33,13 +37,16 @@ def _install_fake_psycopg2(monkeypatch):
     fake_conn.__exit__.return_value = False
 
     connect_mock = MagicMock(return_value=fake_conn)
-    fake_module = types.SimpleNamespace(connect=connect_mock)
+    execute_values_mock = MagicMock()
+    fake_extras_module = types.SimpleNamespace(execute_values=execute_values_mock)
+    fake_module = types.SimpleNamespace(connect=connect_mock, extras=fake_extras_module)
     monkeypatch.setitem(sys.modules, "psycopg2", fake_module)
-    return connect_mock, fake_conn, fake_cursor
+    monkeypatch.setitem(sys.modules, "psycopg2.extras", fake_extras_module)
+    return connect_mock, fake_conn, fake_cursor, execute_values_mock
 
 
 def test_connect_passes_timeout_kwargs(monkeypatch):
-    connect_mock, _, _ = _install_fake_psycopg2(monkeypatch)
+    connect_mock, _, _, _ = _install_fake_psycopg2(monkeypatch)
     from tw_quant.storage import PostgresDataStore
 
     PostgresDataStore("postgresql://u:p@host/db", connect_timeout=7, statement_timeout_ms=15_000)
@@ -51,7 +58,7 @@ def test_connect_passes_timeout_kwargs(monkeypatch):
 
 
 def test_statement_timeout_set_via_sql_not_startup_options(monkeypatch):
-    _, _, fake_cursor = _install_fake_psycopg2(monkeypatch)
+    _, _, fake_cursor, _ = _install_fake_psycopg2(monkeypatch)
     from tw_quant.storage import PostgresDataStore
 
     PostgresDataStore("postgresql://u:p@host/db", statement_timeout_ms=15_000)
@@ -61,7 +68,7 @@ def test_statement_timeout_set_via_sql_not_startup_options(monkeypatch):
 
 
 def test_connection_is_reused_across_calls(monkeypatch):
-    connect_mock, _, _ = _install_fake_psycopg2(monkeypatch)
+    connect_mock, _, _, _ = _install_fake_psycopg2(monkeypatch)
     from tw_quant.storage import PostgresDataStore
     import pandas as pd
 
@@ -87,7 +94,7 @@ def test_connection_is_reused_across_calls(monkeypatch):
 
 
 def test_latest_date_filters_by_stock_id(monkeypatch):
-    _, fake_conn, fake_cursor = _install_fake_psycopg2(monkeypatch)
+    _, fake_conn, fake_cursor, _ = _install_fake_psycopg2(monkeypatch)
     from tw_quant.storage import PostgresDataStore
 
     fake_cursor.fetchone.return_value = ("2024-06-01",)
@@ -99,8 +106,59 @@ def test_latest_date_filters_by_stock_id(monkeypatch):
     assert last_call_params == ("2330",)
 
 
+def test_upsert_prices_uses_execute_values_not_row_by_row(monkeypatch):
+    _, _, fake_cursor, execute_values_mock = _install_fake_psycopg2(monkeypatch)
+    from tw_quant.storage import PostgresDataStore
+    import pandas as pd
+
+    store = PostgresDataStore("postgresql://u:p@host/db")
+    df = pd.DataFrame(
+        {
+            "date": pd.bdate_range("2024-01-01", periods=3),
+            "stock_id": ["2330"] * 3,
+            "industry": ["半導體業"] * 3,
+            "open": [100.0] * 3,
+            "high": [101.0] * 3,
+            "low": [99.0] * 3,
+            "close": [100.5] * 3,
+            "volume": [1000] * 3,
+            "turnover_value": [100500.0] * 3,
+        }
+    )
+    store.upsert_prices(df)
+
+    assert execute_values_mock.call_count == 1
+    _, sql, rows = execute_values_mock.call_args.args
+    assert "VALUES %s" in sql
+    assert len(rows) == 3
+    fake_cursor.executemany.assert_not_called()
+
+
+def test_upsert_margin_short_uses_execute_values(monkeypatch):
+    _, _, fake_cursor, execute_values_mock = _install_fake_psycopg2(monkeypatch)
+    from tw_quant.storage import PostgresDataStore
+    import pandas as pd
+
+    store = PostgresDataStore("postgresql://u:p@host/db")
+    df = pd.DataFrame(
+        {
+            "date": pd.bdate_range("2024-01-01", periods=2),
+            "stock_id": ["2330"] * 2,
+            "margin_purchase_balance": [1000.0] * 2,
+            "short_balance": [30.0] * 2,
+        }
+    )
+    store.upsert_margin_short(df)
+
+    assert execute_values_mock.call_count == 1
+    _, sql, rows = execute_values_mock.call_args.args
+    assert "VALUES %s" in sql
+    assert len(rows) == 2
+    fake_cursor.executemany.assert_not_called()
+
+
 def test_default_timeouts_are_sane(monkeypatch):
-    connect_mock, _, _ = _install_fake_psycopg2(monkeypatch)
+    connect_mock, _, _, _ = _install_fake_psycopg2(monkeypatch)
     from tw_quant.storage import PostgresDataStore
 
     PostgresDataStore("postgresql://u:p@host/db")
