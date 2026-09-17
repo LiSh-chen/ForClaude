@@ -53,6 +53,12 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python scripts/ingest_daily_data.py
 
+      - name: Show current data status
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/show_data_status.py
+
       - name: Determine storage mode
         id: storage
         env:
