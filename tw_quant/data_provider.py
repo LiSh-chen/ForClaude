@@ -200,7 +200,13 @@ class FinMindDataProvider:
         )
         df["date"] = pd.to_datetime(df["date"])
         df["stock_id"] = stock_id
-        return df[[c for c in PRICE_COLUMNS if c in df.columns] + ["date", "stock_id"]].drop_duplicates()
+        # date/stock_id 已經在上面設好、本來就會被下面這個 in df.columns 篩選挑中，
+        # 之前這裡又手動 append 了一次 ["date", "stock_id"]，導致選出來的欄位清單
+        # 有重複的 "date"/"stock_id"，df[[...]] 選出重複欄名的 DataFrame，
+        # 後面 pd.to_datetime(d["date"]) 因為 d["date"] 變成 DataFrame 而不是
+        # Series，觸發 "cannot assemble with duplicate keys"（實測於 GitHub
+        # Actions 上跑 ingest_daily_data.py 時每一檔都炸這個錯誤）。
+        return df[[c for c in PRICE_COLUMNS if c in df.columns]].drop_duplicates()
 
     def fetch_margin_short(self, stock_id: str, start_date: str, end_date: str) -> pd.DataFrame:
         raw = self._get("TaiwanStockMarginPurchaseShortSale", stock_id, start_date, end_date)
