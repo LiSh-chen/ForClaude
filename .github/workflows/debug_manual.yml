@@ -1,0 +1,21 @@
+name: Debug Manual Trigger
+
+# 一次性診斷用 workflow：手動觸發，跑 scripts/_debug_neon_state.py，
+# 把資料庫目前每檔股票的實際資料範圍印到 Actions log 裡。診斷完應該把這個
+# 檔案和對應的 debug 腳本一起刪掉。
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python scripts/_debug_neon_state.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
