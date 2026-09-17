@@ -161,16 +161,21 @@ class PostgresDataStore(DataStore):
     def _connect(self):
         # 重用同一條連線（psycopg2 的 `with conn:` 只管交易 commit/rollback，
         # 不會關閉連線，所以整個 store 生命週期內可以安全重複用同一條）。
-        # 一定要帶 connect_timeout / statement_timeout：沒有這兩個保護，遇到
-        # pooler 冷啟動、網路異常等狀況，psycopg2 預設會無限期卡住，而不是
-        # 拋出清楚的錯誤（實測 GitHub Actions 上跑 ingest 卡了 8 分鐘以上，
-        # 就是這裡沒設 timeout 的直接後果）。
+        # connect_timeout 一定要帶：沒有它，遇到連線異常 psycopg2 會無限期
+        # 卡住而不是拋出清楚的錯誤（實測 GitHub Actions 上跑 ingest 卡了
+        # 8 分鐘以上，就是這裡沒設 timeout 的直接後果）。
+        #
+        # statement_timeout 不能透過 connect() 的 options 參數在 startup
+        # packet 裡帶（實測對 Neon 的 pooler endpoint 這樣做會被直接拒絕：
+        # "unsupported startup parameter in options: statement_timeout.
+        # Please use unpooled connection or remove this parameter" ——
+        # PgBouncer 交易池接模式不轉發任意 GUC），改成連線建立後另外執行
+        # SET 指令，兩種 pooler/非 pooler 連線都吃得下。
         if self._conn is None or self._conn.closed:
-            self._conn = self._psycopg2.connect(
-                self.dsn,
-                connect_timeout=self.connect_timeout,
-                options=f"-c statement_timeout={self.statement_timeout_ms}",
-            )
+            self._conn = self._psycopg2.connect(self.dsn, connect_timeout=self.connect_timeout)
+            with self._conn.cursor() as cur:
+                cur.execute(f"SET statement_timeout = {int(self.statement_timeout_ms)}")
+            self._conn.commit()
         return self._conn
 
     def close(self) -> None:
