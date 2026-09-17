@@ -123,7 +123,7 @@ def main() -> None:
     total_margin_rows = 0
     failures: list[str] = []
 
-    for stock_id in universe:
+    for i, stock_id in enumerate(universe, start=1):
         try:
             # 逐檔判斷同步起點：這檔股票在資料庫裡完全沒有資料 -> 回填 3 年；
             # 已經有資料 -> 只抓最近 lookback_days 天補齊缺口即可。
@@ -154,8 +154,13 @@ def main() -> None:
                 store.upsert_margin_short(margin_df)
                 total_margin_rows += len(margin_df)
             time.sleep(sleep_s)
+
+            print(
+                f"[{i}/{len(universe)}] {stock_id}: 價量 {len(price_df)} 筆、融資券 {len(margin_df)} 筆"
+                f"（{start_date} ~ {end_date}）"
+            )
         except Exception as exc:  # noqa: BLE001 - 單一檔失敗不該中斷整個排程
-            print(f"[warn] {stock_id} 抓取失敗: {exc}", file=sys.stderr)
+            print(f"[warn] [{i}/{len(universe)}] {stock_id} 抓取失敗: {exc}", file=sys.stderr)
             failures.append(stock_id)
 
     print(f"完成。寫入價量 {total_price_rows} 筆，融資券 {total_margin_rows} 筆。")

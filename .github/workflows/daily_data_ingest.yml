@@ -44,6 +44,13 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           STOCK_UNIVERSE: ${{ vars.STOCK_UNIVERSE }}
           FORCE_BACKFILL: ${{ inputs.force_backfill }}
+          # Python 對著非終端機輸出預設是整塊緩衝，print() 的內容可能一直
+          # 卡在緩衝區直到程式正常結束才會寫進 log；如果這個 step 被外層
+          # timeout-minutes 強制中止（SIGTERM），緩衝區內容就會整段消失，
+          # 看起來像是「完全沒有任何輸出的卡住」，但實際上可能只是還在跑、
+          # 只是我們看不到過程。設這個環境變數強制即時輸出，之後不管是真的
+          # 卡住還是只是跑得慢，log 都看得到即時進度。
+          PYTHONUNBUFFERED: "1"
         run: python scripts/ingest_daily_data.py
 
       - name: Determine storage mode
