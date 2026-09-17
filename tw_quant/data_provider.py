@@ -167,15 +167,16 @@ class FinMindDataProvider:
     def __init__(self, token: str | None = None):
         self.token = token
 
-    def _get(self, dataset: str, data_id: str, start_date: str, end_date: str) -> pd.DataFrame:
+    def _get(self, dataset: str, data_id: str = "", start_date: str = "", end_date: str = "") -> pd.DataFrame:
         import requests  # 延遲匯入，避免無此套件時整個模組載入失敗
 
-        params = {
-            "dataset": dataset,
-            "data_id": data_id,
-            "start_date": start_date,
-            "end_date": end_date,
-        }
+        params = {"dataset": dataset}
+        if data_id:
+            params["data_id"] = data_id
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
         if self.token:
             params["token"] = self.token
         resp = requests.get(self.BASE_URL, params=params, timeout=30)
@@ -214,3 +215,16 @@ class FinMindDataProvider:
         df["date"] = pd.to_datetime(df["date"])
         df["stock_id"] = stock_id
         return df[MARGIN_SHORT_COLUMNS]
+
+    def fetch_stock_info(self) -> pd.DataFrame:
+        """全市場股票基本資料（含產業分類），用來補齊 prices 面板的 industry 欄位。
+
+        FinMind 的 TaiwanStockInfo 回傳欄位包含 industry_category / stock_id /
+        stock_name / type（上市或上櫃）；不需要 data_id / 日期區間。
+        """
+        raw = self._get("TaiwanStockInfo")
+        if raw.empty:
+            return raw
+        return raw.rename(columns={"industry_category": "industry"})[
+            ["stock_id", "stock_name", "industry", "type"]
+        ].drop_duplicates(subset=["stock_id"])

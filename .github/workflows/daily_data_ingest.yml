@@ -1,0 +1,60 @@
+name: Daily TW Market Data Ingest
+
+# 每個台股交易日收盤後執行一次，把最新的價量與融資券資料抓下來寫進資料庫。
+# 這支 workflow 跑在 GitHub 自己的 runner 上，有正常的網際網路存取權，
+# 不受 Claude Code 開發沙盒的網路白名單限制——這正是選它來做資料排程的原因。
+#
+# 需要的 GitHub Secrets（都是選填，沒設也能先用示範清單跑起來）：
+#   FINMIND_TOKEN   FinMind API token
+#   DATABASE_URL    雲端 Postgres 連線字串；沒設就退回本機 SQLite 並自動 commit 回 repo
+# 需要的 GitHub Variables（選填）：
+#   STOCK_UNIVERSE  逗號分隔的股票代號清單
+
+on:
+  schedule:
+    # 14:30 Asia/Taipei（台股收盤後） = 06:30 UTC，週一到週五
+    - cron: "30 6 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ingestion
+        env:
+          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          STOCK_UNIVERSE: ${{ vars.STOCK_UNIVERSE }}
+        run: python scripts/ingest_daily_data.py
+
+      - name: Determine storage mode
+        id: storage
+        env:
+          DB_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -n "$DB_URL" ]; then
+            echo "use_git_snapshot=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "use_git_snapshot=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit updated local SQLite snapshot
+        if: steps.storage.outputs.use_git_snapshot == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/tw_market.db
+          git diff --cached --quiet || git commit -m "chore: daily TW market data sync $(date -u +%F)"
+          git push

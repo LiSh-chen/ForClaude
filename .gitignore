@@ -4,5 +4,13 @@ __pycache__/
 venv/
 *.egg-info/
 .pytest_cache/
-data/
-*.csv
+
+# data/tw_market.db 是「暫時資料庫」，故意不 ignore：GitHub Actions 每日排程
+# 會把它 commit 回 repo，見 .github/workflows/daily_data_ingest.yml。
+# 一旦設定 DATABASE_URL 改用雲端 Postgres，這個檔案就不會再被更新。
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+# 手動產生的暫存匯出檔仍然忽略
+*.tmp.csv

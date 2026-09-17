@@ -42,9 +42,19 @@ tw_quant/
   mdd.py             陸-2、MDD 熔斷與降級恢復矩陣（狀態機）
   backtest.py         把以上全部串成完整每日回測引擎
   wfa.py             伍、WFA 滾動驗證、過度擬合警報、大數檢驗放寬邏輯
+  storage.py         資料落地層：SQLite（預設）/ Postgres（可選）DataStore
 
-scripts/             可直接執行的示範腳本（見第 4 節）
-tests/               pytest 單元測試（30 個，涵蓋每個模組的關鍵行為）
+scripts/
+  run_demo_backtest.py       端到端示範（合成假資料）
+  run_sensitivity_test.py    大盤環境參數敏感度網格測試
+  run_wfa_demo.py            WFA 滾動驗證示範
+  ingest_daily_data.py       每日資料抓取（給 GitHub Actions 排程用，見第 5 節）
+  run_backtest_from_db.py    讀取累積的真實資料跑正式回測
+
+.github/workflows/
+  daily_data_ingest.yml      每日排程抓資料的 GitHub Actions workflow
+
+tests/               pytest 單元測試（42 個，涵蓋每個模組的關鍵行為）
 ```
 
 ## 3. 規格書的解讀與明確假設
@@ -70,7 +80,7 @@ tests/               pytest 單元測試（30 個，涵蓋每個模組的關鍵�
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-# 單元測試（30 個，全綠）
+# 單元測試（42 個，全綠）
 pytest tests/ -q
 
 # 端到端示範：完整回測 + MDD 兩階段流程
@@ -87,21 +97,80 @@ python scripts/run_wfa_demo.py
 （幾何布朗運動 + 隨機插入的動能事件），**純粹用來證明整條 pipeline 能正確
 串接執行**，數字不代表任何真實績效。
 
-## 5. 接上真實台股資料
+## 5. 自動資料抓取架構
 
-本開發環境的對外網路是白名單代理，**已實測連不到 `api.finmindtrade.com`**，
-所以資料層目前只能用合成假資料自我驗證。要接上真實資料，三選一：
+### 5.1 為什麼不能在這個開發環境直接抓
 
-1. **FinMind**（免費，有限速）：`data_provider.py` 裡的 `FinMindDataProvider`
-   已經照官方文件的 dataset 名稱（`TaiwanStockPrice` /
-   `TaiwanStockMarginPurchaseShortSale`）寫好骨架，**但沒有在本沙盒環境
-   實測過**，串接前務必先用小範圍資料驗證欄位對應是否正確。
-2. **TEJ / 券商 API（如永豐 Shioaji）**：把歷史資料整理成
-   `data_provider.PRICE_COLUMNS` / `MARGIN_SHORT_COLUMNS` 定義的 schema，
-   存成 CSV，用 `load_price_csv` / `load_margin_short_csv` 讀入即可。
-3. 產業分類：目前 schema 假設 `industry` 欄位已經在價量資料裡；真實資料
-   可以從證交所公開的「上市公司產業分類」或 FinMind 的 `TaiwanStockInfo`
-   取得後 merge 進來。
+Claude Code 的沙盒環境對外網路走**政策白名單代理**，只放行固定幾個網域
+（PyPI、npm registry、Anthropic API 等），`api.finmindtrade.com` 不在清單
+內，任何連線在代理層就被擋掉回 403——這跟「有沒有連結 GitHub」是完全不同
+的兩套權限系統：GitHub 授權管的是 `git push`/建 PR，跟這個沙盒對外網路的
+白名單完全無關，兩者互不影響。
+
+因此抓資料這件事被設計成**跑在 GitHub Actions 的 runner 上**，那裡有正常
+的網際網路存取權，不受這個沙盒限制。
+
+### 5.2 架構總覽
+
+```
+GitHub Actions（每個交易日排程觸發，見 .github/workflows/daily_data_ingest.yml）
+        │
+        ▼
+scripts/ingest_daily_data.py  ← 用 FinMindDataProvider 抓價量 + 融資券 + 產業分類
+        │
+        ▼
+tw_quant/storage.get_data_store()
+        │
+        ├─ 沒設 DATABASE_URL → SQLiteDataStore（data/tw_market.db，
+        │                       workflow 執行完自動 git commit 回 repo）
+        │
+        └─ 設了 DATABASE_URL → PostgresDataStore（雲端資料庫）
+        │
+        ▼
+scripts/run_backtest_from_db.py  ← 讀累積下來的真實資料，直接跑 run_backtest()
+```
+
+**現在（還沒申請雲端資料庫）**：workflow 每天抓完資料寫進本機 SQLite 檔案
+`data/tw_market.db`，然後自動 commit 回這個 repo——等於用 git 當免費、
+零設定的「暫時資料庫」，你今天就能開始每天累積真實資料，不用等雲端資料庫
+辦好。
+
+**之後（申請好 Postgres）**：只要在 GitHub repo 的 Settings → Secrets and
+variables → Actions 裡加一個 secret `DATABASE_URL`
+（例如 `postgresql://user:pass@host:5432/dbname`），下一次排程執行就會
+自動改寫進雲端資料庫，**不用改任何程式碼**，也不用手動搬資料
+（`get_data_store()` 是全系統唯一判斷用哪個後端的地方）。
+
+### 5.3 設定步驟
+
+1. **（選填）申請 FinMind token**：免費版不用 token 也能用，但速率限制
+   更嚴；到 [finmindtrade.com](https://finmind.github.io/) 申請帳號拿
+   token 後，到 repo 的 Settings → Secrets → Actions 加一個 secret
+   `FINMIND_TOKEN`。
+2. **（選填）指定股票清單**：預設只抓 10 檔示範用權值股
+   （`scripts/ingest_daily_data.py` 裡的 `DEFAULT_UNIVERSE`）。要換成你要的
+   清單，到 repo 的 Settings → Secrets and variables → Actions →
+   Variables 加一個 `STOCK_UNIVERSE`，值是逗號分隔的股票代號
+   （例如 `2330,2317,2454,...`）。
+3. **手動觸發測試**：到 repo 的 Actions 分頁，選
+   `Daily TW Market Data Ingest` → Run workflow，可以立刻手動跑一次，
+   不用等排程時間到。
+4. **確認排程會不會生效**：GitHub 的 `schedule` 觸發**只認 repo 的預設
+   分支**（通常是 `main`）。這個 workflow 檔案目前是 commit 在
+   `claude/nice-rubin-h6i35f` 這個 feature 分支上，排程不會自動生效，
+   要先合併到預設分支之後，每日排程才會真的按表操課；合併前你可以用上面
+   第 3 點的手動觸發來測試。
+5. 資料累積一段時間後，跑 `python scripts/run_backtest_from_db.py`
+   直接用真實資料做回測。
+
+### 5.4 之後想換別的資料來源（TEJ / 券商 API）
+
+`FinMindDataProvider` 只是眾多資料來源之一。若你有 TEJ 或永豐 Shioaji 這類
+券商 API 帳號，只要照 `data_provider.PRICE_COLUMNS` /
+`MARGIN_SHORT_COLUMNS` 定義的 schema 寫一個新的 provider 類別（實作
+`fetch_price` / `fetch_margin_short` / `fetch_stock_info` 三個方法），
+`ingest_daily_data.py` 只要把 `FinMindDataProvider(...)` 換成你的新類別即可，
+`storage.py` 那一層完全不用動。
 
 ## 6. 已知限制與建議（請務必閱讀）
 
@@ -152,7 +221,28 @@ python scripts/run_wfa_demo.py
 測出來的「無懸崖」「無過度擬合」不代表真實市場也是這樣，正式上線前必須
 用真實歷史資料重新跑過這整套檢驗。
 
-### 6.5 未實作／簡化的部分
+### 6.5 資料自動化管線的限制
+
+- **FinMind 免費額度速率限制**：`ingest_daily_data.py` 是逐檔股票打 API
+  （每檔一次價量請求、一次融資券請求），股票清單一大，同步時間會拉長，
+  免費額度也可能被打到限速報錯（腳本會 catch 例外、記錄失敗清單、繼續跑
+  下一檔，不會整個任務失敗，但當天那幾檔就會缺資料，下次執行的
+  `LOOKBACK_DAYS` 補資料視窗可以補回來）。要拉全市場 1700+ 檔，建議申請
+  付費 token 或把清單拆成好幾個 workflow 分批跑。
+- **git-as-database 是暫時方案**：把 SQLite 檔案 commit 回 repo 雖然零設定，
+  但長期下來 repo 體積會隨著資料量增長（尤其是全市場 × 多年歷史），且
+  多個 workflow 同時寫入同一個 SQLite 檔案沒有做鎖定/合併衝突處理
+  （目前排程是序列執行、單一 job，还沒有並行寫入的問題，但如果你之後改成
+  多個 workflow 平行抓不同批股票，要自己加鎖或改用真正的資料庫）。這是
+  刻意的過渡設計，申請好雲端 Postgres 後應盡快切換。
+- **排程只認預設分支**：見第 5.3 節第 4 點，`schedule` 觸發不會在
+  feature 分支上生效，合併前只能手動 `workflow_dispatch` 測試。
+- **`FinMindDataProvider` 沒有實測過**：因為這個沙盒連不到 FinMind，欄位
+  對應（如 `Trading_Volume` → `volume`）是照官方文件寫的，**你第一次跑
+  workflow 時務必檢查 Actions 的執行紀錄與 `data/tw_market.db` 裡的實際
+  數值**，確認欄位對應、單位（股數 vs 張數）都正確，再開始長期累積資料。
+
+### 6.6 未實作／簡化的部分
 
 - 沒有做「新股/下市」的完整生命週期管理（下市直接消失於資料中，回測遇到
   持股標的資料中斷會用進場價估值，不會自動平倉，實務上應該加停牌/下市
@@ -165,7 +255,7 @@ python scripts/run_wfa_demo.py
 
 ## 7. 測試涵蓋範圍
 
-`tests/` 30 個測試，涵蓋：
+`tests/` 42 個測試，涵蓋：
 - 指標正確性（SMA 不跨標的污染、ATR 隨波動率增加、滾動百分位排名手算驗證）
 - 成本模型（跳動單位級距、滑價方向、稅費淨額）
 - 部位計算（無條件捨去至張、零股防禦、市值上限防禦、初始停損 max() 邏輯）
@@ -174,3 +264,5 @@ python scripts/run_wfa_demo.py
   50 筆重新校準回 100%）
 - 訊號無未來函數（把未來資料放大 5 倍，過去的訊號結果必須完全不變）
 - 回測整合（零成交時權益守恆、有成交時股數必為 1000 倍數、市值不超過上限）
+- 資料落地層（SQLite upsert 冪等性、日期/股票篩選、latest_date 增量同步邏輯）
+- 資料抓取腳本（用假的 provider 驗證寫入流程，不觸碰真實網路）
