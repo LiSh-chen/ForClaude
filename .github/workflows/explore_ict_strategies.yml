@@ -1,0 +1,31 @@
+name: Explore ICT-Style Strategies On Real Data
+
+# 手動觸發：測試 3 種 ICT（Inner Circle Trader）風格的日線改編版訊號
+# （流動性掃蕩後軋回、Fair Value Gap 回測、簡化版市場結構轉折）在真實資料上
+# 有沒有 edge。不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ICT strategy comparison
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/explore_ict_strategies_from_db.py
