@@ -1,0 +1,32 @@
+name: Refine Market Structure Shift Strategy On Real Data
+
+# 手動觸發：深入優化「市場結構轉折」(C_mss) 策略——目前探索過程裡風險
+# 調整後體質最健康的候選。加突破幅度濾網跟量能確認濾網，並對 downtrend_window/
+# swing_window 抓更細的網格，確認好結果是穩健高原還是參數孤島。
+# 不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run MSS refinement search
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/refine_mss_strategy_from_db.py
