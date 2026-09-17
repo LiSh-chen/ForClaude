@@ -1,0 +1,30 @@
+name: Explore Strategy Parameters On Real Data
+
+# 手動觸發：在 Neon（或本機 SQLite）累積的真實資料上網格搜尋進出場參數，
+# 尋找正期望值（正 EV）的組合。不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run parameter search
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/explore_strategy_from_db.py --top 30
