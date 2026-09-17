@@ -45,16 +45,18 @@ tw_quant/
   storage.py         資料落地層：SQLite（預設）/ Postgres（可選）DataStore
 
 scripts/
-  run_demo_backtest.py       端到端示範（合成假資料）
-  run_sensitivity_test.py    大盤環境參數敏感度網格測試
-  run_wfa_demo.py            WFA 滾動驗證示範
-  ingest_daily_data.py       每日資料抓取（給 GitHub Actions 排程用，見第 5 節）
-  run_backtest_from_db.py    讀取累積的真實資料跑正式回測
+  run_demo_backtest.py             端到端示範（合成假資料）
+  run_sensitivity_test.py          大盤環境參數敏感度網格測試（合成假資料）
+  run_wfa_demo.py                  WFA 滾動驗證示範（合成假資料）
+  ingest_daily_data.py             每日資料抓取（給 GitHub Actions 排程用，見第 5 節）
+  run_backtest_from_db.py          讀取累積的真實資料跑正式回測
+  run_sensitivity_test_from_db.py  讀取累積的真實資料跑敏感度網格測試
+  run_wfa_from_db.py               讀取累積的真實資料跑 WFA（資料不夠長會印出提示，不是錯誤）
 
 .github/workflows/
   daily_data_ingest.yml      每日排程抓資料的 GitHub Actions workflow
 
-tests/               pytest 單元測試（42 個，涵蓋每個模組的關鍵行為）
+tests/               pytest 單元測試（56 個，涵蓋每個模組的關鍵行為）
 ```
 
 ## 3. 規格書的解讀與明確假設
@@ -156,12 +158,16 @@ variables → Actions 裡加一個 secret `DATABASE_URL`
    `Daily TW Market Data Ingest` → Run workflow，可以立刻手動跑一次，
    不用等排程時間到。
 4. **確認排程會不會生效**：GitHub 的 `schedule` 觸發**只認 repo 的預設
-   分支**（通常是 `main`）。這個 workflow 檔案目前是 commit 在
-   `claude/nice-rubin-h6i35f` 這個 feature 分支上，排程不會自動生效，
-   要先合併到預設分支之後，每日排程才會真的按表操課；合併前你可以用上面
-   第 3 點的手動觸發來測試。
-5. 資料累積一段時間後，跑 `python scripts/run_backtest_from_db.py`
-   直接用真實資料做回測。
+   分支**——這個 repo 目前只有 `claude/nice-rubin-h6i35f` 一個分支，它
+   本身就是預設分支，所以排程不需要額外合併就會生效；如果你之後改了預設
+   分支或建了 `main`，記得把這個 workflow 帶過去。
+5. 資料累積一段時間後：
+   - `python scripts/run_backtest_from_db.py` 直接用真實資料做回測
+   - `python scripts/run_sensitivity_test_from_db.py` 用真實資料跑大盤環境
+     參數敏感度網格
+   - `python scripts/run_wfa_from_db.py` 用真實資料跑 WFA 滾動驗證
+     （這個需要至少 4 年多的歷史才會有結果，資料不夠長時會印出提示、
+     不是報錯）
 
 ### 5.4 之後想換別的資料來源（TEJ / 券商 API）
 
