@@ -7,13 +7,41 @@
 """
 
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts import ingest_daily_data
+
+
+def test_call_with_timeout_returns_result_when_fast():
+    assert ingest_daily_data._call_with_timeout(lambda: 42, timeout_s=1.0) == 42
+
+
+def test_call_with_timeout_raises_on_slow_call():
+    """requests 的 timeout 參數對「持續慢速吐資料」的連線可能完全不生效
+    （實測 FORCE_BACKFILL 那次真的卡了 15 分鐘），這裡驗證備援的
+    wall-clock 逾時保護確實能在期限內放棄，不會被卡住的呼叫拖住。
+    """
+
+    def _slow():
+        time.sleep(5)
+        return "too late"
+
+    with pytest.raises(TimeoutError):
+        ingest_daily_data._call_with_timeout(_slow, timeout_s=0.2)
+
+
+def test_call_with_timeout_propagates_exceptions():
+    def _boom():
+        raise ValueError("網路壞了")
+
+    with pytest.raises(ValueError, match="網路壞了"):
+        ingest_daily_data._call_with_timeout(_boom, timeout_s=1.0)
 
 
 class FakeProvider:

@@ -32,8 +32,10 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 from pathlib import Path
+from typing import Callable, TypeVar
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -43,6 +45,40 @@ from tw_quant.data_provider import FinMindDataProvider
 from tw_quant.storage import get_data_store
 
 DEFAULT_UNIVERSE = ["2330", "2317", "2454", "2412", "2308", "1301", "2882", "2881", "3008", "2303"]
+
+T = TypeVar("T")
+
+
+def _call_with_timeout(func: Callable[[], T], timeout_s: float) -> T:
+    """真正的 wall-clock 逾時保護，包住任何一次可能卡住的呼叫。
+
+    requests 的 timeout 參數只在「單次讀取之間沒有新資料」時才會觸發，如果
+    伺服器持續慢速吐資料（trickle），連線可能永遠不會逾時——實測
+    FORCE_BACKFILL 那次，抓 TaiwanStockInfo 卡了整整 15 分鐘，直到
+    workflow job 本身的逾時上限把整個程序砍掉，requests 自己設定的
+    timeout=30 完全沒生效。改用背景執行緒 + join(timeout=...) 才是真正的
+    保護：不管卡在哪裡、卡多久，主執行緒最多只等 timeout_s 秒就放棄並繼續
+    往下跑；背景執行緒設成 daemon，就算它真的卡死也不會擋住程式正常結束
+    （Python 直譯器只會等非 daemon 執行緒，daemon 執行緒會直接被拋棄）。
+    """
+    result: list[T] = []
+    error: list[BaseException] = []
+
+    def _worker() -> None:
+        try:
+            result.append(func())
+        except BaseException as exc:  # noqa: BLE001 - 任何例外都要轉交回主執行緒判斷
+            error.append(exc)
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout_s)
+
+    if thread.is_alive():
+        raise TimeoutError(f"呼叫逾時（{timeout_s} 秒），背景執行緒仍在等待回應")
+    if error:
+        raise error[0]
+    return result[0]
 
 
 def _load_universe() -> list[str]:
@@ -58,11 +94,11 @@ def _load_universe() -> list[str]:
 
 def _industry_lookup(provider: FinMindDataProvider) -> dict[str, str]:
     try:
-        info = provider.fetch_stock_info()
+        info = _call_with_timeout(provider.fetch_stock_info, timeout_s=20.0)
         if info.empty:
             return {}
         return dict(zip(info["stock_id"], info["industry"]))
-    except Exception as exc:  # noqa: BLE001 - 網路或格式錯誤時降級為空對照表，不讓整個任務失敗
+    except Exception as exc:  # noqa: BLE001 - 網路/逾時/格式錯誤都降級為空對照表，不讓整個任務失敗
         print(f"[warn] 無法取得產業分類對照表: {exc}", file=sys.stderr)
         return {}
 
@@ -102,14 +138,18 @@ def main() -> None:
             else:
                 start_date = backfill_start
 
-            price_df = provider.fetch_price(stock_id, start_date, end_date)
+            price_df = _call_with_timeout(
+                lambda sid=stock_id, s=start_date, e=end_date: provider.fetch_price(sid, s, e), timeout_s=30.0
+            )
             if not price_df.empty:
                 price_df["industry"] = industry_map.get(stock_id, "UNKNOWN")
                 store.upsert_prices(price_df)
                 total_price_rows += len(price_df)
             time.sleep(sleep_s)
 
-            margin_df = provider.fetch_margin_short(stock_id, start_date, end_date)
+            margin_df = _call_with_timeout(
+                lambda sid=stock_id, s=start_date, e=end_date: provider.fetch_margin_short(sid, s, e), timeout_s=30.0
+            )
             if not margin_df.empty:
                 store.upsert_margin_short(margin_df)
                 total_margin_rows += len(margin_df)
