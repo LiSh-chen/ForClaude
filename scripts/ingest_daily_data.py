@@ -72,14 +72,10 @@ def main() -> None:
     universe = _load_universe()
     industry_map = _industry_lookup(provider)
 
-    latest = store.latest_date("prices")
-    if latest is not None:
-        start_date = (latest - pd.Timedelta(days=lookback_days)).strftime("%Y-%m-%d")
-    else:
-        start_date = (pd.Timestamp.today() - pd.Timedelta(days=365 * 3)).strftime("%Y-%m-%d")
     end_date = pd.Timestamp.today().strftime("%Y-%m-%d")
+    backfill_start = (pd.Timestamp.today() - pd.Timedelta(days=365 * 3)).strftime("%Y-%m-%d")
 
-    print(f"同步區間: {start_date} ~ {end_date}，共 {len(universe)} 檔股票")
+    print(f"同步結束日: {end_date}，共 {len(universe)} 檔股票（每檔各自判斷要回填還是增量同步）")
 
     total_price_rows = 0
     total_margin_rows = 0
@@ -87,6 +83,19 @@ def main() -> None:
 
     for stock_id in universe:
         try:
+            # 逐檔判斷同步起點：這檔股票在資料庫裡完全沒有資料 -> 回填 3 年；
+            # 已經有資料 -> 只抓最近 lookback_days 天補齊缺口即可。
+            # 刻意不用「全市場最新日期」當全域基準：一批股票裡只要有任何一檔
+            # 曾經同步成功過，其他從來沒同步過的股票會被誤判成「已經有資料」，
+            # 只抓到 lookback_days 天就再也補不回完整的 3 年歷史了（這是實測
+            # 第一次接 Neon 時，某次執行中途被打斷、部分股票寫入成功、部分
+            # 完全沒寫入，之後再也沒有回填的根本原因）。
+            stock_latest = store.latest_date("prices", stock_id=stock_id)
+            if stock_latest is not None:
+                start_date = (stock_latest - pd.Timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+            else:
+                start_date = backfill_start
+
             price_df = provider.fetch_price(stock_id, start_date, end_date)
             if not price_df.empty:
                 price_df["industry"] = industry_map.get(stock_id, "UNKNOWN")

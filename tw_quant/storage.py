@@ -45,7 +45,7 @@ class DataStore(ABC):
     ) -> pd.DataFrame: ...
 
     @abstractmethod
-    def latest_date(self, table: str) -> pd.Timestamp | None: ...
+    def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None: ...
 
 
 def _normalize_dates(df: pd.DataFrame) -> pd.DataFrame:
@@ -134,9 +134,14 @@ class SQLiteDataStore(DataStore):
     def load_margin_short(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
         return self._load("margin_short", MARGIN_COLS, start_date, end_date, stock_ids)
 
-    def latest_date(self, table: str) -> pd.Timestamp | None:
+    def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None:
+        query = f"SELECT MAX(date) FROM {table}"
+        params: tuple = ()
+        if stock_id is not None:
+            query += " WHERE stock_id = ?"
+            params = (stock_id,)
         with self._connect() as conn:
-            row = conn.execute(f"SELECT MAX(date) FROM {table}").fetchone()
+            row = conn.execute(query, params).fetchone()
         return pd.Timestamp(row[0]) if row and row[0] else None
 
     def close(self) -> None:
@@ -267,9 +272,14 @@ class PostgresDataStore(DataStore):
     def load_margin_short(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
         return self._load("margin_short", MARGIN_COLS, start_date, end_date, stock_ids)
 
-    def latest_date(self, table: str) -> pd.Timestamp | None:
+    def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None:
+        query = f"SELECT MAX(date) FROM {table}"
+        params: tuple = ()
+        if stock_id is not None:
+            query += " WHERE stock_id = %s"
+            params = (stock_id,)
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute(f"SELECT MAX(date) FROM {table}")
+            cur.execute(query, params)
             row = cur.fetchone()
         return pd.Timestamp(row[0]) if row and row[0] else None
 

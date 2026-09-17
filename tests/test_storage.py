@@ -106,6 +106,24 @@ def test_latest_date_returns_max_date(store):
     assert store.latest_date("prices") == pd.Timestamp(dates.max())
 
 
+def test_latest_date_is_per_stock_not_global(store):
+    """一檔股票已同步到最新、另一檔完全沒資料時，兩者的 latest_date 不該互相污染
+
+    ——這是實測接 Neon 時發現的真實 bug：ingest 腳本原本只查「全市場最新
+    日期」當同步起點，若某一批裡有一檔已經同步過，其餘從未同步過的股票會
+    被誤判成「已經有資料」，之後永遠只抓 lookback_days 天，補不回完整歷史。
+    """
+    old_dates = pd.bdate_range("2024-01-01", periods=3)
+    recent_dates = pd.bdate_range("2024-06-01", periods=3)
+    store.upsert_prices(_price_rows(old_dates, stock_id="2330"))
+    store.upsert_prices(_price_rows(recent_dates, stock_id="2317"))
+
+    assert store.latest_date("prices", stock_id="2317") == pd.Timestamp(recent_dates.max())
+    assert store.latest_date("prices", stock_id="2330") == pd.Timestamp(old_dates.max())
+    assert store.latest_date("prices", stock_id="0000") is None  # 從未同步過的股票
+    assert store.latest_date("prices") == pd.Timestamp(recent_dates.max())  # 不帶 stock_id 仍是全域行為
+
+
 def test_get_data_store_defaults_to_sqlite(tmp_path, monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "market.db"))

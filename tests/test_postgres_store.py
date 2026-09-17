@@ -86,6 +86,19 @@ def test_connection_is_reused_across_calls(monkeypatch):
     assert connect_mock.call_count == 1
 
 
+def test_latest_date_filters_by_stock_id(monkeypatch):
+    _, fake_conn, fake_cursor = _install_fake_psycopg2(monkeypatch)
+    from tw_quant.storage import PostgresDataStore
+
+    fake_cursor.fetchone.return_value = ("2024-06-01",)
+    store = PostgresDataStore("postgresql://u:p@host/db")
+    store.latest_date("prices", stock_id="2330")
+
+    last_call_sql, last_call_params = fake_cursor.execute.call_args_list[-1].args
+    assert "WHERE stock_id = %s" in last_call_sql
+    assert last_call_params == ("2330",)
+
+
 def test_default_timeouts_are_sane(monkeypatch):
     connect_mock, _, _ = _install_fake_psycopg2(monkeypatch)
     from tw_quant.storage import PostgresDataStore

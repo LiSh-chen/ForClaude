@@ -70,6 +70,58 @@ def test_ingest_writes_prices_and_margin_short(tmp_path, monkeypatch):
     assert not margin.empty
 
 
+def test_backfill_decision_is_per_stock(tmp_path, monkeypatch):
+    """一檔股票已經同步過、另一檔從沒同步過時，前者只做短期增量、
+    後者仍要拿到完整 3 年回填——不能被前者的「最近日期」誤判帶偏。
+    """
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "market.db"))
+    monkeypatch.setenv("STOCK_UNIVERSE", "2330,2317")
+    monkeypatch.setenv("REQUEST_SLEEP_SECONDS", "0")
+    monkeypatch.setenv("LOOKBACK_DAYS", "10")
+    monkeypatch.setattr(ingest_daily_data, "FinMindDataProvider", FakeProvider)
+
+    from tw_quant.storage import get_data_store
+
+    # 預先讓 2330 已經有「最近」的資料，2317 完全沒有
+    store = get_data_store()
+    store.upsert_prices(
+        pd.DataFrame(
+            {
+                "date": [pd.Timestamp.today().normalize()],
+                "stock_id": ["2330"],
+                "industry": ["半導體"],
+                "open": [500.0],
+                "high": [505.0],
+                "low": [495.0],
+                "close": [502.0],
+                "volume": [10_000_000],
+                "turnover_value": [5_020_000_000.0],
+            }
+        )
+    )
+    store.close()
+
+    requested_ranges: dict[str, tuple[str, str]] = {}
+    original_fetch_price = FakeProvider.fetch_price
+
+    def tracking_fetch_price(self, stock_id, start_date, end_date):
+        requested_ranges[stock_id] = (start_date, end_date)
+        return original_fetch_price(self, stock_id, start_date, end_date)
+
+    monkeypatch.setattr(FakeProvider, "fetch_price", tracking_fetch_price)
+
+    ingest_daily_data.main()
+
+    start_2330 = pd.Timestamp(requested_ranges["2330"][0])
+    start_2317 = pd.Timestamp(requested_ranges["2317"][0])
+
+    # 2330 已同步過 -> 只往前抓 lookback_days 天左右
+    assert (pd.Timestamp.today().normalize() - start_2330).days <= 15
+    # 2317 從沒同步過 -> 必須拿到接近 3 年的回填起點，不能被 2330 的「最近日期」帶偏
+    assert (pd.Timestamp.today().normalize() - start_2317).days >= 365 * 2
+
+
 def test_load_universe_prefers_env_list(monkeypatch):
     monkeypatch.setenv("STOCK_UNIVERSE", "2330, 2317 ,2454")
     assert ingest_daily_data._load_universe() == ["2330", "2317", "2454"]
