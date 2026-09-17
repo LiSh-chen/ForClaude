@@ -27,7 +27,11 @@ permissions:
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 全量回填（force_backfill=true）時，每檔股票約需 5-6 秒（execute_values
+    # 修好之後的實測數字），150 檔規模大概要 15 分鐘；平常的每日增量同步
+    # （只補幾天資料）遠遠用不到這個上限，這個數字只是給「股票清單變大 +
+    # 剛好需要全量回填」這個最壞情況留安全邊際。
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

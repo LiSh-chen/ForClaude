@@ -1,0 +1,46 @@
+name: Generate Stock Universe
+
+# 手動觸發：從 FinMind 抓全市場股票清單，篩選出普通股（排除 ETF/權證等），
+# 取前 N 檔寫成 data/stock_universe.txt 並 commit 回 repo。
+# ingest_daily_data.py 會自動把這個檔案當成預設股票清單（見
+# scripts/ingest_daily_data.py 的 DEFAULT_UNIVERSE_FILE），不用額外設定
+# STOCK_UNIVERSE_FILE。
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "要納入清單的股票數量上限"
+        type: number
+        default: 150
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate universe file
+        env:
+          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/generate_stock_universe.py --limit ${{ inputs.limit }}
+
+      - name: Commit updated universe file
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/stock_universe.txt
+          git diff --cached --quiet || git commit -m "chore: regenerate stock universe (limit=${{ inputs.limit }})"
+          git push

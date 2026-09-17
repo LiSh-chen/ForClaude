@@ -49,14 +49,17 @@ scripts/
   run_sensitivity_test.py          大盤環境參數敏感度網格測試（合成假資料）
   run_wfa_demo.py                  WFA 滾動驗證示範（合成假資料）
   ingest_daily_data.py             每日資料抓取（給 GitHub Actions 排程用，見第 5 節）
+  generate_stock_universe.py       從 FinMind 產生股票清單（篩掉 ETF/權證），寫 data/stock_universe.txt
+  show_data_status.py              印出資料庫目前實際內容（每檔股票的資料範圍/筆數）
   run_backtest_from_db.py          讀取累積的真實資料跑正式回測
   run_sensitivity_test_from_db.py  讀取累積的真實資料跑敏感度網格測試
   run_wfa_from_db.py               讀取累積的真實資料跑 WFA（資料不夠長會印出提示，不是錯誤）
 
 .github/workflows/
-  daily_data_ingest.yml      每日排程抓資料的 GitHub Actions workflow
+  daily_data_ingest.yml       每日排程抓資料的 GitHub Actions workflow（每次執行後都會印出資料庫現況）
+  generate_stock_universe.yml 手動觸發，重新產生股票清單
 
-tests/               pytest 單元測試（56 個，涵蓋每個模組的關鍵行為）
+tests/               pytest 單元測試（62 個，涵蓋每個模組的關鍵行為）
 ```
 
 ## 3. 規格書的解讀與明確假設
@@ -149,11 +152,26 @@ variables → Actions 裡加一個 secret `DATABASE_URL`
    更嚴；到 [finmindtrade.com](https://finmind.github.io/) 申請帳號拿
    token 後，到 repo 的 Settings → Secrets → Actions 加一個 secret
    `FINMIND_TOKEN`。
-2. **（選填）指定股票清單**：預設只抓 10 檔示範用權值股
-   （`scripts/ingest_daily_data.py` 裡的 `DEFAULT_UNIVERSE`）。要換成你要的
-   清單，到 repo 的 Settings → Secrets and variables → Actions →
-   Variables 加一個 `STOCK_UNIVERSE`，值是逗號分隔的股票代號
-   （例如 `2330,2317,2454,...`）。
+2. **（選填）擴充股票清單**：預設只抓 10 檔示範用權值股
+   （`scripts/ingest_daily_data.py` 裡的 `DEFAULT_UNIVERSE`）。要擴大規模，
+   兩個方式擇一：
+   - 到 repo 的 Actions 分頁選 `Generate Stock Universe` → Run workflow，
+     填想要的檔數（`limit`），它會呼叫 FinMind 抓全市場股票清單、篩掉
+     ETF/權證等衍生代號，取前 N 檔寫成 `data/stock_universe.txt` 並自動
+     commit 回 repo——`ingest_daily_data.py` 會自動把這個檔案當成預設清單，
+     不用再額外設定。
+   - 或到 repo 的 Settings → Secrets and variables → Actions → Variables
+     加一個 `STOCK_UNIVERSE`，值是逗號分隔的股票代號（例如
+     `2330,2317,2454,...`），這個設定的優先權比 `data/stock_universe.txt`
+     更高。
+   
+   規模與耗時的抓取結果（`execute_values` 修好之後的實測數字）：
+   - 10 檔（預設）：全量回填約 1 分鐘
+   - 150 檔：全量回填約 15 分鐘（一次性成本；之後每日只做增量同步，
+     幾秒鐘內完成，不受股票數影響太多）
+   
+   FinMind 免費註冊 token 的額度是每小時 600 次 API 呼叫，每檔股票每次
+   同步要打 2 次（價量 + 融資券），所以單次執行建議不要超過約 300 檔。
 3. **手動觸發測試**：到 repo 的 Actions 分頁，選
    `Daily TW Market Data Ingest` → Run workflow，可以立刻手動跑一次，
    不用等排程時間到。

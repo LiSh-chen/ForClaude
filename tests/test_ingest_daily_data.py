@@ -205,7 +205,28 @@ def test_load_universe_prefers_env_list(monkeypatch):
     assert ingest_daily_data._load_universe() == ["2330", "2317", "2454"]
 
 
-def test_load_universe_falls_back_to_default(monkeypatch):
+def test_load_universe_falls_back_to_hardcoded_default_when_no_file(monkeypatch, tmp_path):
     monkeypatch.delenv("STOCK_UNIVERSE", raising=False)
     monkeypatch.delenv("STOCK_UNIVERSE_FILE", raising=False)
+    monkeypatch.setattr(ingest_daily_data, "DEFAULT_UNIVERSE_FILE", tmp_path / "does_not_exist.txt")
     assert ingest_daily_data._load_universe() == ingest_daily_data.DEFAULT_UNIVERSE
+
+
+def test_load_universe_uses_generated_file_when_present(monkeypatch, tmp_path):
+    """scripts/generate_stock_universe.py 產生的 data/stock_universe.txt 應該
+    自動被當成預設清單，不用每次都手動設 STOCK_UNIVERSE_FILE。
+    """
+    monkeypatch.delenv("STOCK_UNIVERSE", raising=False)
+    monkeypatch.delenv("STOCK_UNIVERSE_FILE", raising=False)
+    generated = tmp_path / "stock_universe.txt"
+    generated.write_text("1101\n1216\n2882\n")
+    monkeypatch.setattr(ingest_daily_data, "DEFAULT_UNIVERSE_FILE", generated)
+    assert ingest_daily_data._load_universe() == ["1101", "1216", "2882"]
+
+
+def test_load_universe_env_var_overrides_generated_file(monkeypatch, tmp_path):
+    generated = tmp_path / "stock_universe.txt"
+    generated.write_text("1101\n1216\n")
+    monkeypatch.setattr(ingest_daily_data, "DEFAULT_UNIVERSE_FILE", generated)
+    monkeypatch.setenv("STOCK_UNIVERSE", "2330")
+    assert ingest_daily_data._load_universe() == ["2330"]

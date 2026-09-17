@@ -81,6 +81,9 @@ def _call_with_timeout(func: Callable[[], T], timeout_s: float) -> T:
     return result[0]
 
 
+DEFAULT_UNIVERSE_FILE = Path(__file__).resolve().parents[1] / "data" / "stock_universe.txt"
+
+
 def _load_universe() -> list[str]:
     env_list = os.environ.get("STOCK_UNIVERSE")
     if env_list:
@@ -88,6 +91,13 @@ def _load_universe() -> list[str]:
     env_file = os.environ.get("STOCK_UNIVERSE_FILE")
     if env_file and Path(env_file).exists():
         return [line.strip() for line in Path(env_file).read_text().splitlines() if line.strip()]
+    if DEFAULT_UNIVERSE_FILE.exists():
+        # 用 scripts/generate_stock_universe.py 產生的清單當預設值，不用每次
+        # 都手動設 STOCK_UNIVERSE_FILE；沒有這個檔案時才退回十檔示範清單。
+        stocks = [line.strip() for line in DEFAULT_UNIVERSE_FILE.read_text().splitlines() if line.strip()]
+        if stocks:
+            print(f"[info] 使用 {DEFAULT_UNIVERSE_FILE} 的股票清單（{len(stocks)} 檔）", file=sys.stderr)
+            return stocks
     print(f"[info] 未設定 STOCK_UNIVERSE，使用示範清單（{len(DEFAULT_UNIVERSE)} 檔）", file=sys.stderr)
     return DEFAULT_UNIVERSE
 
