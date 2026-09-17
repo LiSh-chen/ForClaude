@@ -68,10 +68,58 @@ def trade_stats(trades: pd.DataFrame) -> dict:
     }
 
 
-def metrics_from_result(result, initial_capital) -> dict:
+def build_combined_trades(result, prices: pd.DataFrame) -> pd.DataFrame:
+    """把回測結束時還持有中的部位，用最後一天收盤價算「虛擬平倉」損益，
+    併入已實現交易一起算統計指標。
+
+    背景：像因子組合這種「跌出排名才會被換掉」的策略，會讓持續強勢、一直
+    留在組合裡的贏家永遠不出現在已實現交易清單裡，已實現交易的樣本因此
+    系統性偏向「被換掉的相對弱者」，單獨算出來的勝率/EV/風報比會被嚴重低估
+    （total_return 不受影響，因為那是用完整權益曲線算的）。這裡補上這個校正，
+    讓 EV/勝率/風報比/獲利因子也能反映還沒平倉的部位。
+    """
+    trades = result.trades.copy()
+    if not result.open_positions or prices.empty:
+        return trades
+
+    last_date = prices["date"].max()
+    last_prices = prices.sort_values("date").groupby("stock_id")["close"].last()
+
+    pseudo_rows = []
+    for stock_id, pos in result.open_positions.items():
+        if stock_id not in last_prices.index:
+            continue
+        mark_price = last_prices.loc[stock_id]
+        pnl = pos.shares * mark_price - pos.cost_basis
+        pseudo_rows.append(
+            {
+                "stock_id": stock_id, "industry": pos.industry, "strategy": pos.strategy,
+                "shares": pos.shares, "entry_date": pos.entry_date, "entry_price": pos.entry_price,
+                "exit_date": last_date, "exit_price": mark_price, "pnl": pnl,
+                "pnl_pct": pnl / pos.cost_basis if pos.cost_basis else 0.0,
+            }
+        )
+    if pseudo_rows:
+        trades = pd.concat([trades, pd.DataFrame(pseudo_rows)], ignore_index=True)
+    return trades
+
+
+def metrics_from_result(result, initial_capital, prices: pd.DataFrame | None = None) -> dict:
+    """prices 有給的話，會把還未平倉的部位用最後收盤價一併算進 EV/勝率/風報比/
+    獲利因子/n_trades/annual_trades（見 build_combined_trades），total_return/
+    cagr/max_dd/sharpe/calmar 這幾個本來就是用完整權益曲線算的，不受影響。
+    """
     m = summarize_performance(result, initial_capital)
     m["calmar"] = (m["cagr"] / m["max_dd"]) if m["max_dd"] > 0 else 0.0
-    m.update(trade_stats(result.trades))
+
+    stats_source = build_combined_trades(result, prices) if prices is not None else result.trades
+    m.update(trade_stats(stats_source))
+    if prices is not None:
+        n_days = len(result.equity_curve)
+        years = max(n_days / 252, 1e-9)
+        m["n_trades"] = len(stats_source)
+        m["annual_trades"] = len(stats_source) / years
+        m["n_open_positions"] = len(result.open_positions)
     return m
 
 
@@ -107,7 +155,7 @@ def explore_factor(prices: pd.DataFrame, base_cfg: StrategyConfig) -> pd.DataFra
                     top_n=top_n,
                 )
                 result = run_factor_backtest(prices, base_cfg, factor_cfg)
-                m = metrics_from_result(result, base_cfg.initial_capital)
+                m = metrics_from_result(result, base_cfg.initial_capital, prices=prices)
                 label = f"mw{momentum_window}/rb{rebalance_freq_days}/n{top_n}"
                 row = {"strategy": "E_factor", "param": label, "exit": "n/a(調倉)"}
                 row.update(m)
@@ -144,7 +192,7 @@ def explore_strategy_b(prices: pd.DataFrame, margin_short: pd.DataFrame, base_cf
                 cfg.sizing.atr_multiplier = atr_mult
                 cfg.sizing.chandelier_lookback = lookback
                 result = run_backtest(prices, margin_short, cfg, historical_mdd=None, entry_signal_fn=entry_fn)
-                m = metrics_from_result(result, cfg.initial_capital)
+                m = metrics_from_result(result, cfg.initial_capital, prices=prices)
                 label = f"pr{pr_threshold}"
                 exit_label = f"atr={atr_mult}/lb={lookback}"
                 row = {"strategy": "F_strategy_b", "param": label, "exit": exit_label}
@@ -187,7 +235,9 @@ def main() -> None:
 
     print(
         "\n（RR = 風報比；EV% = 勝率加權後單筆期望報酬率；PF = 獲利因子；"
-        "calmar = CAGR / MDD；E 策略沒有個股停損停利，出場只在下次調倉時發生）"
+        "calmar = CAGR / MDD；E 策略沒有個股停損停利，出場只在下次調倉時發生；"
+        "n_trades/win%/RR/EV%/PF 已把回測結束時還未平倉的部位用最後收盤價算進去，"
+        "不會再有「贏家還沒平倉所以不算」的偏誤）"
     )
 
 
