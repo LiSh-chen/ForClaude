@@ -32,15 +32,30 @@ class FactorConfig:
     momentum_window: int = 60  # 排名用的落後報酬率天數
     rebalance_freq_days: int = 21  # 調倉頻率（交易日），21 約等於月調倉，63 約等於季調倉
     top_n: int = 20  # 每次調倉持有的檔數（等權重）
+    ascending: bool = False  # False=買排名前段（動量／追強勢）；True=買排名後段（反轉／買弱勢）
 
 
-def run_factor_backtest(prices: pd.DataFrame, cfg: StrategyConfig, factor_cfg: FactorConfig) -> BacktestResult:
+def run_factor_backtest(
+    prices: pd.DataFrame,
+    cfg: StrategyConfig,
+    factor_cfg: FactorConfig,
+    start_date: str | pd.Timestamp | None = None,
+    end_date: str | pd.Timestamp | None = None,
+) -> BacktestResult:
     """月/季調倉動能因子組合：固定頻率對魚池內個股依落後報酬排名，等權重持有
     前 N 檔，只有在下次調倉日才換股，期間不做個股停損停利。
 
     魚池沿用 signals.build_pool_mask（T-1 流動性 + 站上 60 日均線的多頭排列
     篩選），排名依據為 T-1 日為止的 momentum_window 日報酬率（shift(1) 避免
-    用到 T 日未來資訊），T 日開盤價成交。
+    用到 T 日未來資訊），T 日開盤價成交。factor_cfg.ascending=True 時排名反過來
+    （買排名後段、也就是近期表現最弱的股票），用來測試短期反轉規律而非動量。
+
+    start_date/end_date：只限制「哪些日期允許實際調倉/交易」，但魚池篩選與
+    動量排名的指標計算永遠用傳進來的完整 prices 算，不會因為切片而重新計算
+    暖身期（這正是先前「簡易切分驗證」踩到的坑：把 prices 切片後 T-1 日均量
+    252 日門檻等指標會被迫從切片起點重新累積，導致前一年左右完全沒有股票
+    符合資格。要跑分段檢查，永遠傳完整 prices + start_date/end_date，不要自己
+    先把 prices 切片）。
     """
     master = prices.sort_values(["stock_id", "date"]).reset_index(drop=True).copy()
     pool = build_pool_mask(master, cfg.pool)
@@ -50,6 +65,11 @@ def run_factor_backtest(prices: pd.DataFrame, cfg: StrategyConfig, factor_cfg: F
 
     master["pool"] = pool.values
     master["momentum"] = ret_prior.values
+
+    if start_date is not None:
+        master = master[master["date"] >= pd.Timestamp(start_date)]
+    if end_date is not None:
+        master = master[master["date"] <= pd.Timestamp(end_date)]
 
     dates = sorted(master["date"].unique())
     rebalance_dates = set(dates[:: factor_cfg.rebalance_freq_days])
@@ -64,7 +84,7 @@ def run_factor_backtest(prices: pd.DataFrame, cfg: StrategyConfig, factor_cfg: F
 
         if date in rebalance_dates:
             eligible = day_df[day_df["pool"] & day_df["momentum"].notna()]
-            target = eligible.sort_values("momentum", ascending=False).head(factor_cfg.top_n)["stock_id"].tolist()
+            target = eligible.sort_values("momentum", ascending=factor_cfg.ascending).head(factor_cfg.top_n)["stock_id"].tolist()
             target_set = set(target)
 
             for stock_id in list(positions.keys()):

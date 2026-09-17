@@ -1,0 +1,32 @@
+name: Explore Short-Term Reversal Strategy On Real Data
+
+# 手動觸發：針對 rank IC 掃描找到的短期反轉規律（trailing 1~5 日報酬 vs
+# forward 1~5 日報酬呈現一致且顯著的負相關），用完整交易成本模型回測一個
+# 對應的策略，回答「訊號是真的，但活不活得過交易成本」這個問題。
+# 不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run reversal strategy search
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/explore_reversal_strategy_from_db.py
