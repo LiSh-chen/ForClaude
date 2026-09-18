@@ -1,0 +1,35 @@
+name: Test US Equal-Weight Passive Pool vs QQQ
+
+# 手動觸發：10.5~10.9 節每一種主動選股策略樣本外驗證後全部打不過 QQQ
+# 買進持有。這裡測一個不主動選股的參照組（等權重持有魚池內所有合格
+# 股票，只做被動定期補位），回答「問題出在選股邏輯，還是 QQQ 這段期間
+# 集中度太極端、分散持有本來就打不過」。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test equal-weight passive pool vs QQQ
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_equal_weight_buyhold_from_db.py
