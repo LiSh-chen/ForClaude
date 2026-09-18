@@ -1,0 +1,27 @@
+name: Debug QQQ Buy-and-Hold Comparison
+
+# 一次性診斷：算 QQQ 在跟 RSI/布林通道美股回測相同期間單純買進持有的
+# 報酬，拿來對照策略績效。用完即刪，不是常駐 workflow。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compare against QQQ buy-and-hold
+        run: python scripts/debug_qqq_buyhold_comparison.py
