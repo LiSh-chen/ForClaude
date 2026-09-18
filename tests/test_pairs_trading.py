@@ -13,7 +13,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tw_quant.config import StrategyConfig
+from tw_quant.config import CostConfig, StrategyConfig
 from tw_quant.data_provider import SyntheticUniverseConfig, generate_synthetic_universe
 from tw_quant.pairs_trading import PairsTradingConfig, _find_pairs, _zscore_series, run_pairs_trading_backtest
 from tw_quant.us_config import build_us_config
@@ -148,18 +148,24 @@ def test_full_synthetic_run_has_no_open_positions_and_stable_equity():
 
 def test_cost_module_injection_lets_us_costs_replace_tw_costs():
     """cost_module 參數讓配對交易引擎重用在別的市場成本模型上（見
-    tw_quant/us_costs.py）：同樣的資料/配對，換上零稅率/零手續費的美股
-    成本模型後，總損益應該明顯比台股版（0.3% 證交稅 + 手續費）高。
+    tw_quant/us_costs.py）。不直接比較台股版 vs 美股版的損益高低——複委託
+    每股固定手續費對低價股的影響比例可能反而超過台股的比例制成本，所以
+    「美股一定比較便宜」不是穩健的不變量。改成驗證：同一個 us_costs 模組，
+    把費率歸零後重跑，損益應該嚴格更高（成本確實被扣掉了，且 cost_module
+    真的被引擎使用，不是被忽略）。
     """
     data = generate_synthetic_universe(SyntheticUniverseConfig(n_stocks=16, n_days=500, seed=11))
     rt_cfg = PairsTradingConfig(formation_window=100, reformation_freq_days=40, top_n_pairs=5, zscore_window=15)
 
-    tw_result = run_pairs_trading_backtest(data["prices"], StrategyConfig(), rt_cfg)
     us_result = run_pairs_trading_backtest(data["prices"], build_us_config(), rt_cfg, cost_module=us_costs)
 
-    assert len(tw_result.trades) > 0
+    zero_cost_cfg = build_us_config()
+    zero_cost_cfg.costs = CostConfig(tax_rate=0.0, fee_rate=0.0, per_share_fee=0.0, exit_slippage_ticks=0)
+    zero_cost_result = run_pairs_trading_backtest(data["prices"], zero_cost_cfg, rt_cfg, cost_module=us_costs)
+
     assert len(us_result.trades) > 0
-    assert us_result.trades["pnl"].sum() > tw_result.trades["pnl"].sum()
+    assert len(zero_cost_result.trades) > 0
+    assert zero_cost_result.trades["pnl"].sum() > us_result.trades["pnl"].sum()
 
 
 def test_trades_always_come_in_pairs_of_two_legs_with_matching_dates():

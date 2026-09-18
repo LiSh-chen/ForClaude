@@ -1,5 +1,5 @@
 from tw_quant.backtest import summarize_performance
-from tw_quant.config import StrategyConfig
+from tw_quant.config import CostConfig, StrategyConfig
 from tw_quant.data_provider import SyntheticUniverseConfig, generate_synthetic_universe
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.us_config import build_us_config
@@ -7,15 +7,24 @@ from tw_quant import us_costs
 
 
 def test_cost_module_injection_lets_us_costs_replace_tw_costs():
+    """cost_module 參數讓引擎重用在別的市場成本模型上。不直接比較台股版 vs
+    美股版的損益高低——複委託每股固定手續費對低價股的影響比例可能反而
+    超過台股的比例制成本，所以「美股一定比較便宜」不是穩健的不變量。
+    改成驗證：同一個 us_costs 模組，把費率歸零後重跑，損益應該嚴格更高
+    （成本確實被扣掉了，且 cost_module 真的被引擎使用，不是被忽略）。
+    """
     data = generate_synthetic_universe(SyntheticUniverseConfig(n_stocks=20, n_days=500, seed=5))
     factor_cfg = FactorConfig(momentum_window=60, rebalance_freq_days=21, top_n=8)
 
-    tw_result = run_factor_backtest(data["prices"], StrategyConfig(), factor_cfg)
     us_result = run_factor_backtest(data["prices"], build_us_config(), factor_cfg, cost_module=us_costs)
 
-    assert len(tw_result.trades) > 0
+    zero_cost_cfg = build_us_config()
+    zero_cost_cfg.costs = CostConfig(tax_rate=0.0, fee_rate=0.0, per_share_fee=0.0, exit_slippage_ticks=0)
+    zero_cost_result = run_factor_backtest(data["prices"], zero_cost_cfg, factor_cfg, cost_module=us_costs)
+
     assert len(us_result.trades) > 0
-    assert us_result.trades["pnl"].sum() > tw_result.trades["pnl"].sum()
+    assert len(zero_cost_result.trades) > 0
+    assert zero_cost_result.trades["pnl"].sum() > us_result.trades["pnl"].sum()
 
 
 def test_factor_backtest_conserves_value_and_produces_trades():

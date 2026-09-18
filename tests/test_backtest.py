@@ -1,7 +1,7 @@
 import numpy as np
 
 from tw_quant.backtest import run_backtest, summarize_performance
-from tw_quant.config import StrategyConfig
+from tw_quant.config import CostConfig, StrategyConfig
 from tw_quant.data_provider import SyntheticUniverseConfig, generate_synthetic_universe
 from tw_quant.us_config import build_us_config
 from tw_quant import us_costs
@@ -76,21 +76,18 @@ def test_entry_signal_fn_overrides_default_strategy_signals():
 
 
 def test_cost_module_injection_lets_us_costs_replace_tw_costs():
-    """cost_module 參數讓引擎重用在別的市場成本模型上（見 tw_quant/us_costs.py）：
-    同一組資料/訊號，換上零稅率/零手續費/一分錢 tick 的美股成本模型後，
-    交易產生的手續費/滑價應該明顯比台股版低。
+    """cost_module 參數讓引擎重用在別的市場成本模型上（見 tw_quant/us_costs.py）。
+    不直接比較台股版 vs 美股版的損益高低——複委託每股固定手續費對低價股的
+    影響比例可能反而超過台股的比例制成本，所以「美股一定比較便宜」不是
+    穩健的不變量。改成驗證更直接的東西：同一個 us_costs 模組，把費率歸零
+    後重跑，損益應該嚴格更高（成本確實被扣掉了，且 cost_module 真的被
+    引擎使用，不是被忽略）。
     """
     data = generate_synthetic_universe(SyntheticUniverseConfig(n_stocks=30, n_days=700, seed=7))
 
     def always_true(master, prices, margin_short, cfg):
         n = len(master)
         return np.ones(n, dtype=bool), np.zeros(n, dtype=bool)
-
-    tw_cfg = StrategyConfig()
-    tw_cfg.regime.breadth_threshold = 0.25
-    tw_cfg.regime.volume_ratio_threshold = 0.9
-    tw_cfg.global_risk.max_industry_exposure_pct = 0.30
-    tw_result = run_backtest(data["prices"], data["margin_short"], tw_cfg, entry_signal_fn=always_true)
 
     us_cfg = build_us_config()
     us_cfg.regime.breadth_threshold = 0.25
@@ -100,10 +97,18 @@ def test_cost_module_injection_lets_us_costs_replace_tw_costs():
         data["prices"], data["margin_short"], us_cfg, entry_signal_fn=always_true, cost_module=us_costs
     )
 
-    assert len(tw_result.trades) > 0
+    zero_cost_cfg = build_us_config()
+    zero_cost_cfg.regime.breadth_threshold = 0.25
+    zero_cost_cfg.regime.volume_ratio_threshold = 0.9
+    zero_cost_cfg.global_risk.max_industry_exposure_pct = 0.30
+    zero_cost_cfg.costs = CostConfig(tax_rate=0.0, fee_rate=0.0, per_share_fee=0.0, exit_slippage_ticks=0)
+    zero_cost_result = run_backtest(
+        data["prices"], data["margin_short"], zero_cost_cfg, entry_signal_fn=always_true, cost_module=us_costs
+    )
+
     assert len(us_result.trades) > 0
-    # 同樣的出場價格，美股版（無稅、無手續費、tick 更小）淨收入應該更高
-    assert us_result.trades["pnl"].sum() > tw_result.trades["pnl"].sum()
+    assert len(zero_cost_result.trades) > 0
+    assert zero_cost_result.trades["pnl"].sum() > us_result.trades["pnl"].sum()
 
 
 def test_pre_holiday_exit_dates_force_liquidates_and_blocks_new_entries():

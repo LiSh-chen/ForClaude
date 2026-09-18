@@ -82,7 +82,9 @@ class CostConfig:
     """伍、交易摩擦成本"""
 
     tax_rate: float = 0.003  # 證交稅（賣出時課徵）
-    fee_rate: float = 0.001425  # 手續費（買賣雙邊）
+    fee_rate: float = 0.001425  # 手續費（買賣雙邊，佔成交金額比例）
+    per_share_fee: float = 0.0  # 每股固定手續費（買賣雙邊各收一次），預設 0 不影響台股既有行為；
+    # 美股複委託手續費常見計價方式是「每股固定金額」而不是比例，見 tw_quant/us_costs.py
     exit_slippage_ticks: int = 2  # 出場預留 2 檔不利滑價
 
 
