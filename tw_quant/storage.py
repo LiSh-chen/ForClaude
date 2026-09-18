@@ -63,6 +63,14 @@ class DataStore(ABC):
     ) -> pd.DataFrame: ...
 
     @abstractmethod
+    def upsert_us_prices(self, df: pd.DataFrame) -> None: ...
+
+    @abstractmethod
+    def load_us_prices(
+        self, start_date: str | None = None, end_date: str | None = None, stock_ids: list[str] | None = None
+    ) -> pd.DataFrame: ...
+
+    @abstractmethod
     def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None: ...
 
 
@@ -116,6 +124,16 @@ class SQLiteDataStore(DataStore):
                 CREATE TABLE IF NOT EXISTS shares_issued (
                     date TEXT NOT NULL, stock_id TEXT NOT NULL,
                     shares_issued REAL,
+                    PRIMARY KEY (date, stock_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS us_prices (
+                    date TEXT NOT NULL, stock_id TEXT NOT NULL, industry TEXT,
+                    open REAL, high REAL, low REAL, close REAL,
+                    volume INTEGER, turnover_value REAL,
                     PRIMARY KEY (date, stock_id)
                 )
                 """
@@ -198,6 +216,22 @@ class SQLiteDataStore(DataStore):
 
     def load_shares_issued(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
         return self._load("shares_issued", SHARES_ISSUED_COLS, start_date, end_date, stock_ids)
+
+    def upsert_us_prices(self, df: pd.DataFrame) -> None:
+        if df.empty:
+            return
+        d = _normalize_dates(df)
+        rows = list(d[PRICE_COLS].itertuples(index=False, name=None))
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO us_prices "
+                "(date, stock_id, industry, open, high, low, close, volume, turnover_value) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                rows,
+            )
+
+    def load_us_prices(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
+        return self._load("us_prices", PRICE_COLS, start_date, end_date, stock_ids)
 
     def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None:
         query = f"SELECT MAX(date) FROM {table}"
@@ -289,6 +323,16 @@ class PostgresDataStore(DataStore):
                 CREATE TABLE IF NOT EXISTS shares_issued (
                     date DATE NOT NULL, stock_id TEXT NOT NULL,
                     shares_issued DOUBLE PRECISION,
+                    PRIMARY KEY (date, stock_id)
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS us_prices (
+                    date DATE NOT NULL, stock_id TEXT NOT NULL, industry TEXT,
+                    open DOUBLE PRECISION, high DOUBLE PRECISION, low DOUBLE PRECISION,
+                    close DOUBLE PRECISION, volume BIGINT, turnover_value DOUBLE PRECISION,
                     PRIMARY KEY (date, stock_id)
                 )
                 """
@@ -406,6 +450,29 @@ class PostgresDataStore(DataStore):
 
     def load_shares_issued(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
         return self._load("shares_issued", SHARES_ISSUED_COLS, start_date, end_date, stock_ids)
+
+    def upsert_us_prices(self, df: pd.DataFrame) -> None:
+        if df.empty:
+            return
+        d = _normalize_dates(df)
+        rows = list(d[PRICE_COLS].itertuples(index=False, name=None))
+        with self._connect() as conn, conn.cursor() as cur:
+            self._execute_values(
+                cur,
+                """
+                INSERT INTO us_prices (date, stock_id, industry, open, high, low, close, volume, turnover_value)
+                VALUES %s
+                ON CONFLICT (date, stock_id) DO UPDATE SET
+                    industry = EXCLUDED.industry, open = EXCLUDED.open, high = EXCLUDED.high,
+                    low = EXCLUDED.low, close = EXCLUDED.close, volume = EXCLUDED.volume,
+                    turnover_value = EXCLUDED.turnover_value
+                """,
+                rows,
+            )
+            conn.commit()
+
+    def load_us_prices(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
+        return self._load("us_prices", PRICE_COLS, start_date, end_date, stock_ids)
 
     def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None:
         query = f"SELECT MAX(date) FROM {table}"

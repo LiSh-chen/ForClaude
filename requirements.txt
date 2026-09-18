@@ -5,3 +5,5 @@ statsmodels>=0.14
 pytest>=7.4
 requests>=2.31
 psycopg2-binary>=2.9
+yfinance>=0.2
+lxml>=5.0

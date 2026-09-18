@@ -140,6 +140,43 @@ def test_shares_issued_is_idempotent_no_duplicates(store):
     assert len(store.load_shares_issued()) == 1
 
 
+def test_us_prices_round_trip_and_stays_separate_from_tw_prices(store):
+    dates = pd.bdate_range("2024-01-01", periods=3)
+    tw_df = _price_rows(dates, "2330")
+    us_df = pd.DataFrame(
+        {
+            "date": dates, "stock_id": ["AAPL"] * len(dates), "industry": ["Information Technology"] * len(dates),
+            "open": [190.0] * len(dates), "high": [191.0] * len(dates), "low": [189.0] * len(dates),
+            "close": [190.5] * len(dates), "volume": [50_000_000] * len(dates), "turnover_value": [9.5e9] * len(dates),
+        }
+    )
+    store.upsert_prices(tw_df)
+    store.upsert_us_prices(us_df)
+
+    loaded_us = store.load_us_prices()
+    assert len(loaded_us) == 3
+    assert set(loaded_us["stock_id"]) == {"AAPL"}
+    assert loaded_us["close"].iloc[0] == 190.5
+
+    # 兩個市場的資料要各自獨立，不會互相污染
+    loaded_tw = store.load_prices()
+    assert set(loaded_tw["stock_id"]) == {"2330"}
+
+
+def test_us_prices_is_idempotent_no_duplicates(store):
+    dates = pd.bdate_range("2024-01-01", periods=2)
+    df = pd.DataFrame(
+        {
+            "date": dates, "stock_id": ["AAPL"] * len(dates), "industry": ["Information Technology"] * len(dates),
+            "open": [190.0] * len(dates), "high": [191.0] * len(dates), "low": [189.0] * len(dates),
+            "close": [190.5] * len(dates), "volume": [50_000_000] * len(dates), "turnover_value": [9.5e9] * len(dates),
+        }
+    )
+    store.upsert_us_prices(df)
+    store.upsert_us_prices(df)
+    assert len(store.load_us_prices()) == 2
+
+
 def test_latest_date_returns_none_when_empty(store):
     assert store.latest_date("prices") is None
 

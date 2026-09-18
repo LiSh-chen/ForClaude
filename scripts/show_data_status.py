@@ -25,18 +25,26 @@ def main() -> None:
     store = get_data_store()
     prices = store.load_prices()
     margin = store.load_margin_short()
+    us_prices = store.load_us_prices()
 
-    print(f"prices 總筆數: {len(prices)}")
+    print(f"prices（台股）總筆數: {len(prices)}")
     print(f"margin_short 總筆數: {len(margin)}")
+    print(f"us_prices（美股）總筆數: {len(us_prices)}")
 
-    if prices.empty:
+    if not prices.empty:
+        print(f"\n台股共 {prices['stock_id'].nunique()} 檔股票，每檔的資料範圍：")
+        summary = prices.groupby("stock_id")["date"].agg(["min", "max", "count"])
+        summary.columns = ["最早日期", "最新日期", "筆數"]
+        print(summary.to_string())
+
+    if not us_prices.empty:
+        print(f"\n美股共 {us_prices['stock_id'].nunique()} 檔股票，每檔的資料範圍：")
+        summary = us_prices.groupby("stock_id")["date"].agg(["min", "max", "count"])
+        summary.columns = ["最早日期", "最新日期", "筆數"]
+        print(summary.to_string())
+
+    if prices.empty and us_prices.empty:
         print("（資料庫目前是空的）")
-        return
-
-    print(f"\n共 {prices['stock_id'].nunique()} 檔股票，每檔的資料範圍：")
-    summary = prices.groupby("stock_id")["date"].agg(["min", "max", "count"])
-    summary.columns = ["最早日期", "最新日期", "筆數"]
-    print(summary.to_string())
 
 
 if __name__ == "__main__":

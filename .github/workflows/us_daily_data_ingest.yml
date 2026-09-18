@@ -1,0 +1,73 @@
+name: Daily US Market Data Ingest
+
+# 美股版的每日資料排程，抓 S&P 500 成分股的價量資料，寫進資料庫的
+# us_prices 表格（跟台股的 prices 表格是獨立的，同一個資料庫互不干擾）。
+# 用 yfinance，不需要 API token，也沒有 FinMind 那種「當日額度用完」的
+# 限制。
+#
+# 需要的 GitHub Secrets（選填，沒設也能用本機 SQLite）：
+#   DATABASE_URL    雲端 Postgres 連線字串；沒設就退回本機 SQLite 並自動 commit 回 repo
+
+on:
+  schedule:
+    # 16:30 America/New_York（美股收盤後） = 21:30 UTC（夏令時間；冬令時間
+    # 差一小時，這裡先抓比較保守的時間，資料通常收盤後不久就更新了）
+    - cron: "30 21 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      force_backfill:
+        description: "忽略每檔股票現有資料，強制全部重新回填 3 年"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    # S&P 500 有 500 檔，全量回填一次規模比台股 150 檔大很多，用比較長的
+    # timeout 留安全邊際；平常的每日增量同步遠遠用不到這個上限。
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run US ingestion
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FORCE_BACKFILL: ${{ inputs.force_backfill }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/ingest_us_daily_data.py
+
+      - name: Show current data status
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/show_data_status.py
+
+      - name: Determine storage mode
+        id: storage
+        env:
+          DB_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -n "$DB_URL" ]; then
+            echo "use_git_snapshot=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "use_git_snapshot=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit updated local SQLite snapshot
+        if: steps.storage.outputs.use_git_snapshot == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/tw_market.db
+          git diff --cached --quiet || git commit -m "chore: daily US market data sync $(date -u +%F)"
+          git push
