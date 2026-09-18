@@ -1,0 +1,48 @@
+name: Expand Universe With Small Caps
+
+# 手動觸發：在現有 data/stock_universe.txt 之外，主動找真正股本偏小的
+# 股票加進清單（見 scripts/expand_universe_with_small_caps.py 檔頭說明），
+# 讓後續的股本效應比較有真正的中小型股樣本可用，不是像原本清單那樣依
+# 代號排序取樣。完成後會把更新過的清單 commit 回 repo。
+#
+# 跑完這個之後，還要再跑一次 Daily TW Market Data Ingest，新股票才會被
+# 回填完整的 3 年價量/融資券/月營收/已發行股數歷史。
+
+on:
+  workflow_dispatch:
+    inputs:
+      add_n:
+        description: "要新增的中小型股檔數"
+        type: number
+        default: 70
+
+permissions:
+  contents: write
+
+jobs:
+  expand:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Expand universe with small caps
+        env:
+          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/expand_universe_with_small_caps.py --add-n ${{ inputs.add_n }}
+
+      - name: Commit updated universe file
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/stock_universe.txt
+          git diff --cached --quiet || git commit -m "chore: add small-cap stocks to universe (add_n=${{ inputs.add_n }})"
+          git push
