@@ -1,0 +1,28 @@
+name: Debug Nasdaq-100 Wikipedia Check
+
+# 一次性診斷：確認維基百科 Nasdaq-100 頁面能不能拿到目前成分股清單
+# （含加入日期）跟歷史異動紀錄，決定要不要把美股回測的股票池從
+# S&P 500 換成 Nasdaq-100。用完即刪。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check Nasdaq-100 Wikipedia page structure
+        run: python scripts/debug_ndx100_wikipedia_check.py
