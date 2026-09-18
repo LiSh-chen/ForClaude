@@ -52,8 +52,9 @@ def build_base_config() -> StrategyConfig:
 def _revenue_surprise_frame(revenue: pd.DataFrame) -> pd.DataFrame:
     """把逐檔逐月的營收，轉成「年增率意外」+「幾號之後才算公開已知」。"""
     rev = revenue.dropna(subset=["revenue", "revenue_year", "revenue_month"]).copy()
+    empty_cols = ["stock_id", "known_date", "surprise", "yoy_growth", "revenue_12m_high"]
     if rev.empty:
-        return pd.DataFrame(columns=["stock_id", "known_date", "surprise"])
+        return pd.DataFrame(columns=empty_cols)
     rev["revenue_year"] = rev["revenue_year"].astype(int)
     rev["revenue_month"] = rev["revenue_month"].astype(int)
     rev["period"] = rev["revenue_year"] * 12 + rev["revenue_month"]
@@ -67,13 +68,16 @@ def _revenue_surprise_frame(revenue: pd.DataFrame) -> pd.DataFrame:
         g["yoy_growth"] = g["revenue"] / g["revenue"].shift(12) - 1
         g["trailing_avg_growth"] = g["yoy_growth"].shift(1).rolling(TRAILING_MONTHS, min_periods=3).mean()
         g["surprise"] = g["yoy_growth"] - g["trailing_avg_growth"]
+        # 近 12 個月新高：這個月營收 >= 過去 12 個月（含當月）裡的最大值
+        rolling_max_12 = g["revenue"].rolling(12, min_periods=12).max()
+        g["revenue_12m_high"] = g["revenue"] >= rolling_max_12
         return g
 
     out = rev.groupby("stock_id", sort=False, group_keys=True).apply(_per_stock, include_groups=False)
     out = out.reset_index().rename(columns={"level_1": "period"})
-    out = out.dropna(subset=["surprise"])
+    out = out.dropna(subset=["yoy_growth"], how="all")
     if out.empty:
-        return pd.DataFrame(columns=["stock_id", "known_date", "surprise"])
+        return pd.DataFrame(columns=empty_cols)
 
     known_period = out["period"] + 1  # 次月才算可能公告完成
     known_year = (known_period - 1) // 12
@@ -81,7 +85,9 @@ def _revenue_surprise_frame(revenue: pd.DataFrame) -> pd.DataFrame:
     out["known_date"] = pd.to_datetime(
         {"year": known_year, "month": known_month, "day": DISCLOSURE_BUFFER_DAY}
     )
-    return out[["stock_id", "known_date", "surprise"]].sort_values(["stock_id", "known_date"])
+    return out[["stock_id", "known_date", "surprise", "yoy_growth", "revenue_12m_high"]].sort_values(
+        ["stock_id", "known_date"]
+    )
 
 
 def attach_revenue_signal(prices: pd.DataFrame, revenue: pd.DataFrame) -> pd.DataFrame:

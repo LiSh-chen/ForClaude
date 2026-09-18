@@ -1,0 +1,35 @@
+name: Test PEAD Revenue-Momentum + Breakout Combo
+
+# 手動觸發：測試使用者提供的第二份 Gemini 研究文件裡，針對散戶量身規劃的
+# 具體策略——月營收動能（YoY>15% 或創12個月新高）+ 價量突破確認
+# （scripts/test_pead_breakout_combo_from_db.py）。需要資料庫裡已經有
+# 月營收資料。不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test revenue-momentum + breakout combo strategy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_pead_breakout_combo_from_db.py
