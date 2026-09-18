@@ -73,3 +73,27 @@ def test_start_date_reuses_full_history_for_warmup():
     # 的話，late_start 之後的交易量應該跟正常運作時差不多（用一個寬鬆但有意義
     # 的門檻，避免測試過度依賴隨機資料的細節）。
     assert gated_trade_count >= 5
+
+
+def test_signal_fn_overrides_default_momentum_ranking():
+    """signal_fn 讓呼叫端替換排名依據（例如跳空幅度、當日盤中報酬），不用
+    被限制在「落後報酬率」——用來測試 scripts/test_lagged_gap_signal_from_db.py
+    這種跟動量無關的排名訊號。這裡驗證：換一個跟預設動量完全無關、純隨機的
+    排名依據，選出的股票組合應該跟預設動量排名不同。
+    """
+    data = generate_synthetic_universe(SyntheticUniverseConfig(n_stocks=20, n_days=500, seed=5))
+    cfg = StrategyConfig()
+    factor_cfg = FactorConfig(rebalance_freq_days=21, top_n=5)
+
+    def reversed_stock_id_signal(master):
+        # 用股票代號的反向排名當訊號，跟真實動量完全無關，純粹驗證 signal_fn
+        # 真的被拿去排名用，而不是被忽略、退回預設動量邏輯。
+        rank_by_id = master.groupby("stock_id", sort=False).ngroup()
+        return (-rank_by_id).astype(float)
+
+    default_result = run_factor_backtest(data["prices"], cfg, factor_cfg)
+    custom_result = run_factor_backtest(data["prices"], cfg, factor_cfg, signal_fn=reversed_stock_id_signal)
+
+    default_stocks = set(default_result.trades["stock_id"]) | set(default_result.open_positions.keys())
+    custom_stocks = set(custom_result.trades["stock_id"]) | set(custom_result.open_positions.keys())
+    assert default_stocks != custom_stocks

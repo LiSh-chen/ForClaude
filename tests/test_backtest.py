@@ -71,3 +71,36 @@ def test_entry_signal_fn_overrides_default_strategy_signals():
     cfg.global_risk.max_industry_exposure_pct = 0.30
     result = run_backtest(data["prices"], data["margin_short"], cfg, entry_signal_fn=always_true)
     assert len(result.trades) > 0
+
+
+def test_pre_holiday_exit_dates_force_liquidates_and_blocks_new_entries():
+    """長假風控疊加層：觸發日收盤強制平倉現有部位（隔天開盤成交），且當天
+    不產生任何新候選（避免新單隔天一開盤就進場、還是曝險在缺口裡）。
+    """
+    data = generate_synthetic_universe(SyntheticUniverseConfig(n_stocks=10, n_days=400, seed=2))
+    cfg = StrategyConfig()
+    cfg.regime.breadth_threshold = 0.25
+    cfg.regime.volume_ratio_threshold = 0.9
+    cfg.global_risk.max_industry_exposure_pct = 0.30
+
+    def always_true(master, prices, margin_short, cfg):
+        n = len(master)
+        return np.ones(n, dtype=bool), np.zeros(n, dtype=bool)
+
+    all_dates = sorted(data["prices"]["date"].unique())
+    trigger_date = all_dates[300]
+    day_after_trigger = all_dates[301]
+
+    result = run_backtest(
+        data["prices"], data["margin_short"], cfg, entry_signal_fn=always_true,
+        pre_holiday_exit_dates={trigger_date},
+    )
+
+    # 觸發日之前有開倉的部位，都應該在「觸發日隔天」被強制平倉
+    forced_exits = result.trades[result.trades["exit_date"] == day_after_trigger]
+    assert len(forced_exits) > 0
+
+    # 觸發日當天不該產生任何新候選 -> 沒有任何交易的進場日是「觸發日隔天」
+    # （因為進場日隔天執行的訊號，是觸發日當天核准的候選，應該是空的）
+    entries_on_day_after = result.trades[result.trades["entry_date"] == day_after_trigger]
+    assert entries_on_day_after.empty

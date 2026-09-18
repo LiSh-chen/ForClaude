@@ -1,0 +1,42 @@
+name: Test Holiday Overlay And Lagged Gap Signal
+
+# 手動觸發：測兩個從日曆效應分析延伸出來的可執行想法——
+#   1. 長假風控疊加層：長假前最後一天的前一個交易日收盤強制平倉，能不能
+#      改善目前最佳策略（結構轉折+量能確認）的風險調整後報酬。
+#   2. 隔夜跳空/當日盤中報酬的「延遲一天可執行版本」：訊號改用 T-1 日已知
+#      資訊、T 日開盤進場，看原本同一天內才有效的強訊號，延遲一天後還剩
+#      多少 edge，並用完整交易成本回測。
+# 不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Test holiday risk overlay
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_holiday_overlay_from_db.py
+
+      - name: Test lagged gap signal
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_lagged_gap_signal_from_db.py

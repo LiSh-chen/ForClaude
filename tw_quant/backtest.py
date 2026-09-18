@@ -123,6 +123,7 @@ def run_backtest(
     cfg: StrategyConfig,
     historical_mdd: float | None = None,
     entry_signal_fn: EntrySignalFn | None = None,
+    pre_holiday_exit_dates: set[pd.Timestamp] | None = None,
 ) -> BacktestResult:
     """執行完整回測。historical_mdd=None 代表不啟用 MDD 熔斷（用於第一次跑出
     基準 MDD），拿到基準值後再傳入做第二次帶熔斷機制的回測。
@@ -133,8 +134,16 @@ def run_backtest(
     兩者皆為對齊 master 列順序的布林陣列。用來在同一套出場/風控引擎下比較
     不同進場邏輯（例如拉回買進、相對強度動能、超跌反彈），見
     scripts/explore_alt_strategies_from_db.py。
+
+    pre_holiday_exit_dates：選填，長假風控疊加層。這裡放的日期是「長假前
+    最後一個交易日的前一個交易日」（也就是訊號日 T，執行日 T+1 剛好等於
+    長假前最後一天的開盤）。程式在這個日期收盤時會：(1) 把當下所有部位強制
+    排入明日出場（清空曝險，避免持倉跨過長假缺口），(2) 當天不產生任何新
+    候選（避免當天核准的新單隔天一開盤就進場、還是曝險在缺口裡）。日期集合
+    要用呼叫端自己從交易日曆算好再傳進來，本函式不做假期判斷。
     """
     master = _prepare_master_frame(prices, margin_short, cfg, entry_signal_fn)
+    pre_holiday_exit_dates = pre_holiday_exit_dates or set()
 
     cash = cfg.initial_capital
     positions: dict[str, Position] = {}
@@ -221,9 +230,14 @@ def run_backtest(
             if r["close"] < pos.stop_price:
                 pending_exits.add(stock_id)
 
+        is_pre_holiday_trigger = date in pre_holiday_exit_dates
+        if is_pre_holiday_trigger:
+            pending_exits.update(positions.keys())
+
         # 4) 若大盤綠燈，依今日訊號產生候選並套用全域鎖，核准者排入明日開盤進場
+        # （長假風控觸發日當天不產生新候選，避免隔天一開盤就進場又曝險在缺口裡）
         is_green = bool(day_df["is_green"].iloc[0])
-        if is_green:
+        if is_green and not is_pre_holiday_trigger:
             candidates: list[TradeCandidate] = []
             approved_meta: dict[str, ApprovedEntry] = {}
             for r in day_df.itertuples():
