@@ -1,0 +1,32 @@
+name: Blend Strategies With Independent Capital Pools
+
+# 手動觸發：改用「獨立資金池（sleeve）」的方式混合策略，取代上一輪失敗的
+# 「共用全域風控」做法（該做法穩健度檢查沒過，換個混合方式重測）。
+# 測 C+D（同引擎）跟 C+E（跨引擎：逐日事件 + 調倉組合）。
+# 不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  blend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run independent-capital blend search
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/blend_independent_capital_from_db.py

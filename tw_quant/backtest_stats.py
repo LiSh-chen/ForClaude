@@ -14,7 +14,7 @@ from tw_quant.backtest import BacktestResult, summarize_performance
 def trade_stats(trades: pd.DataFrame) -> dict:
     if trades.empty:
         return {
-            "avg_win_pct": 0.0, "avg_loss_pct": 0.0, "risk_reward_ratio": 0.0,
+            "win_rate": 0.0, "avg_win_pct": 0.0, "avg_loss_pct": 0.0, "risk_reward_ratio": 0.0,
             "ev_pct": 0.0, "profit_factor": 0.0, "avg_holding_days": 0.0,
         }
     wins = trades[trades["pnl"] > 0]
@@ -29,7 +29,7 @@ def trade_stats(trades: pd.DataFrame) -> dict:
     ev_pct = win_rate * avg_win_pct + (1 - win_rate) * avg_loss_pct
     holding_days = (pd.to_datetime(trades["exit_date"]) - pd.to_datetime(trades["entry_date"])).dt.days
     return {
-        "avg_win_pct": avg_win_pct, "avg_loss_pct": avg_loss_pct,
+        "win_rate": win_rate, "avg_win_pct": avg_win_pct, "avg_loss_pct": avg_loss_pct,
         "risk_reward_ratio": risk_reward_ratio, "ev_pct": ev_pct,
         "profit_factor": profit_factor, "avg_holding_days": holding_days.mean(),
     }
