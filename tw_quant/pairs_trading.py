@@ -61,6 +61,15 @@ class PairsTradingConfig:
     exit_z: float = 0.5  # |z| 回到這個門檻以下就平倉（回歸到位）
     stop_z: float = 4.0  # |z| 超過這個門檻強制停損（判定脫鉤）
     max_holding_days: int = 20  # 最長持有天數，避免無限期套牢
+    pre_filter_min_abs_corr: float = 0.0  # 見 _find_pairs 說明；預設 0 代表不篩選，
+    # 完全不影響既有行為（台股 150 檔規模下 O(股票數^2) 的 coint() 檢定還算得動，
+    # 沒有必要冒著改變已發表結果的風險去開這個優化）。
+    max_stocks_per_industry: int | None = None  # 見 _find_pairs 說明；預設 None 代表
+    # 不設上限，完全不影響既有行為。股票池夠大時（例如 S&P 500 單一 GICS 產業
+    # 動輒 60~80 檔），光是相關係數篩選還是可能留下太多候選（實測合成資料上，
+    # 即使 |corr|>=0.5 篩過，84 檔一個產業還是留下超過一半的候選對），這個參數
+    # 提供一個跟資料相關性結構無關、確定性的執行時間上限：超過上限時只保留
+    # 該產業裡流動性（成交金額）最高的前 N 檔候選，其餘直接不參與共整合檢定。
 
 
 @dataclass
@@ -83,10 +92,14 @@ def _find_pairs(
     industry_map: dict[str, str],
     window_dates: pd.Index,
     rt_cfg: PairsTradingConfig,
+    turnover_pivot: pd.DataFrame | None = None,
 ) -> list[tuple[str, str, float]]:
     """在 window_dates 這段歷史窗格裡，對同產業配對做共整合檢定，回傳
     [(stock_a, stock_b, beta), ...]，依 p-value 由小到大排序、只取前 top_n_pairs 組。
     beta 是用 log(price_a) ~ beta*log(price_b) 迴歸估出的避險比例（OLS 斜率）。
+
+    turnover_pivot：選填，只有在 rt_cfg.max_stocks_per_industry 有設定時才需要，
+    用來依平均成交金額排序、決定超過上限時保留哪些股票。
     """
     window = close_pivot.loc[window_dates]
     by_industry: dict[str, list[str]] = {}
@@ -103,13 +116,44 @@ def _find_pairs(
             continue
         by_industry.setdefault(industry_map.get(stock_id, ""), []).append(stock_id)
 
+    if rt_cfg.max_stocks_per_industry is not None and turnover_pivot is not None:
+        turnover_window = turnover_pivot.loc[window_dates]
+        for industry, stocks in list(by_industry.items()):
+            if len(stocks) <= rt_cfg.max_stocks_per_industry:
+                continue
+            avg_turnover = turnover_window[stocks].mean().sort_values(ascending=False)
+            by_industry[industry] = avg_turnover.head(rt_cfg.max_stocks_per_industry).index.tolist()
+
     candidates = []
     for stocks in by_industry.values():
         if len(stocks) < 2:
             continue
-        for a, b in combinations(sorted(stocks), 2):
-            log_a = np.log(window[a].to_numpy())
-            log_b = np.log(window[b].to_numpy())
+        stocks = sorted(stocks)
+        pairs_to_test = list(combinations(stocks, 2))
+
+        # coint() 內部要跑 ADF 檢定（含 autolag 搜尋），比單純算相關係數貴上
+        # 一到兩個數量級。股票池一大（例如 S&P 500 單一產業裡就有上百檔），
+        # 同產業兩兩配對的候選數是 O(n^2)，逐一跑 coint() 在真實時間內跑不完。
+        # 真正共整合的配對幾乎必然高度相關（反之不一定成立，但取捨在於：先用
+        # 便宜很多的相關係數篩一輪，把明顯不相關、共整合機率極低的候選提早
+        # 排除，才有辦法在合理時間內跑完整個股票池）。用 pandas 內建的
+        # DataFrame.corr()（向量化、C 實作）一次算出整個產業群組的相關係數
+        # 矩陣，而不是在 Python 迴圈裡逐對呼叫 np.corrcoef——後者的 Python
+        # 層級迴圈開銷本身在股票數一多時就已經是效能瓶頸，不只是 coint() 本身
+        # 貴而已。pre_filter_min_abs_corr 預設 0.0 等於不篩選，維持跟原本
+        # 一模一樣的行為。
+        log_window = np.log(window[stocks])
+        if rt_cfg.pre_filter_min_abs_corr > 0.0:
+            corr_matrix = log_window.corr()
+            pairs_to_test = [
+                (a, b)
+                for a, b in pairs_to_test
+                if abs(corr_matrix.at[a, b]) >= rt_cfg.pre_filter_min_abs_corr
+            ]
+
+        for a, b in pairs_to_test:
+            log_a = log_window[a].to_numpy()
+            log_b = log_window[b].to_numpy()
             try:
                 _, pvalue, _ = coint(log_a, log_b)
             except Exception:
@@ -136,6 +180,11 @@ def run_pairs_trading_backtest(
     master = prices.sort_values(["stock_id", "date"]).reset_index(drop=True)
     close_pivot = master.pivot(index="date", columns="stock_id", values="close").sort_index()
     open_pivot = master.pivot(index="date", columns="stock_id", values="open").sort_index()
+    turnover_pivot = (
+        master.pivot(index="date", columns="stock_id", values="turnover_value").sort_index()
+        if rt_cfg.max_stocks_per_industry is not None
+        else None
+    )
     industry_map = master.drop_duplicates("stock_id", keep="last").set_index("stock_id")["industry"].to_dict()
 
     dates = close_pivot.index
@@ -201,7 +250,7 @@ def run_pairs_trading_backtest(
             for key in list(open_pairs.keys()):
                 _close_pair(key, date)
             window_dates = dates[i - rt_cfg.formation_window : i]
-            active_pairs = _find_pairs(close_pivot, industry_map, window_dates, rt_cfg)
+            active_pairs = _find_pairs(close_pivot, industry_map, window_dates, rt_cfg, turnover_pivot)
             spread_cache = {}
             for a, b, beta in active_pairs:
                 spread = np.log(close_pivot[a]) - beta * np.log(close_pivot[b])

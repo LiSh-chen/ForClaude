@@ -89,6 +89,43 @@ def test_find_pairs_excludes_stocks_with_zero_price_in_window():
     assert all(not np.isnan(beta) for _, _, beta in pairs)
 
 
+def test_max_stocks_per_industry_keeps_only_most_liquid_candidates():
+    """max_stocks_per_industry 是為了讓配對交易引擎在大型股票池（例如 S&P 500
+    單一產業動輒 60~80 檔）上，coint() 檢定的組合數不會爆炸而跑不完——超過
+    上限時只保留該產業裡成交金額最高的前 N 檔。這裡構造一組「低流動性但
+    真的共整合」的配對（A、B）跟一組「高流動性但完全隨機、不共整合」的配對
+    （C、D），設 max_stocks_per_industry=2：應該只保留 C、D 兩檔進候選，
+    A-B 這組本來會被抓到的真配對反而因為流動性不足被排除在外——驗證上限
+    真的是依流動性篩選，不是隨機/依字母排序。
+    """
+    rng = np.random.default_rng(3)
+    n = 300
+    log_a = np.cumsum(rng.normal(0, 0.01, n))
+    noise = np.zeros(n)
+    for t in range(1, n):
+        noise[t] = 0.6 * noise[t - 1] + rng.normal(0, 0.005)
+    log_b = log_a + noise
+    close_a, close_b = np.exp(log_a) * 100, np.exp(log_b) * 100
+    close_c = np.exp(np.cumsum(rng.normal(0, 0.02, n))) * 50
+    close_d = np.exp(np.cumsum(rng.normal(0, 0.02, n))) * 50
+
+    dates = pd.bdate_range("2020-01-01", periods=n)
+    close_pivot = pd.DataFrame({"A": close_a, "B": close_b, "C": close_c, "D": close_d}, index=dates)
+    # A/B 低流動性、C/D 高流動性
+    turnover_pivot = pd.DataFrame(
+        {"A": 1_000.0, "B": 1_000.0, "C": 1_000_000.0, "D": 1_000_000.0}, index=dates
+    )
+    industry_map = {"A": "IND", "B": "IND", "C": "IND", "D": "IND"}
+
+    rt_cfg = PairsTradingConfig(coint_pvalue_threshold=0.05, top_n_pairs=5, max_stocks_per_industry=2)
+    pairs = _find_pairs(close_pivot, industry_map, close_pivot.index, rt_cfg, turnover_pivot)
+
+    pair_keys = {(a, b) for a, b, _ in pairs}
+    assert ("A", "B") not in pair_keys
+    for a, b, _ in pairs:
+        assert a in {"C", "D"} and b in {"C", "D"}
+
+
 def test_zscore_series_is_zero_at_the_mean_and_positive_above_it():
     spread = pd.Series([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 5.0], index=pd.bdate_range("2020-01-01", periods=11))
     z = _zscore_series(spread, window=10)

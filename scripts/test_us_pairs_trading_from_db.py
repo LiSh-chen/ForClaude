@@ -3,9 +3,25 @@ S&P 500 資料上，跟台股版（scripts/test_pairs_trading_from_db.py，結�
 否證：9 組參數全部負報酬，最佳 Sharpe -0.73）做同樣的網格搜尋，驗證
 「換一個流動性/微結構都不同的市場，這個策略類型是不是還是不管用」。
 
-跟台股版唯一的差異：資料來源換成 us_prices，成本模型/整股限制換成美股版
-（tw_quant/us_config.py + tw_quant/us_costs.py）。其餘網格、配對邏輯、
-z-score 進出場規則完全相同。
+跟台股版的差異：
+  1. 資料來源換成 us_prices，成本模型/整股限制換成美股版
+     （tw_quant/us_config.py + tw_quant/us_costs.py）。網格、配對邏輯、
+     z-score 進出場規則完全相同。
+  2. 效能：台股 150 檔股票、單一產業最多幾十檔，_find_pairs 逐對呼叫
+     coint()（O(股票數^2)）還算得動。S&P 500 有 503 檔，GICS 單一產業動輒
+     60~80 檔，同樣的窮舉法第一次真的接上真實資料跑，"Test pairs trading
+     on US data" 這個 step 在 30 分鐘 timeout 內連第一組參數組合都沒跑完
+     就被強制取消——這不是訊號邏輯的問題，是純粹的計算量問題。因此這裡
+     用兩個新的效能參數（tw_quant/pairs_trading.py 的
+     pre_filter_min_abs_corr / max_stocks_per_industry，兩者預設值都是
+     「關閉」，不影響台股版任何已發表結果）：
+       - pre_filter_min_abs_corr=0.6：呼叫昂貴的 coint() 之前，先用便宜
+         很多、向量化算好的相關係數矩陣篩一輪，濾掉明顯不相關的候選。
+       - max_stocks_per_industry=25：每個產業最多只保留成交金額最高的
+         25 檔進候選（其餘直接不參與共整合檢定）。
+     這兩個參數都是「效能取捨」，不是「訊號設計」的一部分——會讓實際搜尋
+     到的候選配對比窮舉法少（尤其排除了低流動性但可能真的共整合的配對），
+     這點誠實揭露：美股版的配對搜尋不是完全窮舉。
 
 沿用台股版檔頭誠實揭露的限制（做空只算了名目上的稅/手續費，沒有算真實
 借券費/保證金利息；配對只在同產業內找；避險比例形成期內凍結不重估）——
@@ -74,7 +90,12 @@ def main() -> None:
     rows = []
     for formation_window in FORMATION_WINDOW_GRID:
         for entry_z in ENTRY_Z_GRID:
-            rt_cfg = PairsTradingConfig(formation_window=formation_window, entry_z=entry_z)
+            rt_cfg = PairsTradingConfig(
+                formation_window=formation_window,
+                entry_z=entry_z,
+                pre_filter_min_abs_corr=0.6,
+                max_stocks_per_industry=25,
+            )
             result = run_pairs_trading_backtest(us_prices, base_cfg, rt_cfg, cost_module=us_costs)
             m = metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
             row = {"formation_window": formation_window, "entry_z": entry_z}
@@ -96,7 +117,9 @@ def main() -> None:
     print(
         "\n（RR = 風報比；EV% = 勝率加權後單筆期望報酬率；PF = 獲利因子；calmar = CAGR / MDD；"
         "n_trades 每組配對進出場都算 2 筆（A腿+B腿）；做空沒有算真實借券費/保證金利息；"
-        "每季（63個交易日）重新選一次配對；台股版對照：9 組全部負報酬，最佳 Sharpe -0.73）"
+        "每季（63個交易日）重新選一次配對；為了讓 O(股票數^2) 的共整合檢定在合理時間內跑完，"
+        "候選配對先用相關係數 >= 0.6 篩過、每個產業只保留成交金額最高的前 25 檔，不是完全窮舉"
+        "（見檔頭說明）；台股版對照：9 組全部負報酬，最佳 Sharpe -0.73）"
     )
 
 
