@@ -101,7 +101,13 @@ def attach_revenue_signal(prices: pd.DataFrame, revenue: pd.DataFrame) -> pd.Dat
         return master
 
     left = master[["stock_id", "date"]].reset_index().rename(columns={"index": "_orig_idx"})
+    left["date"] = left["date"].astype("datetime64[ns]")
     right = surprise_frame.rename(columns={"known_date": "date"})
+    right["date"] = right["date"].astype("datetime64[ns]")
+    # merge_asof 要求左右兩邊的 date 欄位是同一種 datetime 精度（pandas 3.x
+    # 開始嚴格檢查），從 Postgres 讀出來的 date 是 datetime64[s]，
+    # pd.to_datetime({"year":...}) 建出來的是 datetime64[us]，不統一就會
+    # 直接丟 MergeError（實測在 GitHub Actions 上這樣炸過一次）。
     merged = pd.merge_asof(
         left.sort_values("date"), right.sort_values("date"),
         on="date", by="stock_id", direction="backward",

@@ -73,7 +73,10 @@ def attach_revenue_momentum_flag(prices: pd.DataFrame, revenue: pd.DataFrame) ->
     rev_frame["momentum_ok"] = (rev_frame["yoy_growth"] > YOY_THRESHOLD) | rev_frame["revenue_12m_high"].fillna(False)
 
     left = master[["stock_id", "date"]].reset_index().rename(columns={"index": "_orig_idx"})
+    left["date"] = left["date"].astype("datetime64[ns]")
     right = rev_frame.rename(columns={"known_date": "date"})[["stock_id", "date", "momentum_ok"]]
+    right["date"] = right["date"].astype("datetime64[ns]")
+    # 同一個 dtype 精度不一致的問題，見 test_pead_revenue_drift_from_db.py 的註解
     merged = pd.merge_asof(
         left.sort_values("date"), right.sort_values("date"),
         on="date", by="stock_id", direction="backward",
