@@ -16,6 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import io
+
 import pandas as pd
 import requests
 
@@ -29,9 +31,9 @@ def main() -> None:
     print(f"[1] status_code={resp.status_code}, len(resp.text)={len(resp.text)}")
     resp.raise_for_status()
 
-    print("[2] pd.read_html(resp.text)...")
+    print("[2] pd.read_html(io.StringIO(resp.text))...")
     try:
-        tables = pd.read_html(resp.text)
+        tables = pd.read_html(io.StringIO(resp.text))
     except Exception as exc:  # noqa: BLE001
         print(f"[2] read_html 失敗: {type(exc).__name__}: {str(exc)[:300]}")
         raise SystemExit(1)
