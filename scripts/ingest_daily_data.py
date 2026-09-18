@@ -13,6 +13,9 @@
   STOCK_UNIVERSE         逗號分隔的股票代號清單（選填）
   STOCK_UNIVERSE_FILE    每行一個股票代號的文字檔路徑（選填）
   LOOKBACK_DAYS          增量同步時往回抓幾天，涵蓋補資料與假日（預設 10）
+  MONTH_REVENUE_LOOKBACK_DAYS  月營收增量同步往回抓幾天（預設 60，營收是月頻率
+                         資料，10 天的價量 lookback 不夠涵蓋一整個月，設長一點
+                         確保上個月的營收公告不會被錯過）
   REQUEST_SLEEP_SECONDS  每個 API 請求間隔秒數，避免打到免費額度速率限制（預設 0.5）
   FORCE_BACKFILL         設為 "true" 時，忽略每檔股票現有的資料，強制全部重新
                          回填 3 年（upsert 是冪等的，重跑很安全）。用來修復
@@ -116,6 +119,7 @@ def _industry_lookup(provider: FinMindDataProvider) -> dict[str, str]:
 def main() -> None:
     token = os.environ.get("FINMIND_TOKEN")
     lookback_days = int(os.environ.get("LOOKBACK_DAYS", "10"))
+    revenue_lookback_days = int(os.environ.get("MONTH_REVENUE_LOOKBACK_DAYS", "60"))
     sleep_s = float(os.environ.get("REQUEST_SLEEP_SECONDS", "0.5"))
     force_backfill = os.environ.get("FORCE_BACKFILL", "").lower() == "true"
 
@@ -131,6 +135,7 @@ def main() -> None:
 
     total_price_rows = 0
     total_margin_rows = 0
+    total_revenue_rows = 0
     failures: list[str] = []
 
     for i, stock_id in enumerate(universe, start=1):
@@ -165,15 +170,29 @@ def main() -> None:
                 total_margin_rows += len(margin_df)
             time.sleep(sleep_s)
 
+            revenue_latest = None if force_backfill else store.latest_date("month_revenue", stock_id=stock_id)
+            revenue_start = (
+                backfill_start
+                if revenue_latest is None
+                else (revenue_latest - pd.Timedelta(days=revenue_lookback_days)).strftime("%Y-%m-%d")
+            )
+            revenue_df = _call_with_timeout(
+                lambda sid=stock_id, s=revenue_start, e=end_date: provider.fetch_month_revenue(sid, s, e), timeout_s=30.0
+            )
+            if not revenue_df.empty:
+                store.upsert_month_revenue(revenue_df)
+                total_revenue_rows += len(revenue_df)
+            time.sleep(sleep_s)
+
             print(
-                f"[{i}/{len(universe)}] {stock_id}: 價量 {len(price_df)} 筆、融資券 {len(margin_df)} 筆"
-                f"（{start_date} ~ {end_date}）"
+                f"[{i}/{len(universe)}] {stock_id}: 價量 {len(price_df)} 筆、融資券 {len(margin_df)} 筆、"
+                f"月營收 {len(revenue_df)} 筆（{start_date} ~ {end_date}）"
             )
         except Exception as exc:  # noqa: BLE001 - 單一檔失敗不該中斷整個排程
             print(f"[warn] [{i}/{len(universe)}] {stock_id} 抓取失敗: {exc}", file=sys.stderr)
             failures.append(stock_id)
 
-    print(f"完成。寫入價量 {total_price_rows} 筆，融資券 {total_margin_rows} 筆。")
+    print(f"完成。寫入價量 {total_price_rows} 筆，融資券 {total_margin_rows} 筆，月營收 {total_revenue_rows} 筆。")
     if failures:
         print(f"[warn] {len(failures)} 檔抓取失敗: {failures}", file=sys.stderr)
 

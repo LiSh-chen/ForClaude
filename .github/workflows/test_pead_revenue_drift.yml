@@ -1,0 +1,36 @@
+name: Test PEAD Revenue Surprise Drift
+
+# 手動觸發：用真實資料測試月營收意外驅動的漂移策略
+# （scripts/test_pead_revenue_drift_from_db.py）。需要資料庫裡已經有月營收
+# 資料（ingest_daily_data.py 最近一次擴充後才開始抓，第一次跑這個 workflow
+# 前，請先手動跑一次 Daily TW Market Data Ingest 讓月營收回填進來）。
+# 不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test PEAD revenue-surprise drift strategy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_pead_revenue_drift_from_db.py

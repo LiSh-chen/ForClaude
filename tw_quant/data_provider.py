@@ -222,6 +222,23 @@ class FinMindDataProvider:
         df["stock_id"] = stock_id
         return df[MARGIN_SHORT_COLUMNS]
 
+    def fetch_month_revenue(self, stock_id: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """月營收（TaiwanStockMonthRevenue）。FinMind 回傳的 date 欄位是「營收所屬
+        月份」（例如 2024-01-01 代表 1 月營收），**不是公告日期**——台灣上市櫃公司
+        依規定要在次月 10 日前公告月營收，所以這裡存的是原始資料，「這筆資料
+        什麼時候才算公開可知」留給策略層（scripts/test_pead_revenue_drift_from_db.py）
+        自己決定要加多少天的安全緩衝，不在這裡先假設，才不會把「什麼時候能用」
+        這個反未來函數的關鍵判斷藏進資料層看不到的地方。
+        """
+        raw = self._get("TaiwanStockMonthRevenue", stock_id, start_date, end_date)
+        if raw.empty:
+            return raw
+        df = raw.rename(columns={"country": "_country"})
+        df["date"] = pd.to_datetime(df["date"])
+        df["stock_id"] = stock_id
+        keep = ["date", "stock_id", "revenue", "revenue_year", "revenue_month"]
+        return df[[c for c in keep if c in df.columns]].drop_duplicates()
+
     def fetch_stock_info(self) -> pd.DataFrame:
         """全市場股票基本資料（含產業分類），用來補齊 prices 面板的 industry 欄位。
 

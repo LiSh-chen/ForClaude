@@ -25,6 +25,7 @@ import pandas as pd
 
 PRICE_COLS = ["date", "stock_id", "industry", "open", "high", "low", "close", "volume", "turnover_value"]
 MARGIN_COLS = ["date", "stock_id", "margin_purchase_balance", "short_balance"]
+MONTH_REVENUE_COLS = ["date", "stock_id", "revenue", "revenue_year", "revenue_month"]
 
 
 class DataStore(ABC):
@@ -41,6 +42,14 @@ class DataStore(ABC):
 
     @abstractmethod
     def load_margin_short(
+        self, start_date: str | None = None, end_date: str | None = None, stock_ids: list[str] | None = None
+    ) -> pd.DataFrame: ...
+
+    @abstractmethod
+    def upsert_month_revenue(self, df: pd.DataFrame) -> None: ...
+
+    @abstractmethod
+    def load_month_revenue(
         self, start_date: str | None = None, end_date: str | None = None, stock_ids: list[str] | None = None
     ) -> pd.DataFrame: ...
 
@@ -80,6 +89,15 @@ class SQLiteDataStore(DataStore):
                 CREATE TABLE IF NOT EXISTS margin_short (
                     date TEXT NOT NULL, stock_id TEXT NOT NULL,
                     margin_purchase_balance REAL, short_balance REAL,
+                    PRIMARY KEY (date, stock_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS month_revenue (
+                    date TEXT NOT NULL, stock_id TEXT NOT NULL,
+                    revenue REAL, revenue_year INTEGER, revenue_month INTEGER,
                     PRIMARY KEY (date, stock_id)
                 )
                 """
@@ -133,6 +151,21 @@ class SQLiteDataStore(DataStore):
 
     def load_margin_short(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
         return self._load("margin_short", MARGIN_COLS, start_date, end_date, stock_ids)
+
+    def upsert_month_revenue(self, df: pd.DataFrame) -> None:
+        if df.empty:
+            return
+        d = _normalize_dates(df)
+        rows = list(d[MONTH_REVENUE_COLS].itertuples(index=False, name=None))
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO month_revenue "
+                "(date, stock_id, revenue, revenue_year, revenue_month) VALUES (?,?,?,?,?)",
+                rows,
+            )
+
+    def load_month_revenue(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
+        return self._load("month_revenue", MONTH_REVENUE_COLS, start_date, end_date, stock_ids)
 
     def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None:
         query = f"SELECT MAX(date) FROM {table}"
@@ -210,6 +243,15 @@ class PostgresDataStore(DataStore):
                 )
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS month_revenue (
+                    date DATE NOT NULL, stock_id TEXT NOT NULL,
+                    revenue DOUBLE PRECISION, revenue_year INTEGER, revenue_month INTEGER,
+                    PRIMARY KEY (date, stock_id)
+                )
+                """
+            )
             conn.commit()
 
     def upsert_prices(self, df: pd.DataFrame) -> None:
@@ -257,6 +299,25 @@ class PostgresDataStore(DataStore):
             )
             conn.commit()
 
+    def upsert_month_revenue(self, df: pd.DataFrame) -> None:
+        if df.empty:
+            return
+        d = _normalize_dates(df)
+        rows = list(d[MONTH_REVENUE_COLS].itertuples(index=False, name=None))
+        with self._connect() as conn, conn.cursor() as cur:
+            self._execute_values(
+                cur,
+                """
+                INSERT INTO month_revenue (date, stock_id, revenue, revenue_year, revenue_month)
+                VALUES %s
+                ON CONFLICT (date, stock_id) DO UPDATE SET
+                    revenue = EXCLUDED.revenue, revenue_year = EXCLUDED.revenue_year,
+                    revenue_month = EXCLUDED.revenue_month
+                """,
+                rows,
+            )
+            conn.commit()
+
     def _load(self, table: str, columns: list[str], start_date, end_date, stock_ids) -> pd.DataFrame:
         query = f"SELECT * FROM {table} WHERE 1=1"
         params: list = []
@@ -281,6 +342,9 @@ class PostgresDataStore(DataStore):
 
     def load_margin_short(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
         return self._load("margin_short", MARGIN_COLS, start_date, end_date, stock_ids)
+
+    def load_month_revenue(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
+        return self._load("month_revenue", MONTH_REVENUE_COLS, start_date, end_date, stock_ids)
 
     def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None:
         query = f"SELECT MAX(date) FROM {table}"

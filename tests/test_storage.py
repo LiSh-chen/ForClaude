@@ -96,6 +96,33 @@ def test_margin_short_round_trip(store):
     assert loaded["short_balance"].iloc[0] == 50.0
 
 
+def test_month_revenue_round_trip(store):
+    dates = pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"])
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "stock_id": ["2330"] * len(dates),
+            "revenue": [1e11, 1.1e11, 1.2e11],
+            "revenue_year": [2024, 2024, 2024],
+            "revenue_month": [1, 2, 3],
+        }
+    )
+    store.upsert_month_revenue(df)
+    loaded = store.load_month_revenue()
+    assert len(loaded) == 3
+    assert loaded["revenue"].iloc[0] == 1e11
+
+
+def test_month_revenue_is_idempotent_no_duplicates(store):
+    dates = pd.to_datetime(["2024-01-01"])
+    df = pd.DataFrame(
+        {"date": dates, "stock_id": ["2330"], "revenue": [1e11], "revenue_year": [2024], "revenue_month": [1]}
+    )
+    store.upsert_month_revenue(df)
+    store.upsert_month_revenue(df)
+    assert len(store.load_month_revenue()) == 1
+
+
 def test_latest_date_returns_none_when_empty(store):
     assert store.latest_date("prices") is None
 
