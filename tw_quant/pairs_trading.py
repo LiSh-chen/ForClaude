@@ -128,8 +128,11 @@ def _zscore_series(spread: pd.Series, window: int) -> pd.Series:
 
 
 def run_pairs_trading_backtest(
-    prices: pd.DataFrame, cfg: StrategyConfig, rt_cfg: PairsTradingConfig
+    prices: pd.DataFrame, cfg: StrategyConfig, rt_cfg: PairsTradingConfig, cost_module=cost_mod
 ) -> BacktestResult:
+    """cost_module：選填，同 tw_quant.backtest.run_backtest 的用法，用來替換
+    台股成本模型（例如美股，見 tw_quant/us_costs.py），重用同一套配對交易
+    引擎。"""
     master = prices.sort_values(["stock_id", "date"]).reset_index(drop=True)
     close_pivot = master.pivot(index="date", columns="stock_id", values="close").sort_index()
     open_pivot = master.pivot(index="date", columns="stock_id", values="open").sort_index()
@@ -156,17 +159,17 @@ def run_pairs_trading_backtest(
 
         if pos.direction == 1:
             # 多 A：賣出平倉；空 B：買回平倉
-            _, proceeds_a = cost_mod.exit_proceeds(price_a, pos.shares_a, cfg.costs)
-            fee_b = cost_mod.entry_cost(price_b, pos.shares_b, cfg.costs)
+            _, proceeds_a = cost_module.exit_proceeds(price_a, pos.shares_a, cfg.costs)
+            fee_b = cost_module.entry_cost(price_b, pos.shares_b, cfg.costs)
             cover_cost_b = price_b * pos.shares_b + fee_b
             cash += proceeds_a - cover_cost_b
             pnl_a = proceeds_a - (-pos.cash_flow_a)
             pnl_b = pos.cash_flow_b - cover_cost_b
         else:
             # 空 A：買回平倉；多 B：賣出平倉
-            fee_a = cost_mod.entry_cost(price_a, pos.shares_a, cfg.costs)
+            fee_a = cost_module.entry_cost(price_a, pos.shares_a, cfg.costs)
             cover_cost_a = price_a * pos.shares_a + fee_a
-            _, proceeds_b = cost_mod.exit_proceeds(price_b, pos.shares_b, cfg.costs)
+            _, proceeds_b = cost_module.exit_proceeds(price_b, pos.shares_b, cfg.costs)
             cash += proceeds_b - cover_cost_a
             pnl_a = pos.cash_flow_a - cover_cost_a
             pnl_b = proceeds_b - (-pos.cash_flow_b)
@@ -238,9 +241,9 @@ def run_pairs_trading_backtest(
                     continue
 
                 if direction == 1:
-                    fee_a = cost_mod.entry_cost(price_a, shares_a, cfg.costs)
+                    fee_a = cost_module.entry_cost(price_a, shares_a, cfg.costs)
                     cost_basis_a = shares_a * price_a + fee_a
-                    _, proceeds_b = cost_mod.exit_proceeds(price_b, shares_b, cfg.costs)
+                    _, proceeds_b = cost_module.exit_proceeds(price_b, shares_b, cfg.costs)
                     net_flow = -cost_basis_a + proceeds_b
                     if cost_basis_a > cash:
                         continue
@@ -252,8 +255,8 @@ def run_pairs_trading_backtest(
                         cash_flow_a=-cost_basis_a, cash_flow_b=proceeds_b, entry_date=date,
                     )
                 else:
-                    _, proceeds_a = cost_mod.exit_proceeds(price_a, shares_a, cfg.costs)
-                    fee_b = cost_mod.entry_cost(price_b, shares_b, cfg.costs)
+                    _, proceeds_a = cost_module.exit_proceeds(price_a, shares_a, cfg.costs)
+                    fee_b = cost_module.entry_cost(price_b, shares_b, cfg.costs)
                     cost_basis_b = shares_b * price_b + fee_b
                     if cost_basis_b > cash:
                         continue

@@ -16,6 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tw_quant.config import StrategyConfig
 from tw_quant.data_provider import SyntheticUniverseConfig, generate_synthetic_universe
 from tw_quant.pairs_trading import PairsTradingConfig, _find_pairs, _zscore_series, run_pairs_trading_backtest
+from tw_quant.us_config import build_us_config
+from tw_quant import us_costs
 
 
 def _make_price_frame(n_days: int, series: dict[str, np.ndarray], industry: dict[str, str]) -> pd.DataFrame:
@@ -105,6 +107,22 @@ def test_full_synthetic_run_has_no_open_positions_and_stable_equity():
     assert result.open_positions == {}
     assert not result.equity_curve["equity"].isna().any()
     assert (result.equity_curve["equity"] > 0).all()
+
+
+def test_cost_module_injection_lets_us_costs_replace_tw_costs():
+    """cost_module 參數讓配對交易引擎重用在別的市場成本模型上（見
+    tw_quant/us_costs.py）：同樣的資料/配對，換上零稅率/零手續費的美股
+    成本模型後，總損益應該明顯比台股版（0.3% 證交稅 + 手續費）高。
+    """
+    data = generate_synthetic_universe(SyntheticUniverseConfig(n_stocks=16, n_days=500, seed=11))
+    rt_cfg = PairsTradingConfig(formation_window=100, reformation_freq_days=40, top_n_pairs=5, zscore_window=15)
+
+    tw_result = run_pairs_trading_backtest(data["prices"], StrategyConfig(), rt_cfg)
+    us_result = run_pairs_trading_backtest(data["prices"], build_us_config(), rt_cfg, cost_module=us_costs)
+
+    assert len(tw_result.trades) > 0
+    assert len(us_result.trades) > 0
+    assert us_result.trades["pnl"].sum() > tw_result.trades["pnl"].sum()
 
 
 def test_trades_always_come_in_pairs_of_two_legs_with_matching_dates():

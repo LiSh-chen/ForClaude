@@ -43,6 +43,7 @@ def run_factor_backtest(
     start_date: str | pd.Timestamp | None = None,
     end_date: str | pd.Timestamp | None = None,
     signal_fn: Callable[[pd.DataFrame], pd.Series] | None = None,
+    cost_module=cost_mod,
 ) -> BacktestResult:
     """月/季調倉動能因子組合：固定頻率對魚池內個股依排名，等權重持有
     前 N 檔，只有在下次調倉日才換股，期間不做個股停損停利。
@@ -66,6 +67,10 @@ def run_factor_backtest(
     252 日門檻等指標會被迫從切片起點重新累積，導致前一年左右完全沒有股票
     符合資格。要跑分段檢查，永遠傳完整 prices + start_date/end_date，不要自己
     先把 prices 切片）。
+
+    cost_module：選填，同 tw_quant.backtest.run_backtest 的用法，用來替換
+    台股成本模型（例如美股，見 tw_quant/us_costs.py），重用同一套定期
+    調倉引擎。
     """
     master = prices.sort_values(["stock_id", "date"]).reset_index(drop=True).copy()
     pool = build_pool_mask(master, cfg.pool)
@@ -105,7 +110,7 @@ def run_factor_backtest(
                     continue
                 pos = positions.pop(stock_id)
                 exit_price = row_by_stock.loc[stock_id, "open"]
-                _, net_proceeds = cost_mod.exit_proceeds(exit_price, pos.shares, cfg.costs)
+                _, net_proceeds = cost_module.exit_proceeds(exit_price, pos.shares, cfg.costs)
                 cash += net_proceeds
                 pnl = net_proceeds - pos.cost_basis
                 trades.append(
@@ -134,7 +139,7 @@ def run_factor_backtest(
                 shares = math.floor((per_stock_budget / entry_price) / cfg.sizing.lot_size) * cfg.sizing.lot_size
                 if shares < cfg.sizing.lot_size:
                     continue
-                fee = cost_mod.entry_cost(entry_price, shares, cfg.costs)
+                fee = cost_module.entry_cost(entry_price, shares, cfg.costs)
                 total_cost = shares * entry_price + fee
                 if total_cost > cash:
                     continue

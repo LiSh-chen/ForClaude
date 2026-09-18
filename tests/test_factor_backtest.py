@@ -2,6 +2,20 @@ from tw_quant.backtest import summarize_performance
 from tw_quant.config import StrategyConfig
 from tw_quant.data_provider import SyntheticUniverseConfig, generate_synthetic_universe
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
+from tw_quant.us_config import build_us_config
+from tw_quant import us_costs
+
+
+def test_cost_module_injection_lets_us_costs_replace_tw_costs():
+    data = generate_synthetic_universe(SyntheticUniverseConfig(n_stocks=20, n_days=500, seed=5))
+    factor_cfg = FactorConfig(momentum_window=60, rebalance_freq_days=21, top_n=8)
+
+    tw_result = run_factor_backtest(data["prices"], StrategyConfig(), factor_cfg)
+    us_result = run_factor_backtest(data["prices"], build_us_config(), factor_cfg, cost_module=us_costs)
+
+    assert len(tw_result.trades) > 0
+    assert len(us_result.trades) > 0
+    assert us_result.trades["pnl"].sum() > tw_result.trades["pnl"].sum()
 
 
 def test_factor_backtest_conserves_value_and_produces_trades():

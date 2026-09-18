@@ -1,0 +1,46 @@
+name: Test US Strategies (MSS / Pairs Trading / RSI-Bollinger)
+
+# 手動觸發：把台股測過的三套策略（結構轉折C、配對交易、RSI/布林均值回歸）
+# 重新套用在美股 S&P 500 資料上，驗證訊號邏輯是否能轉移到不同市場。
+# 不會寫回任何資料，純粹讀取 us_prices + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test structure shift (C) strategy on US data
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_mss_strategy_from_db.py
+
+      - name: Test pairs trading on US data
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_pairs_trading_from_db.py
+
+      - name: Test RSI/Bollinger mean reversion on US data
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_rsi_bollinger_reversion_from_db.py

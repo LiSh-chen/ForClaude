@@ -3,6 +3,8 @@ import numpy as np
 from tw_quant.backtest import run_backtest, summarize_performance
 from tw_quant.config import StrategyConfig
 from tw_quant.data_provider import SyntheticUniverseConfig, generate_synthetic_universe
+from tw_quant.us_config import build_us_config
+from tw_quant import us_costs
 
 
 def test_backtest_runs_and_conserves_value_with_no_trades():
@@ -71,6 +73,37 @@ def test_entry_signal_fn_overrides_default_strategy_signals():
     cfg.global_risk.max_industry_exposure_pct = 0.30
     result = run_backtest(data["prices"], data["margin_short"], cfg, entry_signal_fn=always_true)
     assert len(result.trades) > 0
+
+
+def test_cost_module_injection_lets_us_costs_replace_tw_costs():
+    """cost_module 參數讓引擎重用在別的市場成本模型上（見 tw_quant/us_costs.py）：
+    同一組資料/訊號，換上零稅率/零手續費/一分錢 tick 的美股成本模型後，
+    交易產生的手續費/滑價應該明顯比台股版低。
+    """
+    data = generate_synthetic_universe(SyntheticUniverseConfig(n_stocks=30, n_days=700, seed=7))
+
+    def always_true(master, prices, margin_short, cfg):
+        n = len(master)
+        return np.ones(n, dtype=bool), np.zeros(n, dtype=bool)
+
+    tw_cfg = StrategyConfig()
+    tw_cfg.regime.breadth_threshold = 0.25
+    tw_cfg.regime.volume_ratio_threshold = 0.9
+    tw_cfg.global_risk.max_industry_exposure_pct = 0.30
+    tw_result = run_backtest(data["prices"], data["margin_short"], tw_cfg, entry_signal_fn=always_true)
+
+    us_cfg = build_us_config()
+    us_cfg.regime.breadth_threshold = 0.25
+    us_cfg.regime.volume_ratio_threshold = 0.9
+    us_cfg.global_risk.max_industry_exposure_pct = 0.30
+    us_result = run_backtest(
+        data["prices"], data["margin_short"], us_cfg, entry_signal_fn=always_true, cost_module=us_costs
+    )
+
+    assert len(tw_result.trades) > 0
+    assert len(us_result.trades) > 0
+    # 同樣的出場價格，美股版（無稅、無手續費、tick 更小）淨收入應該更高
+    assert us_result.trades["pnl"].sum() > tw_result.trades["pnl"].sum()
 
 
 def test_pre_holiday_exit_dates_force_liquidates_and_blocks_new_entries():

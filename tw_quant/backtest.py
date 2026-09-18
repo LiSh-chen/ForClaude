@@ -124,6 +124,7 @@ def run_backtest(
     historical_mdd: float | None = None,
     entry_signal_fn: EntrySignalFn | None = None,
     pre_holiday_exit_dates: set[pd.Timestamp] | None = None,
+    cost_module=cost_mod,
 ) -> BacktestResult:
     """執行完整回測。historical_mdd=None 代表不啟用 MDD 熔斷（用於第一次跑出
     基準 MDD），拿到基準值後再傳入做第二次帶熔斷機制的回測。
@@ -141,6 +142,12 @@ def run_backtest(
     排入明日出場（清空曝險，避免持倉跨過長假缺口），(2) 當天不產生任何新
     候選（避免當天核准的新單隔天一開盤就進場、還是曝險在缺口裡）。日期集合
     要用呼叫端自己從交易日曆算好再傳進來，本函式不做假期判斷。
+
+    cost_module：選填，用來替換預設的台股成本模型（tw_quant.costs），
+    介面須提供跟該模組一致的 `entry_cost(price, shares, cfg.costs)` /
+    `exit_proceeds(price, shares, cfg.costs)`。用來在同一套事件迴圈引擎下
+    重用在別的市場（例如美股，見 tw_quant/us_costs.py），不用另外複製一份
+    出場/風控邏輯。
     """
     master = _prepare_master_frame(prices, margin_short, cfg, entry_signal_fn)
     pre_holiday_exit_dates = pre_holiday_exit_dates or set()
@@ -166,7 +173,7 @@ def run_backtest(
                 continue
             pos = positions.pop(stock_id)
             exit_open = row_by_stock.loc[stock_id, "open"]
-            _, net_proceeds = cost_mod.exit_proceeds(exit_open, pos.shares, cfg.costs)
+            _, net_proceeds = cost_module.exit_proceeds(exit_open, pos.shares, cfg.costs)
             cash += net_proceeds
             pnl = net_proceeds - pos.cost_basis
             trades.append(
@@ -200,7 +207,7 @@ def run_backtest(
             if sizing.rejected or sizing.shares <= 0:
                 rejected_log.append({"date": date, "stock_id": stock_id, "stage": "execution", "reason": sizing.reject_reason})
                 continue
-            fee = cost_mod.entry_cost(entry_price, sizing.shares, cfg.costs)
+            fee = cost_module.entry_cost(entry_price, sizing.shares, cfg.costs)
             total_cost = sizing.position_value + fee
             if total_cost > cash:
                 rejected_log.append({"date": date, "stock_id": stock_id, "stage": "execution", "reason": "現金不足"})
