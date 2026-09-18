@@ -1,0 +1,35 @@
+name: Test US RSI/Bollinger Out-of-Sample
+
+# 手動觸發：用擴充後的美股歷史（見 ingest_us_daily_data.py 的 8 年回填），
+# 對 2023-09-18 之前、完全沒看過的期間重跑跟正式報告一模一樣的 RSI/布林
+# 通道均值回歸參數網格（不重新調參），驗證那個在美股上意外全面正報酬的
+# 結果是不是只是 2023-09~2026-09 這段特定期間的巧合。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test RSI/Bollinger out-of-sample
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_rsi_bollinger_out_of_sample_from_db.py

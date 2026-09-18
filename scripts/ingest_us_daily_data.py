@@ -87,7 +87,12 @@ def main() -> None:
     print(f"共 {len(constituents)} 檔成分股\n")
 
     end_date = pd.Timestamp.today().strftime("%Y-%m-%d")
-    backfill_start = (pd.Timestamp.today() - pd.Timedelta(days=365 * 3)).strftime("%Y-%m-%d")
+    # 原本只回填 3 年，為了讓 RSI/布林通道均值回歸這種在美股上意外表現亮眼
+    # 的策略（見 docs/research_findings.md 第10.3節）能做真正的樣本外驗證
+    # （拿沒看過的更早期間跑同一組固定參數），這裡拉長到 8 年——多數 S&P 500
+    # 成分股 yfinance 都能回溯到這麼久，個別較晚上市/加入指數的公司會自然
+    # 從實際掛牌日開始，不會是錯誤。
+    backfill_start = (pd.Timestamp.today() - pd.Timedelta(days=365 * 8)).strftime("%Y-%m-%d")
 
     total_rows = 0
     failures: list[str] = []
