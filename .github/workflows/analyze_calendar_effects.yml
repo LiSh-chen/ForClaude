@@ -1,0 +1,33 @@
+name: Analyze Calendar Effects On Real Data
+
+# 手動觸發：測日線資料能測到的「類日內時段」效應——星期幾效應、月初/月底
+# 效應、節前/節後效應、隔夜跳空 vs 當天盤中報酬。使用者原本想測「當沖最佳
+# 時段（例如上午9~10點）」，但目前只有日線資料沒有分鐘級資料，這是同樣
+# 精神下、日線解析度能做到的替代分析。
+# 不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run calendar effects analysis
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/analyze_calendar_effects_from_db.py
