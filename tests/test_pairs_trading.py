@@ -56,6 +56,37 @@ def test_find_pairs_selects_cointegrated_pair_over_unrelated_one():
     assert ("B", "C") not in pair_keys
 
 
+def test_find_pairs_excludes_stocks_with_zero_price_in_window():
+    """真實資料裡有些股票某天價格是 0（不是 NaN）——log(0) = -inf 會讓
+    beta 迴歸跟 p-value 都壞掉，還可能讓壞資料的配對因為數值不穩定而排到
+    最前面，這裡驗證這種股票會被直接排除、不會混進候選配對，也不會產生
+    NaN 的 beta。
+    """
+    rng = np.random.default_rng(7)
+    n = 300
+    log_a = np.cumsum(rng.normal(0, 0.01, n))
+    noise = np.zeros(n)
+    for t in range(1, n):
+        noise[t] = 0.6 * noise[t - 1] + rng.normal(0, 0.005)
+    log_b = log_a + noise
+    log_c = log_a + noise * 1.01  # 幾乎跟 B 一樣共整合，但中間有一天價格是 0（壞資料）
+
+    close_c = np.exp(log_c) * 100
+    close_c[150] = 0.0  # 模擬真實資料裡缺資料被記成 0 的情況
+
+    series = {"A": np.exp(log_a) * 100, "B": np.exp(log_b) * 100, "C": close_c}
+    industry = {"A": "IND", "B": "IND", "C": "IND"}
+    master = _make_price_frame(n, series, industry).pivot(index="date", columns="stock_id", values="close").sort_index()
+
+    rt_cfg = PairsTradingConfig(coint_pvalue_threshold=0.05, top_n_pairs=5)
+    pairs = _find_pairs(master, industry, master.index, rt_cfg)
+
+    pair_keys = {(a, b) for a, b, _ in pairs}
+    assert ("A", "C") not in pair_keys
+    assert ("B", "C") not in pair_keys
+    assert all(not np.isnan(beta) for _, _, beta in pairs)
+
+
 def test_zscore_series_is_zero_at_the_mean_and_positive_above_it():
     spread = pd.Series([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 5.0], index=pd.bdate_range("2020-01-01", periods=11))
     z = _zscore_series(spread, window=10)

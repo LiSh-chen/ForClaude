@@ -91,7 +91,15 @@ def _find_pairs(
     window = close_pivot.loc[window_dates]
     by_industry: dict[str, list[str]] = {}
     for stock_id in window.columns:
-        if window[stock_id].isna().any():
+        col = window[stock_id]
+        # 除了 NaN，還要濾掉價格 <= 0 的股票——真實資料裡有些股票在某些日子
+        # 價格是 0（缺資料/停牌被記成 0，不是 NaN），log(0) = -inf 會讓
+        # np.polyfit 估出來的 beta 變成 NaN，而且 coint() 用被 -inf 汙染的
+        # 序列算出來的 p-value 還可能因為數值不穩定而異常地小，讓這種壞資料
+        # 配對反而排到最前面、擠掉真正合理的配對（實測就是這樣：真實資料上
+        # 選出來的前 10 組配對 beta 全部是 NaN，導致整條價差序列全部 NaN、
+        # z-score 永遠算不出來、一筆交易都不會發生）。
+        if col.isna().any() or (col <= 0).any():
             continue
         by_industry.setdefault(industry_map.get(stock_id, ""), []).append(stock_id)
 
