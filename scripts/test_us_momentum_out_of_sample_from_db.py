@@ -33,6 +33,7 @@ from tw_quant.backtest_stats import metrics_from_result
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.storage import get_data_store
 from tw_quant.us_config import build_us_config
+from tw_quant.us_universe import filter_prices_by_index_membership
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_us_momentum_strategy_from_db import (  # noqa: E402
@@ -62,10 +63,21 @@ def _fmt_row(mom_win: int, hold_days: int, top_n: int, m: dict) -> str:
 def main() -> None:
     store = get_data_store()
     us_prices = store.load_us_prices()
+    membership = store.load_us_index_membership()
 
     if us_prices.empty:
         print("資料庫裡沒有任何美股價量資料。", file=sys.stderr)
         sys.exit(1)
+
+    n_rows_before = len(us_prices)
+    us_prices = filter_prices_by_index_membership(us_prices, membership)
+    n_rows_dropped = n_rows_before - len(us_prices)
+    print(
+        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
+        f"（{n_rows_dropped / n_rows_before:.1%}）——這段樣本外期間（2018-2023）正是現在 503 檔裡"
+        "24.5% 新進戶還沒加入指數的期間，過濾效果在這裡應該最明顯，"
+        "不解決被剔除股票完全消失那一半（見 tw_quant/us_universe.py）\n"
+    )
 
     earliest = us_prices["date"].min()
     n_stocks = us_prices["stock_id"].nunique()

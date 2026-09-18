@@ -42,6 +42,7 @@ from tw_quant.backtest_stats import metrics_from_result
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.storage import get_data_store
 from tw_quant.us_config import build_us_config
+from tw_quant.us_universe import filter_prices_by_index_membership
 
 QQQ_START = "2023-09-19"
 QQQ_TOTAL_RETURN, QQQ_CAGR, QQQ_MDD, QQQ_SHARPE, QQQ_CALMAR = 0.9358, 0.2481, 0.2277, 1.19, 1.09
@@ -68,14 +69,25 @@ def _fmt_row(mom_win: int, hold_days: int, top_n: int, m: dict) -> str:
 def main() -> None:
     store = get_data_store()
     us_prices = store.load_us_prices()
+    membership = store.load_us_index_membership()
 
     if us_prices.empty:
         print("資料庫裡沒有任何美股價量資料。", file=sys.stderr)
         sys.exit(1)
 
+    n_stocks_before = us_prices["stock_id"].nunique()
+    n_rows_before = len(us_prices)
+    us_prices = filter_prices_by_index_membership(us_prices, membership)
+    n_rows_dropped = n_rows_before - len(us_prices)
+    print(
+        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
+        f"（{n_rows_dropped / n_rows_before:.1%}，只排除「當時還沒加入指數」的日期，"
+        "不解決被剔除股票完全消失那一半，見 tw_quant/us_universe.py）\n"
+    )
+
     n_stocks = us_prices["stock_id"].nunique()
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
-    print(f"讀到 {n_stocks} 檔美股的資料（{earliest.date()} ~ {latest.date()}）\n")
+    print(f"讀到 {n_stocks_before} 檔美股的資料，過濾後 {n_stocks} 檔仍有資料（{earliest.date()} ~ {latest.date()}）\n")
 
     base_cfg = build_us_config()
 

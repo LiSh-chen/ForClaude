@@ -27,6 +27,7 @@ PRICE_COLS = ["date", "stock_id", "industry", "open", "high", "low", "close", "v
 MARGIN_COLS = ["date", "stock_id", "margin_purchase_balance", "short_balance"]
 MONTH_REVENUE_COLS = ["date", "stock_id", "revenue", "revenue_year", "revenue_month"]
 SHARES_ISSUED_COLS = ["date", "stock_id", "shares_issued"]
+US_INDEX_MEMBERSHIP_COLS = ["stock_id", "date_added"]
 
 
 class DataStore(ABC):
@@ -69,6 +70,12 @@ class DataStore(ABC):
     def load_us_prices(
         self, start_date: str | None = None, end_date: str | None = None, stock_ids: list[str] | None = None
     ) -> pd.DataFrame: ...
+
+    @abstractmethod
+    def upsert_us_index_membership(self, df: pd.DataFrame) -> None: ...
+
+    @abstractmethod
+    def load_us_index_membership(self) -> pd.DataFrame: ...
 
     @abstractmethod
     def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None: ...
@@ -135,6 +142,14 @@ class SQLiteDataStore(DataStore):
                     open REAL, high REAL, low REAL, close REAL,
                     volume INTEGER, turnover_value REAL,
                     PRIMARY KEY (date, stock_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS us_index_membership (
+                    stock_id TEXT NOT NULL PRIMARY KEY,
+                    date_added TEXT
                 )
                 """
             )
@@ -232,6 +247,24 @@ class SQLiteDataStore(DataStore):
 
     def load_us_prices(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
         return self._load("us_prices", PRICE_COLS, start_date, end_date, stock_ids)
+
+    def upsert_us_index_membership(self, df: pd.DataFrame) -> None:
+        if df.empty:
+            return
+        d = df.copy()
+        d["date_added"] = pd.to_datetime(d["date_added"]).dt.strftime("%Y-%m-%d")
+        rows = list(d[US_INDEX_MEMBERSHIP_COLS].itertuples(index=False, name=None))
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO us_index_membership (stock_id, date_added) VALUES (?,?)", rows
+            )
+
+    def load_us_index_membership(self) -> pd.DataFrame:
+        with self._connect() as conn:
+            df = pd.read_sql_query("SELECT * FROM us_index_membership", conn, parse_dates=["date_added"])
+        if df.empty:
+            return pd.DataFrame(columns=US_INDEX_MEMBERSHIP_COLS)
+        return df[US_INDEX_MEMBERSHIP_COLS]
 
     def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None:
         query = f"SELECT MAX(date) FROM {table}"
@@ -334,6 +367,14 @@ class PostgresDataStore(DataStore):
                     open DOUBLE PRECISION, high DOUBLE PRECISION, low DOUBLE PRECISION,
                     close DOUBLE PRECISION, volume BIGINT, turnover_value DOUBLE PRECISION,
                     PRIMARY KEY (date, stock_id)
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS us_index_membership (
+                    stock_id TEXT NOT NULL PRIMARY KEY,
+                    date_added DATE
                 )
                 """
             )
@@ -473,6 +514,31 @@ class PostgresDataStore(DataStore):
 
     def load_us_prices(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
         return self._load("us_prices", PRICE_COLS, start_date, end_date, stock_ids)
+
+    def upsert_us_index_membership(self, df: pd.DataFrame) -> None:
+        if df.empty:
+            return
+        d = df.copy()
+        d["date_added"] = pd.to_datetime(d["date_added"]).dt.strftime("%Y-%m-%d")
+        rows = list(d[US_INDEX_MEMBERSHIP_COLS].itertuples(index=False, name=None))
+        with self._connect() as conn, conn.cursor() as cur:
+            self._execute_values(
+                cur,
+                """
+                INSERT INTO us_index_membership (stock_id, date_added)
+                VALUES %s
+                ON CONFLICT (stock_id) DO UPDATE SET date_added = EXCLUDED.date_added
+                """,
+                rows,
+            )
+            conn.commit()
+
+    def load_us_index_membership(self) -> pd.DataFrame:
+        with self._connect() as conn:
+            df = pd.read_sql_query("SELECT * FROM us_index_membership", conn, parse_dates=["date_added"])
+        if df.empty:
+            return pd.DataFrame(columns=US_INDEX_MEMBERSHIP_COLS)
+        return df[US_INDEX_MEMBERSHIP_COLS]
 
     def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None:
         query = f"SELECT MAX(date) FROM {table}"

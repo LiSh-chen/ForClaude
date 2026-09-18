@@ -37,13 +37,27 @@ def normalize_yfinance_ticker(ticker: str) -> str:
 
 def parse_sp500_wikipedia_table(raw_table: pd.DataFrame) -> pd.DataFrame:
     """把從維基百科「List of S&P 500 companies」頁面第一張表格抓下來的
-    原始 DataFrame，轉成 (stock_id, name, industry) 三欄，跟這個 provider
-    其他方法的欄位命名慣例一致。獨立成一個不需要網路的純函式，方便測試
-    「欄位改名」「代號格式轉換」這些邏輯本身對不對，不用真的連網。
+    原始 DataFrame，轉成 (stock_id, name, industry, date_added) 四欄，跟
+    這個 provider 其他方法的欄位命名慣例一致。獨立成一個不需要網路的純
+    函式，方便測試「欄位改名」「代號格式轉換」這些邏輯本身對不對，不用
+    真的連網。
+
+    date_added（維基百科原始欄位 "Date added"）是這檔股票被納入 S&P 500
+    指數的日期——存起來是為了讓回測能排除「當時還沒加入指數」的股票，
+    修正「用今天的成分股名單回填過去歷史」天生帶有的存活者偏差（往未來
+    看到還沒加入指數的贏家，見 tw_quant/us_universe.py）。這只解決偏差
+    的一半：被踢出指數、已經不在「今天的成分股名單」裡的股票依然完全
+    抓不到，這裡沒辦法無中生有。
     """
-    df = raw_table.rename(columns={"Symbol": "stock_id", "Security": "name", "GICS Sector": "industry"})
+    df = raw_table.rename(
+        columns={"Symbol": "stock_id", "Security": "name", "GICS Sector": "industry", "Date added": "date_added"}
+    )
     df["stock_id"] = df["stock_id"].astype(str).map(normalize_yfinance_ticker)
-    return df[["stock_id", "name", "industry"]].drop_duplicates(subset=["stock_id"])
+    if "date_added" in df.columns:
+        df["date_added"] = pd.to_datetime(df["date_added"], errors="coerce")
+    else:
+        df["date_added"] = pd.NaT
+    return df[["stock_id", "name", "industry", "date_added"]].drop_duplicates(subset=["stock_id"])
 
 
 def parse_yfinance_history(history: pd.DataFrame, stock_id: str, industry: str) -> pd.DataFrame:

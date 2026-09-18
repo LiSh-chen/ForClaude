@@ -86,6 +86,18 @@ def main() -> None:
     constituents = _call_with_timeout(provider.fetch_sp500_constituents, timeout_s=30.0)
     print(f"共 {len(constituents)} 檔成分股\n")
 
+    # 存指數加入日期，供 tw_quant/us_universe.py 在回測時排除「當時還沒
+    # 加入指數」的股票，部分修正存活者偏差（見該模組檔頭說明）。這裡每次
+    # 執行都存，不受 FORCE_BACKFILL 影響——只是覆寫最新的加入日期紀錄，
+    # 成本很低，不需要另外判斷要不要更新。
+    membership = constituents[["stock_id", "date_added"]]
+    store.upsert_us_index_membership(membership)
+    n_missing_date = membership["date_added"].isna().sum()
+    print(
+        f"已更新 {len(membership)} 檔的指數加入日期記錄"
+        f"（{n_missing_date} 檔缺加入日期，回測時視為一直都在指數裡）\n"
+    )
+
     end_date = pd.Timestamp.today().strftime("%Y-%m-%d")
     # 原本只回填 3 年，為了讓 RSI/布林通道均值回歸這種在美股上意外表現亮眼
     # 的策略（見 docs/research_findings.md 第10.3節）能做真正的樣本外驗證

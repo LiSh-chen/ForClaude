@@ -30,13 +30,44 @@ def test_parse_sp500_wikipedia_table_renames_and_normalizes():
             "Security": ["Apple Inc.", "Berkshire Hathaway", "Apple Inc."],
             "GICS Sector": ["Information Technology", "Financials", "Information Technology"],
             "GICS Sub-Industry": ["x", "y", "x"],  # 不需要的欄位該被丟掉
+            "Date added": ["1980-12-12", "2010-02-16", "1980-12-12"],
         }
     )
     result = parse_sp500_wikipedia_table(raw)
 
-    assert list(result.columns) == ["stock_id", "name", "industry"]
+    assert list(result.columns) == ["stock_id", "name", "industry", "date_added"]
     assert len(result) == 2  # 去重後只剩 2 檔
     assert set(result["stock_id"]) == {"AAPL", "BRK-B"}  # BRK.B 該被轉成 BRK-B
+    added = result.set_index("stock_id")["date_added"]
+    assert added["AAPL"] == pd.Timestamp("1980-12-12")
+    assert added["BRK-B"] == pd.Timestamp("2010-02-16")
+
+
+def test_parse_sp500_wikipedia_table_handles_missing_date_added_column():
+    """維基百科頁面格式偶爾會變動，"Date added" 欄位萬一被拿掉，不該直接
+    炸掉——存活者偏差修正是加分項，不是回測能不能跑的必要條件。
+    """
+    raw = pd.DataFrame(
+        {"Symbol": ["AAPL"], "Security": ["Apple Inc."], "GICS Sector": ["Information Technology"]}
+    )
+    result = parse_sp500_wikipedia_table(raw)
+
+    assert list(result.columns) == ["stock_id", "name", "industry", "date_added"]
+    assert result["date_added"].isna().all()
+
+
+def test_parse_sp500_wikipedia_table_coerces_unparseable_dates_to_nat():
+    raw = pd.DataFrame(
+        {
+            "Symbol": ["AAPL"],
+            "Security": ["Apple Inc."],
+            "GICS Sector": ["Information Technology"],
+            "Date added": ["not a date"],
+        }
+    )
+    result = parse_sp500_wikipedia_table(raw)
+
+    assert result["date_added"].isna().all()
 
 
 def test_parse_yfinance_history_converts_to_long_format():
