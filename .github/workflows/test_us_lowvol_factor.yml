@@ -1,0 +1,34 @@
+name: Test US Low-Volatility Factor vs QQQ
+
+# 手動觸發：10.5~10.8 節測過的動量/雙動能/各種調倉頻率變體全部打不過 QQQ
+# 買進持有。這裡換方向測低波動異常（買近期日報酬波動度最低的股票），看
+# 「風險調整後報酬較優但牛市容易跑輸」這個經典抵換在這個資料集上成不成立。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test low-volatility factor vs QQQ
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_lowvol_factor_from_db.py
