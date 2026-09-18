@@ -1,0 +1,34 @@
+name: Test RSI/Bollinger Mean Reversion
+
+# 手動觸發：用真實資料測試 RSI 超賣 / 布林通道下軌反彈這兩種短期均值回歸
+# 訊號（scripts/test_rsi_bollinger_reversion_from_db.py），套用完整交易
+# 成本。不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test RSI/Bollinger mean reversion strategy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_rsi_bollinger_reversion_from_db.py

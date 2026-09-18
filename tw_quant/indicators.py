@@ -31,6 +31,10 @@ def rolling_min(df: pd.DataFrame, col: str, window: int, group_col: str = "stock
     return _grouped_rolling(df, col, window, group_col, lambda r: r.min())
 
 
+def rolling_std(df: pd.DataFrame, col: str, window: int, group_col: str = "stock_id") -> pd.Series:
+    return _grouped_rolling(df, col, window, group_col, lambda r: r.std())
+
+
 def rolling_percentile_rank(
     df: pd.DataFrame, col: str, window: int, group_col: str = "stock_id"
 ) -> pd.Series:

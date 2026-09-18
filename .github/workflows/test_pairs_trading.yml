@@ -1,0 +1,34 @@
+name: Test Pairs Trading (Cointegration)
+
+# 手動觸發：用真實資料測試統計套利/配對交易策略
+# （tw_quant/pairs_trading.py），對 formation_window/entry_z 做網格搜尋，
+# 套用完整交易成本。不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test pairs trading strategy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_pairs_trading_from_db.py
