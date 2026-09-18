@@ -1,0 +1,35 @@
+name: Test US Momentum Rebalance Frequency
+
+# 手動觸發：10.7 節否證了「加 QQQ 趨勢濾網」這個方向，分析認為濾網每月
+# 才檢查一次 regime，可能是它沒能有效降低 MDD 的原因之一。這裡測試拉高
+# 調倉頻率（5/10 個交易日）是否真的能讓濾網更快反應、改善下檔風險，同時
+# 也看調倉頻率本身對純動量策略的影響。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test momentum rebalance frequency grid
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_momentum_rebalance_freq_from_db.py
