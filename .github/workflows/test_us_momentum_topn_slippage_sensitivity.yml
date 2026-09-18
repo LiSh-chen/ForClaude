@@ -1,0 +1,34 @@
+name: Test US Momentum Top-N Slippage Sensitivity
+
+# 手動觸發：10.11/10.12 節反覆提醒 top_n=1~3 集中持股的市場衝擊成本
+# 沒有被模擬。這裡用每筆交易的成交金額 vs 20日均成交金額，估算三組
+# 情境（樂觀/中等/悲觀）下的市場衝擊成本，量化滑價會吃掉多少優勢。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test momentum top-n slippage sensitivity
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_momentum_topn_slippage_sensitivity_from_db.py
