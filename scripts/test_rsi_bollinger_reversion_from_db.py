@@ -3,18 +3,23 @@
 背景：docs/research_findings.md 4.1 節已經測過並否證「短期反轉策略」（用
 IC 掃描最強的反轉訊號設計，統計上顯著但扣成本後轉負）。這裡改用業界最
 常見的兩個具體均值回歸指標重新驗證一次——RSI 極度超賣、跌破布林通道
-下軌（可選加成交量爆增確認）——預期會重現同樣的失敗模式，但用具體、
-常見的參數重新確認，排除「換個指標會不會不一樣」的疑慮。
+下軌的乖離程度（可選加成交量爆增確認）——預期會重現同樣的失敗模式，
+但用具體、常見的參數重新確認，排除「換個指標會不會不一樣」的疑慮。
 
-兩種訊號都用既有的每日回測引擎（tw_quant/backtest.py 的 entry_signal_fn
-掛鉤），出場沿用系統既有的 2.5×ATR 吊燈停利機制，跟策略 C 的出場邏輯
-一致，只換進場邏輯。
-
-反未來函數：RSI/布林通道/均量都只在「訊號當天 T 的收盤」已知（RSI 用
-T 日以前的漲跌幅平滑, 布林通道上下軌跟均量都額外 shift(1) 只用 T-1 資料），
-T 日自己的收盤價/成交量可以拿來跟這些已經 shift 過的門檻比較（跟
-signals.py/refine_mss_strategy_from_db.py 既有的「T 日觸發、T-1 已知的
-指標當防禦線」慣例一致），T+1 日開盤才進場。
+★ 開發過程中一個重要教訓（沒有藏起來）：第一版直接把這兩個訊號接到
+tw_quant/backtest.py 的 entry_signal_fn（日事件迴圈引擎），結果 9 組參數
+組合全部 0 筆交易。追查後發現原因不是訊號太少見，而是**結構性不相容**：
+那個引擎的吊燈停利公式 `compute_initial_stop` 用「過去 10 日高點 - 2.5x
+ATR」當初始停損價，這是為了「進場點貼近近期高點」的突破式策略設計的
+（`rolling_high_10 ≈ entry_price`，算出來的停損自然會落在進場價之下）。
+均值回歸策略的進場點恰好相反——貼近近期低點，此時「過去 10 日高點」離
+現價很遠，算出來的停損價常常高於進場價，被
+`compute_position_size` 的「停損價不低於進場價，無法計算風險」規則直接
+擋掉，導致幾乎所有候選都在下單前就被拒絕。實測（合成資料）235 筆拒單
+裡有 215 筆是這個原因。這跟 scripts/explore_reversal_strategy_from_db.py
+（已驗證過的短期反轉策略）採用的解法一致：均值回歸/反轉類訊號改用
+tw_quant/factor_backtest.py 的定期調倉引擎（不含逐筆吊燈停利，用「排名
++ 固定持有期」取代），才是真正公平的測試方式，見下面 main() 的實作。
 
 用法：
     python scripts/test_rsi_bollinger_reversion_from_db.py
@@ -31,17 +36,16 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tw_quant import indicators as ind
-from tw_quant.backtest import run_backtest
 from tw_quant.backtest_stats import metrics_from_result
 from tw_quant.config import StrategyConfig
-from tw_quant.signals import build_pool_mask
+from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.storage import get_data_store
 
 RSI_WINDOW = 14
 BB_WINDOW = 20
-RSI_THRESHOLD_GRID = (20, 25, 30)
-BB_STD_MULT_GRID = (1.5, 2.0, 2.5)
 VOLUME_SPIKE_MULT = 1.5
+REBALANCE_FREQ_GRID = (3, 5, 10, 21)  # 進場後持有幾個交易日（近似短期均值回歸的合理持有期）
+TOP_N_GRID = (10, 20, 30)
 MIN_TRADES_FOR_RANKING = 15
 
 
@@ -54,7 +58,7 @@ def build_base_config() -> StrategyConfig:
 
 def _compute_rsi(master: pd.DataFrame, window: int) -> pd.Series:
     """Wilder's RSI，逐檔股票獨立算。RSI(T) 用到 T 日自己的收盤價（今天漲跌），
-    屬於「訊號當天自己的收盤價」這個既有允許的例外，不用再 shift。
+    這裡當成排名依據的原始值，呼叫端要自己 shift(1) 才能餵給 factor_backtest。
     """
     delta = master.groupby("stock_id", sort=False)["close"].diff()
     gain = delta.clip(lower=0)
@@ -75,59 +79,51 @@ def _compute_rsi(master: pd.DataFrame, window: int) -> pd.Series:
     return rsi.fillna(50.0)  # 暖身期不足時的 NaN，保守當中性值處理，不會被誤判成超賣訊號
 
 
-def make_rsi_signal_fn(rsi_threshold: float):
-    def rsi_signal_fn(master, prices, margin_short, cfg):
-        pool = build_pool_mask(master, cfg.pool)
-        rsi = _compute_rsi(master, RSI_WINDOW)
-        entry = pool & (rsi < rsi_threshold)
-        return entry.fillna(False).values, np.zeros(len(master), dtype=bool)
-
-    return rsi_signal_fn
+def rsi_ranking_signal_fn(master: pd.DataFrame) -> pd.Series:
+    """排名依據 = RSI 本身，ascending=True 時買 RSI 最低（最超賣）的股票。"""
+    rsi = _compute_rsi(master, RSI_WINDOW)
+    return ind.shift_by_group(rsi, master, periods=1)
 
 
-def make_bollinger_signal_fn(std_mult: float, require_volume_spike: bool):
-    def bollinger_signal_fn(master, prices, margin_short, cfg):
-        pool = build_pool_mask(master, cfg.pool)
+def make_bollinger_ranking_signal_fn(require_volume_spike: bool):
+    """排名依據 = 布林通道 z-score（(close-均值)/標準差），越負代表跌越深、
+    離布林通道下軌越遠。ascending=True 時買 z-score 最低的股票。
+    """
+
+    def _fn(master: pd.DataFrame) -> pd.Series:
         sma = ind.sma(master, "close", BB_WINDOW)
         std = ind.rolling_std(master, "close", BB_WINDOW)
-        lower_band = sma - std_mult * std
-        lower_band_prior = ind.shift_by_group(lower_band, master, periods=1)
-        below_band = (master["close"] < lower_band_prior).fillna(False)
-
-        entry = pool & below_band
+        z = (master["close"] - sma) / std.replace(0, np.nan)
         if require_volume_spike:
             avg_vol = ind.sma(master, "volume", BB_WINDOW)
-            avg_vol_prior = ind.shift_by_group(avg_vol, master, periods=1)
-            volume_ok = (master["volume"] > avg_vol_prior * VOLUME_SPIKE_MULT).fillna(False)
-            entry = entry & volume_ok
+            volume_ok = master["volume"] > avg_vol * VOLUME_SPIKE_MULT
+            z = z.where(volume_ok.fillna(False), np.nan)  # 沒有量能確認的候選直接排除排名（NaN 會被 factor_backtest 濾掉）
+        return ind.shift_by_group(z, master, periods=1)
 
-        return entry.values, np.zeros(len(master), dtype=bool)
-
-    return bollinger_signal_fn
+    return _fn
 
 
 HEADER = (
-    f"{'signal':<24}  {'total_ret':>10} {'cagr':>8} {'max_dd':>8} {'sharpe':>7} {'calmar':>7}  "
-    f"{'n_trd':>5} {'win%':>7} {'RR':>5} {'EV%':>8} {'PF':>6}"
+    f"{'signal':<20} {'hold_d':>7} {'top_n':>6}  {'total_ret':>10} {'cagr':>8} {'max_dd':>8} "
+    f"{'sharpe':>7} {'calmar':>7}  {'n_trd':>6} {'win%':>7} {'RR':>5} {'EV%':>8} {'PF':>6}"
 )
 
 
-def _fmt_row(label: str, m: dict) -> str:
+def _fmt_row(label: str, hold_days: int, top_n: int, m: dict) -> str:
     pf = m["profit_factor"]
     pf_str = "  inf" if pf == float("inf") else f"{pf:5.2f}"
     rr = m["risk_reward_ratio"]
     rr_str = " inf" if rr == float("inf") else f"{rr:4.2f}"
     return (
-        f"{label:<24}  {m['total_return']:>9.2%} {m['cagr']:>7.2%} {m['max_dd']:>7.2%} "
-        f"{m['sharpe']:>7.2f} {m['calmar']:>7.2f}  {m['n_trades']:>5.0f} {m['win_rate']:>6.1%} "
-        f"{rr_str} {m['ev_pct']:>7.2%} {pf_str}"
+        f"{label:<20} {hold_days:>7} {top_n:>6}  "
+        f"{m['total_return']:>9.2%} {m['cagr']:>7.2%} {m['max_dd']:>7.2%} {m['sharpe']:>7.2f} {m['calmar']:>7.2f}  "
+        f"{m['n_trades']:>6.0f} {m['win_rate']:>6.1%} {rr_str} {m['ev_pct']:>7.2%} {pf_str}"
     )
 
 
 def main() -> None:
     store = get_data_store()
     prices = store.load_prices()
-    margin_short = store.load_margin_short()
 
     if prices.empty:
         print("資料庫裡沒有任何價量資料。", file=sys.stderr)
@@ -141,41 +137,39 @@ def main() -> None:
 
     base_cfg = build_base_config()
 
-    print("=== RSI 超賣 / 布林通道下軌反彈回測（完整交易成本，出場沿用 2.5xATR 吊燈停利）===")
+    print("=== RSI 超賣 / 布林通道乖離反彈回測（因子式定期調倉，完整交易成本）===")
     print(HEADER)
 
-    rows = []
-    for rsi_threshold in RSI_THRESHOLD_GRID:
-        label = f"RSI<{rsi_threshold}"
-        result = run_backtest(prices, margin_short, base_cfg, historical_mdd=None, entry_signal_fn=make_rsi_signal_fn(rsi_threshold))
-        m = metrics_from_result(result, base_cfg.initial_capital, prices=prices)
-        rows.append({"label": label, **m})
+    signal_fns = {
+        "RSI": rsi_ranking_signal_fn,
+        "BB_zscore": make_bollinger_ranking_signal_fn(False),
+        "BB_zscore+vol": make_bollinger_ranking_signal_fn(True),
+    }
 
-    for std_mult in BB_STD_MULT_GRID:
-        for require_vol in (False, True):
-            label = f"BB(std={std_mult}{',vol' if require_vol else ''})"
-            result = run_backtest(
-                prices, margin_short, base_cfg, historical_mdd=None,
-                entry_signal_fn=make_bollinger_signal_fn(std_mult, require_vol),
-            )
-            m = metrics_from_result(result, base_cfg.initial_capital, prices=prices)
-            rows.append({"label": label, **m})
+    rows = []
+    for signal_name, fn in signal_fns.items():
+        for hold_days in REBALANCE_FREQ_GRID:
+            for top_n in TOP_N_GRID:
+                factor_cfg = FactorConfig(rebalance_freq_days=hold_days, top_n=top_n, ascending=True)
+                result = run_factor_backtest(prices, base_cfg, factor_cfg, signal_fn=fn)
+                m = metrics_from_result(result, base_cfg.initial_capital, prices=prices)
+                rows.append({"signal": signal_name, "hold_days": hold_days, "top_n": top_n, **m})
 
     df = pd.DataFrame(rows)
     ranked = df[df["n_trades"] >= MIN_TRADES_FOR_RANKING].sort_values("sharpe", ascending=False)
-    for _, r in ranked.iterrows():
-        print(_fmt_row(r["label"], r.to_dict()))
+    for _, r in ranked.head(25).iterrows():
+        print(_fmt_row(r["signal"], int(r["hold_days"]), int(r["top_n"]), r.to_dict()))
 
     n_profitable = (df["total_return"] > 0).sum()
     print(f"\n{len(df)} 組合中有 {n_profitable} 組總報酬為正（{n_profitable / len(df):.1%}）")
 
     if ranked.empty:
-        print("\n沒有任何組合達到最低成交筆數門檻，無法排名，以下是全部組合：")
-        print(df.to_string(index=False))
+        print("\n沒有任何組合達到最低成交筆數門檻，無法排名。")
 
     print(
         "\n（RR = 風報比；EV% = 勝率加權後單筆期望報酬率；PF = 獲利因子；calmar = CAGR / MDD；"
-        "出場沿用系統既有 2.5xATR 吊燈停利，跟策略 C 一致；RSI(14)/布林通道(20日)為業界常見參數）"
+        "hold_d = 調倉週期（近似持有天數）；ascending=True 買排名最低（RSI最低/z-score最負，"
+        "也就是最超賣）的股票；RSI(14)/布林通道(20日)為業界常見參數）"
     )
 
 
