@@ -1,0 +1,35 @@
+name: Test US Momentum Top-N Three-Way Split Validation
+
+# 手動觸發：10.11 節發現 top_n=2 在原本的樣本外窗格五項指標全贏 QQQ。
+# 但我們的美股資料只有 8 年（2018-09-20~最新），整段都已經被原本的樣本內/
+# 樣本外切分用完，沒有真正全新的第三段資料。這裡把整段資料重新切成三段
+# 互不重疊的新期間，檢查 top_n=1/2/3/10 的表現對切法穩不穩健。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test momentum top-n three-way split
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_momentum_topn_three_way_split_from_db.py
