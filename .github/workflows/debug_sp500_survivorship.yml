@@ -1,0 +1,27 @@
+name: Debug S&P 500 Survivorship Bias Check
+
+# 一次性診斷：量化目前美股回測「用今天的 S&P 500 成分股名單回填過去 8 年」
+# 造成的存活者偏差有多嚴重。用完即刪。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check S&P 500 survivorship bias magnitude
+        run: python scripts/debug_sp500_survivorship_check.py
