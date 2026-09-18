@@ -1,0 +1,34 @@
+name: Test Intraday Gap Fade (Same-Day Roundtrip)
+
+# 手動觸發：用真實資料測試「T 日開盤跳空、T 日收盤前決定出場」的同日回補
+# 策略（tw_quant/intraday_roundtrip.py），對 gap_threshold/top_n 做網格搜尋，
+# 套用完整交易成本。不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test intraday gap-fade roundtrip strategy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_intraday_gap_fade_from_db.py
