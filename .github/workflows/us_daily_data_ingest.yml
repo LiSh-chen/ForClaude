@@ -28,7 +28,13 @@ jobs:
     runs-on: ubuntu-latest
     # S&P 500 有 500 檔，全量回填一次規模比台股 150 檔大很多，用比較長的
     # timeout 留安全邊際；平常的每日增量同步遠遠用不到這個上限。
-    timeout-minutes: 45
+    #
+    # 45 分鐘曾經不夠用：force_backfill=true 抓 8 年歷史那次（見
+    # docs/research_findings.md 第10.3節的樣本外驗證需求）在 45 分鐘
+    # timeout 被砍掉，run #3（id 35324991527）卡在 in_progress 直到
+    # timeout 強制 cancelled，8 年資料量每檔股票約 2000 個交易日（vs
+    # 3 年版的 752 天），單檔抓取+寫入時間明顯變長，拉高到 90 分鐘。
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
