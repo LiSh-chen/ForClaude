@@ -1,0 +1,31 @@
+name: Push Blended Strategy Sharpe Toward 1.0
+
+# 手動觸發：延續「結構轉折+超跌反彈混合資金池」的發現（Sharpe 0.43 -> 0.60），
+# 做穩健度檢查（換 D 的參數、放寬單日新增曝險上限）並疊加第三個訊號
+# （券資比軋空），朝 Sharpe 1.0 繼續推進。不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Sharpe-pushing search
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/push_sharpe_from_db.py
