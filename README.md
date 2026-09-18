@@ -290,3 +290,34 @@ variables → Actions 裡加一個 secret `DATABASE_URL`
 - 回測整合（零成交時權益守恆、有成交時股數必為 1000 倍數、市值不超過上限）
 - 資料落地層（SQLite upsert 冪等性、日期/股票篩選、latest_date 增量同步邏輯）
 - 資料抓取腳本（用假的 provider 驗證寫入流程，不觸碰真實網路）
+
+## 8. 網頁化：互動回測（Streamlit）
+
+`streamlit_app.py` + `webapp/` 把 6 種已驗證過的策略（結構轉折 C、配對交易、
+RSI/布林通道均值回歸——台股+美股皆可選；PEAD 月營收意外漂移、營收動能+
+價量突破組合、股本效應比較——僅台股）包成一個可以調參數的網頁，不用碰
+程式碼或觸發 GitHub Actions 就能重新驗證回測結果。網頁本身不重寫任何回測
+邏輯，只是既有 `tw_quant/` 引擎的參數輸入介面；`webapp/engines.py` 裡的訊號
+函式是刻意逐行對照研究腳本（`scripts/test_*_from_db.py`）複製出來的可調參數
+版本，`tests/test_webapp_engines.py` 用回歸測試驗證兩邊在相同參數下輸出完全
+一致。
+
+**本機跑**（不設定 `DATABASE_URL` 會自動退回本機 SQLite `data/tw_market.db`）：
+
+```bash
+pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+
+**部署到 Streamlit Community Cloud**：把這個 repo 接到
+[streamlit.io](https://streamlit.io)，Main file path 填 `streamlit_app.py`，
+在 App settings → Secrets 貼：
+
+```toml
+DATABASE_URL = "postgresql://user:pass@host:5432/dbname"
+```
+
+跟 `daily_data_ingest.yml` / `us_daily_data_ingest.yml` 用的是同一個
+`DATABASE_URL`、同一個雲端資料庫，網頁讀的是排程每天更新的最新資料，
+不需要另外複製一份。網頁本身**無法**從瀏覽器觸發資料回填——那一段仍然
+只能透過 GitHub Actions 執行（見第 5 節），這是刻意的邊界，不是遺漏。
