@@ -14,10 +14,12 @@ import numpy as np
 import pandas as pd
 
 from tw_quant import indicators as ind
+from tw_quant.backtest import run_backtest
 from tw_quant.config import StrategyConfig
+from tw_quant.regime import compute_regime_light
 from tw_quant.signals import build_pool_mask
 from tw_quant.storage import get_data_store
-from scripts.test_pead_breakout_combo_from_db import attach_revenue_momentum_flag
+from scripts.test_pead_breakout_combo_from_db import attach_revenue_momentum_flag, make_combo_signal_fn
 
 
 def main() -> None:
@@ -55,6 +57,21 @@ def main() -> None:
         f"pool & breakout & volume_spike: {(pool & price_breakout & volume_spike).sum()}",
         f"all four combined: {(pool & revenue_ok & price_breakout & volume_spike).sum()}",
     ]
+
+    regime_light = compute_regime_light(master, cfg.regime, cfg.pool.min_history_days)
+    merged = master.merge(regime_light[["is_green"]], left_on="date", right_index=True, how="left")
+    is_green = merged["is_green"].fillna(False)
+    facts.append(f"is_green frac: {is_green.mean():.4f} ({is_green.sum()} / {len(is_green)})")
+    facts.append(f"all four + is_green: {(pool & revenue_ok & price_breakout & volume_spike & is_green).sum()}")
+
+    margin_short = store.load_margin_short()
+    signal_fn = make_combo_signal_fn(20, 1.5, master)
+    result = run_backtest(prices, margin_short, cfg, historical_mdd=None, entry_signal_fn=signal_fn)
+    facts.append(f"actual run_backtest trades: {len(result.trades)}")
+    facts.append(f"actual run_backtest rejected_log len: {len(result.rejected_log)}")
+    from collections import Counter
+    facts.append(f"rejected reasons: {Counter(r['reason'] for r in result.rejected_log)}")
+
     print("\n\n===== DEBUG FACTS =====")
     for line in facts:
         print(line)
