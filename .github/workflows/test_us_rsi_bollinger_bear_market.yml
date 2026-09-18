@@ -1,0 +1,34 @@
+name: Test US RSI/Bollinger Bear Market
+
+# 手動觸發：RSI/布林通道均值回歸策略單獨在 2022 熊市窗格（S&P 500 公認
+# 高點~低點，跌約25%）的表現，測試「均值回歸在熊市可能相對抗跌」這個
+# 假設，用跟正式報告完全相同、沒有重新調參的網格。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test RSI/Bollinger during 2022 bear market
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_rsi_bollinger_bear_market_from_db.py

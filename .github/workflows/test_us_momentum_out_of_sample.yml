@@ -1,0 +1,34 @@
+name: Test US Momentum Out-of-Sample
+
+# 手動觸發：動量策略（買最近報酬率最高的股票）的樣本外驗證——用完全
+# 沒重新調參的網格，套在挑參數時從沒看過的 2018-09-20~2023-09-17 這段
+# 期間，看樣本內贏過 QQQ 的結果是真的優勢還是特定期間的巧合。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test momentum strategy out-of-sample
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_momentum_out_of_sample_from_db.py
