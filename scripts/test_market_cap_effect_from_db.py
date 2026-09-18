@@ -59,6 +59,7 @@ def build_base_config() -> StrategyConfig:
     cfg = StrategyConfig()
     cfg.regime.breadth_threshold = 0.25
     cfg.regime.volume_ratio_threshold = 0.9
+    cfg.global_risk.max_industry_exposure_pct = 0.30
     cfg.sizing.atr_multiplier = 2.5
     cfg.sizing.chandelier_lookback = 10
     return cfg
