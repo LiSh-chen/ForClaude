@@ -98,6 +98,22 @@ def test_start_date_reuses_full_history_for_warmup():
     assert gated_trade_count >= 5
 
 
+def test_top_n_one_still_enters_despite_fee_on_top_of_full_budget():
+    """top_n=1 時 per_stock_budget = 全部資金，floor 完股數後剛好用滿預算，
+    手續費疊上去會讓 total_cost 略微超過 cash，導致每次進場都被 continue
+    跳過、整段回測 0 筆交易——這是 US S&P 500 動量策略持股檔數網格
+    （scripts/test_us_momentum_topn_from_db.py）測 top_n=1~2 時，用合成
+    資料跑煙霧測試才第一次抓到的既有引擎 bug，其他既有測試/正式回測都
+    沒踩到（top_n 通常 >= 3，budget 沒有剛好用滿，手續費還有餘裕空間）。
+    """
+    data = generate_synthetic_universe(SyntheticUniverseConfig(n_stocks=10, n_days=500, seed=3))
+    factor_cfg = FactorConfig(momentum_window=60, rebalance_freq_days=21, top_n=1)
+
+    result = run_factor_backtest(data["prices"], build_us_config(), factor_cfg, cost_module=us_costs)
+
+    assert len(result.trades) > 0 or len(result.open_positions) > 0
+
+
 def test_signal_fn_overrides_default_momentum_ranking():
     """signal_fn 讓呼叫端替換排名依據（例如跳空幅度、當日盤中報酬），不用
     被限制在「落後報酬率」——用來測試 scripts/test_lagged_gap_signal_from_db.py

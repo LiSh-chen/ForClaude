@@ -141,7 +141,18 @@ def run_factor_backtest(
                     continue
                 fee = cost_module.entry_cost(entry_price, shares, cfg.costs)
                 total_cost = shares * entry_price + fee
-                if total_cost > cash:
+                # per_stock_budget 可能等於（甚至只略低於）現有 cash（n_target 很小時
+                # 尤其明顯，n_target=1 時 budget 直接等於全部資金），floor 完的股數再加上
+                # 手續費就可能略微超出 cash——不是「這檔真的買不起」，只是股數還沒扣到
+                # 剛好留出手續費的空間，逐張（lot）往下調直到真的塞得進 cash 為止，而不是
+                # 整筆直接放棄進場
+                while total_cost > cash and shares >= cfg.sizing.lot_size:
+                    shares -= cfg.sizing.lot_size
+                    if shares < cfg.sizing.lot_size:
+                        break
+                    fee = cost_module.entry_cost(entry_price, shares, cfg.costs)
+                    total_cost = shares * entry_price + fee
+                if shares < cfg.sizing.lot_size or total_cost > cash:
                     continue
                 cash -= total_cost
                 positions[stock_id] = Position(
