@@ -20,6 +20,8 @@ yfinance 不需要 API token，免費、沒有 FinMind 那種「當日額度用�
 
 from __future__ import annotations
 
+import io
+
 import pandas as pd
 
 US_PRICE_COLUMNS = ["date", "stock_id", "industry", "open", "high", "low", "close", "volume", "turnover_value"]
@@ -81,7 +83,11 @@ class YFinanceUSDataProvider:
         headers = {"User-Agent": "Mozilla/5.0 (compatible; research-bot/1.0)"}
         resp = requests.get(url, headers=headers, timeout=30)
         resp.raise_for_status()
-        tables = pd.read_html(resp.text)
+        # pandas >=2.1 把「直接傳字串給 read_html」判定為棄用用法，字串太長
+        # 時甚至會被誤判成檔案路徑去 open()，丟出 FileNotFoundError（訊息裡
+        # 塞了一截 HTML 內容）。用 io.StringIO 包起來明確告訴 pandas 這是
+        # HTML 內容不是路徑。
+        tables = pd.read_html(io.StringIO(resp.text))
         return parse_sp500_wikipedia_table(tables[0])
 
     def fetch_price(self, stock_id: str, start_date: str, end_date: str, industry: str = "") -> pd.DataFrame:
