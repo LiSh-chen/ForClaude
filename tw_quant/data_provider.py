@@ -239,6 +239,27 @@ class FinMindDataProvider:
         keep = ["date", "stock_id", "revenue", "revenue_year", "revenue_month"]
         return df[[c for c in keep if c in df.columns]].drop_duplicates()
 
+    def fetch_shares_issued(self, stock_id: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """在外已發行股數（用來算股本/市值，藉此判斷公司規模）。
+
+        FinMind 沒有直接叫「市值」或「股本」的 dataset，但
+        TaiwanStockShareholding（原本是外資持股比例統計用的）裡剛好帶了
+        NumberOfSharesIssued（已發行股數）這個欄位，可以拿來算：
+          股本（億元） = NumberOfSharesIssued * 10（假設面額 10 元，台股
+            絕大多數股票都是這個面額，少數特殊面額股票這裡會算錯，是已知
+            但接受的簡化）/ 100,000,000
+          市值 = NumberOfSharesIssued * 當日收盤價（跟 prices 表 join 後才能算）
+        這個資料集主要目的是揭露外資持股，已發行股數只是附帶欄位，所以
+        「相對其他 dataset 比較冷門」，串接前務必先以小範圍資料驗證。
+        """
+        raw = self._get("TaiwanStockShareholding", stock_id, start_date, end_date)
+        if raw.empty:
+            return raw
+        df = raw.rename(columns={"NumberOfSharesIssued": "shares_issued"})
+        df["date"] = pd.to_datetime(df["date"])
+        df["stock_id"] = stock_id
+        return df[["date", "stock_id", "shares_issued"]].drop_duplicates()
+
     def fetch_stock_info(self) -> pd.DataFrame:
         """全市場股票基本資料（含產業分類），用來補齊 prices 面板的 industry 欄位。
 

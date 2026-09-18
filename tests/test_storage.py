@@ -123,6 +123,23 @@ def test_month_revenue_is_idempotent_no_duplicates(store):
     assert len(store.load_month_revenue()) == 1
 
 
+def test_shares_issued_round_trip(store):
+    dates = pd.to_datetime(["2024-01-01", "2024-01-02"])
+    df = pd.DataFrame({"date": dates, "stock_id": ["2330"] * 2, "shares_issued": [25932070992.0, 25932070992.0]})
+    store.upsert_shares_issued(df)
+    loaded = store.load_shares_issued()
+    assert len(loaded) == 2
+    assert loaded["shares_issued"].iloc[0] == 25932070992.0
+
+
+def test_shares_issued_is_idempotent_no_duplicates(store):
+    dates = pd.to_datetime(["2024-01-01"])
+    df = pd.DataFrame({"date": dates, "stock_id": ["2330"], "shares_issued": [25932070992.0]})
+    store.upsert_shares_issued(df)
+    store.upsert_shares_issued(df)
+    assert len(store.load_shares_issued()) == 1
+
+
 def test_latest_date_returns_none_when_empty(store):
     assert store.latest_date("prices") is None
 

@@ -26,6 +26,7 @@ import pandas as pd
 PRICE_COLS = ["date", "stock_id", "industry", "open", "high", "low", "close", "volume", "turnover_value"]
 MARGIN_COLS = ["date", "stock_id", "margin_purchase_balance", "short_balance"]
 MONTH_REVENUE_COLS = ["date", "stock_id", "revenue", "revenue_year", "revenue_month"]
+SHARES_ISSUED_COLS = ["date", "stock_id", "shares_issued"]
 
 
 class DataStore(ABC):
@@ -50,6 +51,14 @@ class DataStore(ABC):
 
     @abstractmethod
     def load_month_revenue(
+        self, start_date: str | None = None, end_date: str | None = None, stock_ids: list[str] | None = None
+    ) -> pd.DataFrame: ...
+
+    @abstractmethod
+    def upsert_shares_issued(self, df: pd.DataFrame) -> None: ...
+
+    @abstractmethod
+    def load_shares_issued(
         self, start_date: str | None = None, end_date: str | None = None, stock_ids: list[str] | None = None
     ) -> pd.DataFrame: ...
 
@@ -98,6 +107,15 @@ class SQLiteDataStore(DataStore):
                 CREATE TABLE IF NOT EXISTS month_revenue (
                     date TEXT NOT NULL, stock_id TEXT NOT NULL,
                     revenue REAL, revenue_year INTEGER, revenue_month INTEGER,
+                    PRIMARY KEY (date, stock_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS shares_issued (
+                    date TEXT NOT NULL, stock_id TEXT NOT NULL,
+                    shares_issued REAL,
                     PRIMARY KEY (date, stock_id)
                 )
                 """
@@ -166,6 +184,20 @@ class SQLiteDataStore(DataStore):
 
     def load_month_revenue(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
         return self._load("month_revenue", MONTH_REVENUE_COLS, start_date, end_date, stock_ids)
+
+    def upsert_shares_issued(self, df: pd.DataFrame) -> None:
+        if df.empty:
+            return
+        d = _normalize_dates(df)
+        rows = list(d[SHARES_ISSUED_COLS].itertuples(index=False, name=None))
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO shares_issued (date, stock_id, shares_issued) VALUES (?,?,?)",
+                rows,
+            )
+
+    def load_shares_issued(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
+        return self._load("shares_issued", SHARES_ISSUED_COLS, start_date, end_date, stock_ids)
 
     def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None:
         query = f"SELECT MAX(date) FROM {table}"
@@ -248,6 +280,15 @@ class PostgresDataStore(DataStore):
                 CREATE TABLE IF NOT EXISTS month_revenue (
                     date DATE NOT NULL, stock_id TEXT NOT NULL,
                     revenue DOUBLE PRECISION, revenue_year INTEGER, revenue_month INTEGER,
+                    PRIMARY KEY (date, stock_id)
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS shares_issued (
+                    date DATE NOT NULL, stock_id TEXT NOT NULL,
+                    shares_issued DOUBLE PRECISION,
                     PRIMARY KEY (date, stock_id)
                 )
                 """
@@ -345,6 +386,26 @@ class PostgresDataStore(DataStore):
 
     def load_month_revenue(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
         return self._load("month_revenue", MONTH_REVENUE_COLS, start_date, end_date, stock_ids)
+
+    def upsert_shares_issued(self, df: pd.DataFrame) -> None:
+        if df.empty:
+            return
+        d = _normalize_dates(df)
+        rows = list(d[SHARES_ISSUED_COLS].itertuples(index=False, name=None))
+        with self._connect() as conn, conn.cursor() as cur:
+            self._execute_values(
+                cur,
+                """
+                INSERT INTO shares_issued (date, stock_id, shares_issued)
+                VALUES %s
+                ON CONFLICT (date, stock_id) DO UPDATE SET shares_issued = EXCLUDED.shares_issued
+                """,
+                rows,
+            )
+            conn.commit()
+
+    def load_shares_issued(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
+        return self._load("shares_issued", SHARES_ISSUED_COLS, start_date, end_date, stock_ids)
 
     def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None:
         query = f"SELECT MAX(date) FROM {table}"

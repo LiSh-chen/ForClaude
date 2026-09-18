@@ -1,0 +1,37 @@
+name: Test Market Cap (Share Capital) Effect
+
+# 手動觸發：把現有 150 檔股票 universe 依股本切成大/小兩半，比較策略 C
+# 跟 PEAD 月營收漂移策略在兩組上的表現差異
+# （scripts/test_market_cap_effect_from_db.py）。需要資料庫裡已經有
+# 已發行股數資料（ingest_daily_data.py 最近一次擴充後才開始抓，第一次
+# 跑這個 workflow 前，請先手動跑一次 Daily TW Market Data Ingest）。
+# 不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test market cap effect
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_market_cap_effect_from_db.py

@@ -136,6 +136,7 @@ def main() -> None:
     total_price_rows = 0
     total_margin_rows = 0
     total_revenue_rows = 0
+    total_shares_rows = 0
     failures: list[str] = []
 
     for i, stock_id in enumerate(universe, start=1):
@@ -184,15 +185,32 @@ def main() -> None:
                 total_revenue_rows += len(revenue_df)
             time.sleep(sleep_s)
 
+            shares_latest = None if force_backfill else store.latest_date("shares_issued", stock_id=stock_id)
+            shares_start = (
+                backfill_start
+                if shares_latest is None
+                else (shares_latest - pd.Timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+            )
+            shares_df = _call_with_timeout(
+                lambda sid=stock_id, s=shares_start, e=end_date: provider.fetch_shares_issued(sid, s, e), timeout_s=30.0
+            )
+            if not shares_df.empty:
+                store.upsert_shares_issued(shares_df)
+                total_shares_rows += len(shares_df)
+            time.sleep(sleep_s)
+
             print(
                 f"[{i}/{len(universe)}] {stock_id}: 價量 {len(price_df)} 筆、融資券 {len(margin_df)} 筆、"
-                f"月營收 {len(revenue_df)} 筆（{start_date} ~ {end_date}）"
+                f"月營收 {len(revenue_df)} 筆、已發行股數 {len(shares_df)} 筆（{start_date} ~ {end_date}）"
             )
         except Exception as exc:  # noqa: BLE001 - 單一檔失敗不該中斷整個排程
             print(f"[warn] [{i}/{len(universe)}] {stock_id} 抓取失敗: {exc}", file=sys.stderr)
             failures.append(stock_id)
 
-    print(f"完成。寫入價量 {total_price_rows} 筆，融資券 {total_margin_rows} 筆，月營收 {total_revenue_rows} 筆。")
+    print(
+        f"完成。寫入價量 {total_price_rows} 筆，融資券 {total_margin_rows} 筆，"
+        f"月營收 {total_revenue_rows} 筆，已發行股數 {total_shares_rows} 筆。"
+    )
     if failures:
         print(f"[warn] {len(failures)} 檔抓取失敗: {failures}", file=sys.stderr)
 
