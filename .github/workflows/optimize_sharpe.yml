@@ -1,0 +1,32 @@
+name: Optimize Sharpe Of Best Strategy On Real Data
+
+# 手動觸發：針對目前最佳策略（結構轉折+量能確認），測試兩個能動到「波動度」
+# 而不是「訊號準不準」的槓桿——收緊投資組合風控參數、混合第二個低相關訊號
+# （超跌反彈）——看能不能在不大幅犧牲報酬的前提下拉高 Sharpe。
+# 不會寫回任何資料，純粹讀取 + 印出結果。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Sharpe optimization search
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/optimize_sharpe_from_db.py
