@@ -1,0 +1,29 @@
+name: Check FinMind Intraday Data Availability (temporary diagnostic)
+
+# 一次性診斷用：這個沙盒連不到 api.finmindtrade.com，只能在這裡（有正常網路）
+# 實際打 API 確認有沒有分鐘級/tick 級盤中歷史資料可用。用完會刪除。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Check intraday dataset availability
+        env:
+          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+        run: python scripts/check_finmind_intraday_availability.py
