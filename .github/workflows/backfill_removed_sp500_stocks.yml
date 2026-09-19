@@ -1,0 +1,34 @@
+name: Backfill Removed S&P 500 Stocks
+
+# 正式把 yfinance 抓得到的 74 檔被剔除 S&P 500 股票寫進資料庫（us_prices +
+# us_index_membership 兩張表），補齊存活者偏差修正的「被剔除」半邊。會真的
+# 寫入資料庫（不是唯讀診斷），但是 upsert-based，冪等，可以安全重跑。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Backfill removed S&P 500 stocks
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/backfill_removed_sp500_stocks.py
