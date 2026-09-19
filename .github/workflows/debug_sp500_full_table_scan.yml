@@ -1,0 +1,26 @@
+name: Debug S&P 500 Full Table Scan (one-off, delete after use)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Scan all tables on S&P 500 Wikipedia page
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/debug_sp500_full_table_scan.py
