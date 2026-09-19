@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 from tw_quant.storage import SQLiteDataStore
+from tw_quant.storage import _membership_rows as build_membership_rows
 
 
 @pytest.fixture
@@ -185,6 +186,27 @@ def _membership_rows(stock_ids, start_dates, end_dates=None):
             "end_date": pd.to_datetime(end_dates) if end_dates is not None else [pd.NaT] * len(stock_ids),
         }
     )
+
+
+def test_membership_rows_uses_real_none_not_float_nan_for_missing_end_date():
+    """回歸測試：曾經在正式 Postgres 資料庫上炸掉的 bug——`series.where(cond,
+    None) 賦值回 DataFrame 欄位時，在 pandas 3.x 的新版字串 dtype 下會把
+    None 悄悄轉成 float('nan')，SQLite 對型別不敏感所以本地測試一直沒抓到，
+    直到全新的 Postgres 資料庫執行 upsert 才用 DatatypeMismatch 報錯
+    （'NaN'::float 塞進 DATE 欄位）。這裡直接測 _membership_rows 這個組
+    tuple 的函式本身，確保缺值真的是 Python 的 None，不是 float nan。
+    """
+    df = pd.DataFrame(
+        {"stock_id": ["MMM", "CELG"], "start_date": pd.to_datetime(["1957-03-04", "2005-01-01"])}
+    )
+    df["end_date"] = pd.NaT
+    df.loc[1, "end_date"] = pd.Timestamp("2019-11-21")
+
+    rows = build_membership_rows(df)
+
+    assert rows[0] == ("MMM", "1957-03-04", None)
+    assert rows[0][2] is None
+    assert rows[1] == ("CELG", "2005-01-01", "2019-11-21")
 
 
 def test_us_index_membership_round_trip(store):

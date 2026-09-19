@@ -87,6 +87,27 @@ def _normalize_dates(df: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
+def _membership_rows(df: pd.DataFrame) -> list[tuple]:
+    """把 upsert_us_index_membership 的輸入轉成 (stock_id, start_date字串,
+    end_date字串或None) 的 tuple list，直接用 list comprehension 組、不透過
+    中間的 pandas Series/欄位賦值。
+
+    原本用 `series.where(cond, None)` 想把 NaT 換成 None 再寫回 DataFrame
+    欄位，結果在 pandas 3.x 的新版字串 dtype 下，None 賦值回欄位時會被
+    悄悄轉型成 float('nan')，不是真的 None——SQLite 對這個不敏感（NaN 被
+    當成一般值存進去），但 Postgres 的 DATE 欄位型別檢查會直接報
+    `DatatypeMismatch`（新的 Neon 資料庫從空的開始 upsert 時才第一次真的
+    踩到，SQLite 開發環境一直沒發現）。改成逐列組 tuple、None 就是
+    Python 的 None，不會被 pandas 重新推斷型別動過。
+    """
+    starts = pd.to_datetime(df["start_date"])
+    ends = pd.to_datetime(df["end_date"])
+    return [
+        (stock_id, s.strftime("%Y-%m-%d"), None if pd.isna(e) else e.strftime("%Y-%m-%d"))
+        for stock_id, s, e in zip(df["stock_id"], starts, ends)
+    ]
+
+
 class SQLiteDataStore(DataStore):
     def __init__(self, db_path: str | Path = "data/tw_market.db"):
         self.db_path = Path(db_path)
@@ -283,11 +304,7 @@ class SQLiteDataStore(DataStore):
     def upsert_us_index_membership(self, df: pd.DataFrame) -> None:
         if df.empty:
             return
-        d = df.copy()
-        d["start_date"] = pd.to_datetime(d["start_date"]).dt.strftime("%Y-%m-%d")
-        end = pd.to_datetime(d["end_date"])
-        d["end_date"] = end.dt.strftime("%Y-%m-%d").where(end.notna(), None)
-        rows = list(d[US_INDEX_MEMBERSHIP_COLS].itertuples(index=False, name=None))
+        rows = _membership_rows(df)
         with self._connect() as conn:
             conn.executemany(
                 "INSERT OR REPLACE INTO us_index_membership (stock_id, start_date, end_date) VALUES (?,?,?)", rows
@@ -582,11 +599,7 @@ class PostgresDataStore(DataStore):
     def upsert_us_index_membership(self, df: pd.DataFrame) -> None:
         if df.empty:
             return
-        d = df.copy()
-        d["start_date"] = pd.to_datetime(d["start_date"]).dt.strftime("%Y-%m-%d")
-        end = pd.to_datetime(d["end_date"])
-        d["end_date"] = end.dt.strftime("%Y-%m-%d").where(end.notna(), None)
-        rows = list(d[US_INDEX_MEMBERSHIP_COLS].itertuples(index=False, name=None))
+        rows = _membership_rows(df)
         with self._connect() as conn, conn.cursor() as cur:
             self._execute_values(
                 cur,
