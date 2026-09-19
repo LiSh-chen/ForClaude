@@ -47,7 +47,7 @@ from tw_quant import indicators as ind
 from tw_quant import us_costs
 from tw_quant.backtest_stats import metrics_from_result
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
-from tw_quant.storage import get_data_store
+from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.us_config import build_us_config
 from tw_quant.us_universe import filter_prices_by_index_membership
 
@@ -115,12 +115,11 @@ def _print_period(label: str, us_prices, base_cfg, start_date, end_date, qqq_ben
 
 
 def main() -> None:
-    store = get_data_store()
-    us_prices = store.load_us_prices()
-    membership = store.load_us_index_membership()
+    us_prices = load_us_prices_snapshot()
+    membership = load_us_index_membership_snapshot()
 
     if us_prices.empty:
-        print("資料庫裡沒有任何美股價量資料。", file=sys.stderr)
+        print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
 
     n_rows_before = len(us_prices)

@@ -7,4 +7,5 @@ requests>=2.31
 psycopg2-binary>=2.9
 yfinance>=0.2
 lxml>=5.0
+pyarrow>=14.0
 streamlit>=1.35

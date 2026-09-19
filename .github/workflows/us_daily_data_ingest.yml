@@ -52,6 +52,25 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python scripts/ingest_us_daily_data.py
 
+      # 匯出成 commit 進 repo 的 Parquet 快照，讓策略回測腳本改讀本機檔案、
+      # 不用每次都連資料庫整表撈一次（見 tw_quant/data_snapshot.py 的
+      # 背景說明——Neon 免費方案每月 5GB 網路傳出流量額度，11 個策略腳本
+      # 重複整表讀取很容易疊加打滿）。兩種儲存模式都要匯出，不像下面
+      # SQLite 檔案 commit 只在沒設 DATABASE_URL 時才需要。
+      - name: Export US data snapshot for strategy scripts
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/export_us_data_snapshot.py
+
+      - name: Commit US data snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/us_prices_snapshot.parquet data/us_index_membership_snapshot.parquet
+          git diff --cached --quiet || git commit -m "chore: update US data snapshot for strategy scripts $(date -u +%F)"
+          git push
+
       - name: Show current data status
         if: always()
         env:
