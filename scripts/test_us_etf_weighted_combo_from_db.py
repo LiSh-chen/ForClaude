@@ -91,7 +91,7 @@ def _print_period(label: str, etf_closes: dict[str, pd.DataFrame], base_cfg, sta
         cols = list(weights.keys())
         prices = aligned[cols]
         for rebal_label, freq in REBALANCE_GRID:
-            values, n_rebal = simulate_weighted_portfolio(
+            values, n_rebal, _fills = simulate_weighted_portfolio(
                 prices, weights, base_cfg.costs, base_cfg.initial_capital, freq
             )
             m = metrics_from_equity_curve(values)

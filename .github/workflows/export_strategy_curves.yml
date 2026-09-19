@@ -1,0 +1,45 @@
+name: Export Strategy Equity Curves & Trade Records
+
+# 手動觸發：使用者要求把「所有探討成果」畫成圖表比較，且明確要求要有
+# 真實的逐日資產淨值曲線、持股/交易紀錄，不能只用摘要指標湊。這裡跑
+# scripts/export_strategy_curves_from_db.py，把代表性策略/組合的
+# BacktestResult.equity_curve / trades（本來就有算，只是沒存下來）跟
+# ETF 組合模擬的市值序列，匯出成 data/strategy_equity_curves.parquet
+# 跟 data/strategy_trades.parquet，commit 回 repo 供前端圖表讀取。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Export strategy equity curves and trade records
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/export_strategy_curves_from_db.py
+
+      - name: Commit exported curves and trade records
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/strategy_equity_curves.parquet data/strategy_trades.parquet
+          git diff --cached --quiet || git commit -m "chore: export strategy equity curves and trade records for charting $(date -u +%F)"
+          git push

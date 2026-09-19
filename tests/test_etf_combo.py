@@ -30,7 +30,7 @@ def test_weights_must_sum_to_one():
 
 def test_no_rebalance_flat_prices_value_stays_at_initial_minus_entry_cost():
     prices = _flat_prices(10, {"A": 100.0, "B": 100.0})
-    values, n_rebal = simulate_weighted_portfolio(prices, {"A": 0.5, "B": 0.5}, COST_CFG, 10_000.0, None)
+    values, n_rebal, fills = simulate_weighted_portfolio(prices, {"A": 0.5, "B": 0.5}, COST_CFG, 10_000.0, None)
 
     assert n_rebal == 0
     # 買進 50 股 A + 50 股 B，各花 100*50=5000，手續費 50*0.1=5 元/檔，
@@ -43,7 +43,7 @@ def test_no_rebalance_flat_prices_value_stays_at_initial_minus_entry_cost():
 def test_no_rebalance_with_zero_cost_matches_buyhold_return_exactly():
     dates = pd.date_range("2020-01-01", periods=3, freq="B")
     prices = pd.DataFrame({"A": [100.0, 110.0, 121.0]}, index=dates)  # +10% 兩次
-    values, n_rebal = simulate_weighted_portfolio(prices, {"A": 1.0}, ZERO_COST_CFG, 10_000.0, None)
+    values, n_rebal, fills = simulate_weighted_portfolio(prices, {"A": 1.0}, ZERO_COST_CFG, 10_000.0, None)
 
     assert n_rebal == 0
     assert values.iloc[0] == pytest.approx(10_000.0)
@@ -57,9 +57,18 @@ def test_rebalance_triggers_on_expected_days_and_pulls_weight_back():
     prices = pd.DataFrame(
         {"A": [100.0 * (1.05**i) for i in range(9)], "B": [100.0] * 9}, index=dates
     )
-    values, n_rebal = simulate_weighted_portfolio(prices, {"A": 0.5, "B": 0.5}, ZERO_COST_CFG, 10_000.0, 2)
+    values, n_rebal, fills = simulate_weighted_portfolio(prices, {"A": 0.5, "B": 0.5}, ZERO_COST_CFG, 10_000.0, 2)
 
     assert n_rebal == 4
+    # 期初 2 筆建倉（A、B 各一筆），之後 A 持續上漲、B 持平：每次再平衡都該
+    # 賣一點漲多的 A、買一點沒漲的 B，才能拉回 50/50
+    initial_fills = [f for f in fills if f["date"] == dates[0]]
+    assert {f["ticker"] for f in initial_fills} == {"A", "B"}
+    assert all(f["action"] == "buy" for f in initial_fills)
+    rebalance_fills = [f for f in fills if f["date"] != dates[0]]
+    assert len(rebalance_fills) > 0
+    assert any(f["ticker"] == "A" and f["action"] == "sell" for f in rebalance_fills)
+    assert any(f["ticker"] == "B" and f["action"] == "buy" for f in rebalance_fills)
 
 
 def test_rebalance_costs_more_than_no_rebalance_under_pure_drift_no_real_edge():
@@ -72,8 +81,8 @@ def test_rebalance_costs_more_than_no_rebalance_under_pure_drift_no_real_edge():
     prices = pd.DataFrame({"A": shared_path, "B": shared_path}, index=dates)
 
     weights = {"A": 0.5, "B": 0.5}
-    values_none, _ = simulate_weighted_portfolio(prices, weights, COST_CFG, 10_000.0, None)
-    values_rebal, n_rebal = simulate_weighted_portfolio(prices, weights, COST_CFG, 10_000.0, 5)
+    values_none, _, _ = simulate_weighted_portfolio(prices, weights, COST_CFG, 10_000.0, None)
+    values_rebal, n_rebal, fills_rebal = simulate_weighted_portfolio(prices, weights, COST_CFG, 10_000.0, 5)
 
     assert n_rebal > 0
     assert values_rebal.iloc[-1] <= values_none.iloc[-1]

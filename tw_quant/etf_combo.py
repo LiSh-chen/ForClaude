@@ -27,7 +27,7 @@ def simulate_weighted_portfolio(
     cost_cfg: CostConfig,
     initial_capital: float,
     rebalance_freq_days: int | None,
-) -> tuple[pd.Series, int]:
+) -> tuple[pd.Series, int, list[dict]]:
     """prices：index 是日期（已對齊、已去除任一檔缺值的共同交易日），
     欄位是各檔 ticker 的收盤價，必須涵蓋 weights 的所有 key。
 
@@ -37,7 +37,9 @@ def simulate_weighted_portfolio(
     自然漂移，最貼近「買了就不動」的操作）；否則每滿 N 個交易日，把
     持股依當時總市值重新調回原始目標權重（賣多買少都真的計交易成本）。
 
-    回傳 (逐日投資組合市值序列, 再平衡次數)。
+    回傳 (逐日投資組合市值序列, 再平衡次數, 成交紀錄)。成交紀錄是
+    list[dict]，每筆一個 {date, ticker, action ("buy"/"sell"), price,
+    shares}，包含期初建倉跟每次再平衡的買賣，給視覺化/持股歷史還原用。
     """
     tickers = list(weights.keys())
     if abs(sum(weights.values()) - 1.0) > 1e-6:
@@ -49,6 +51,7 @@ def simulate_weighted_portfolio(
 
     shares = {t: 0 for t in tickers}
     cash = initial_capital
+    fills: list[dict] = []
 
     first_px = prices.iloc[0]
     for t in tickers:
@@ -57,6 +60,8 @@ def simulate_weighted_portfolio(
         n = int(target_dollar // price)
         cash -= n * price + entry_cost(price, n, cost_cfg)
         shares[t] = n
+        if n > 0:
+            fills.append({"date": dates[0], "ticker": t, "action": "buy", "price": price, "shares": n})
 
     values = np.empty(len(dates))
     n_rebalances = 0
@@ -73,15 +78,17 @@ def simulate_weighted_portfolio(
                 diff = target_shares - shares[t]
                 if diff > 0:
                     cash -= diff * price + entry_cost(price, diff, cost_cfg)
+                    fills.append({"date": dates[i], "ticker": t, "action": "buy", "price": price, "shares": diff})
                 elif diff < 0:
                     _, net = exit_proceeds(price, -diff, cost_cfg)
                     cash += net
+                    fills.append({"date": dates[i], "ticker": t, "action": "sell", "price": price, "shares": -diff})
                 shares[t] = target_shares
             port_value = cash + sum(shares[t] * float(px[t]) for t in tickers)
 
         values[i] = port_value
 
-    return pd.Series(values, index=dates), n_rebalances
+    return pd.Series(values, index=dates), n_rebalances, fills
 
 
 def metrics_from_equity_curve(values: pd.Series) -> dict:
