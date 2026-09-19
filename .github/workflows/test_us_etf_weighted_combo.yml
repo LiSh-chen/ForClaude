@@ -1,0 +1,35 @@
+name: Test US ETF Weighted Combo (QQQ + VOO/VTI/VT, with/without rebalancing)
+
+# 手動觸發：使用者在看過 10.14 節「QQQ+VOO+VTI+VT 四檔等額不再平衡」
+# 輸給單押 QQQ 的結果後，明確要求驗證不同組合/配比、以及定期再平衡
+# 與否的差異，不要只看等額這一種配法。見
+# scripts/test_us_etf_weighted_combo_from_db.py 開頭的完整背景說明。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test ETF weighted combo with/without rebalancing
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_etf_weighted_combo_from_db.py
