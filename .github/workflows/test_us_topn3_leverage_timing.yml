@@ -1,0 +1,37 @@
+name: Test top_n=3 Leverage Timing (Constant vs Vol-Target)
+
+# 手動觸發：使用者問「機構的槓桿時機」能不能學，討論後決定先只在
+# top_n=3（10.11 節樣本內外表現最一致的候選人）單一策略上驗證：
+# 不開槓桿 vs 固定 1.5 倍槓桿 vs 依波動度動態調整槓桿（vol-targeting），
+# 逐日檢查維持保證金率，不足時強制減碼。見
+# scripts/test_us_topn3_leverage_timing_from_db.py 開頭的完整背景說明
+# 跟 tw_quant/leverage.py 的模型假設。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test top_n=3 leverage timing
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_topn3_leverage_timing_from_db.py
