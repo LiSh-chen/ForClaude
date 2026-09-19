@@ -1,0 +1,34 @@
+name: Test US Benchmark Comparison (QQQ/VOO/VTI/VT) vs Momentum Strategy
+
+# 手動觸發：整個 10.1~10.13 節都只拿 QQQ 當買進持有對照組。這裡加入
+# VOO（S&P 500）、VTI（美股全市場）、VT（全球股市）一起比較，同時對照
+# 10.11 節的動量持股檔數策略，找出目前所有選項裡表現最好的投資組合。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test benchmark comparison
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_benchmark_comparison_from_db.py
