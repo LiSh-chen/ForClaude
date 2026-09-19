@@ -1,0 +1,35 @@
+name: Test Yfinance Coverage For Full Removed-Stock Roster
+
+# 把 list_sp500_removed_stocks_from_db.py 找到的完整缺漏名單（177 檔）全部
+# 拿去 yfinance 試抓一次，量出真正能補回幾檔（8 檔抽樣已經看出「仍在市場
+# 正常交易」vs「因併購/倒閉/私有化/改名下市」的清楚分野，這裡跑全樣本
+# 才能給出實際數字）。純讀取 yfinance，不寫入資料庫。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test yfinance coverage for full removed-stock roster
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_yfinance_full_backfill_scan.py

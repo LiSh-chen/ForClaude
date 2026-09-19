@@ -31,7 +31,12 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tw_quant.sp500_history import build_membership_intervals, fetch_snapshot_csv_text, parse_snapshot_table
+from tw_quant.sp500_history import (
+    build_membership_intervals,
+    fetch_snapshot_csv_text,
+    find_missing_intervals,
+    parse_snapshot_table,
+)
 from tw_quant.storage import get_data_store
 
 
@@ -60,13 +65,7 @@ def main() -> None:
     )
 
     intervals = build_membership_intervals(snapshot)
-
-    overlaps_window = (intervals["start_date"] <= window_end) & (
-        intervals["end_date"].isna() | (intervals["end_date"] >= window_start)
-    )
-    in_window = intervals[overlaps_window]
-
-    missing = in_window[~in_window["stock_id"].isin(db_stock_ids)].sort_values(["stock_id", "start_date"])
+    missing = find_missing_intervals(db_stock_ids, intervals, window_start, window_end)
 
     if missing.empty:
         print("在資料庫涵蓋期間內，快照裡出現過的股票代號都已經在資料庫裡——沒有找到缺漏。")
@@ -79,7 +78,7 @@ def main() -> None:
 
     for stock_id, group in missing.groupby("stock_id"):
         periods = "; ".join(
-            f"{_fmt_date(max(row.start_date, window_start))} ~ {_fmt_date(row.end_date)}" for row in group.itertuples()
+            f"{_fmt_date(row.clipped_start)} ~ {_fmt_date(row.end_date)}" for row in group.itertuples()
         )
         print(f"  {stock_id:<8} {periods}")
 

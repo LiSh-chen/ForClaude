@@ -6,7 +6,7 @@ NaT。
 
 import pandas as pd
 
-from tw_quant.sp500_history import build_membership_intervals, parse_snapshot_table
+from tw_quant.sp500_history import build_membership_intervals, find_missing_intervals, parse_snapshot_table
 
 
 def test_parse_snapshot_table_normalizes_tickers_and_sorts_by_date():
@@ -71,3 +71,46 @@ def test_build_membership_intervals_splits_readded_stock_into_two_intervals():
     assert flip.iloc[0]["end_date"] == pd.Timestamp("2020-02-01")
     assert flip.iloc[1]["start_date"] == pd.Timestamp("2020-03-01")
     assert pd.isna(flip.iloc[1]["end_date"])
+
+
+def test_find_missing_intervals_excludes_stocks_already_in_db():
+    intervals = pd.DataFrame(
+        {
+            "stock_id": ["HAVE", "MISSING"],
+            "start_date": pd.to_datetime(["2019-01-01", "2019-01-01"]),
+            "end_date": pd.to_datetime(["2020-01-01", "2020-01-01"]),
+        }
+    )
+    result = find_missing_intervals(
+        {"HAVE"}, intervals, pd.Timestamp("2018-01-01"), pd.Timestamp("2021-01-01")
+    )
+    assert list(result["stock_id"]) == ["MISSING"]
+
+
+def test_find_missing_intervals_excludes_non_overlapping_periods():
+    intervals = pd.DataFrame(
+        {
+            "stock_id": ["TOO_EARLY", "IN_WINDOW"],
+            "start_date": pd.to_datetime(["2000-01-01", "2019-01-01"]),
+            "end_date": pd.to_datetime(["2005-01-01", "2020-01-01"]),
+        }
+    )
+    result = find_missing_intervals(set(), intervals, pd.Timestamp("2018-01-01"), pd.Timestamp("2021-01-01"))
+    assert list(result["stock_id"]) == ["IN_WINDOW"]
+
+
+def test_find_missing_intervals_clips_dates_to_window_and_fills_open_ended():
+    intervals = pd.DataFrame(
+        {
+            "stock_id": ["CLIPPED", "STILL_CURRENT"],
+            "start_date": pd.to_datetime(["2000-01-01", "2019-06-01"]),
+            "end_date": [pd.Timestamp("2019-06-01"), pd.NaT],
+        }
+    )
+    window_start, window_end = pd.Timestamp("2018-01-01"), pd.Timestamp("2021-01-01")
+    result = find_missing_intervals(set(), intervals, window_start, window_end).set_index("stock_id")
+
+    assert result.loc["CLIPPED", "clipped_start"] == window_start
+    assert result.loc["CLIPPED", "clipped_end"] == pd.Timestamp("2019-06-01")
+    assert result.loc["STILL_CURRENT", "clipped_start"] == pd.Timestamp("2019-06-01")
+    assert result.loc["STILL_CURRENT", "clipped_end"] == window_end

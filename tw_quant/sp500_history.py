@@ -100,3 +100,26 @@ def build_membership_intervals(snapshot: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["stock_id", "start_date", "end_date"]).sort_values(
         ["stock_id", "start_date"]
     ).reset_index(drop=True)
+
+
+def find_missing_intervals(
+    db_stock_ids: set[str], intervals: pd.DataFrame, window_start: pd.Timestamp, window_end: pd.Timestamp
+) -> pd.DataFrame:
+    """從 build_membership_intervals 的區間表裡，抓出「跟資料庫涵蓋期間
+    [window_start, window_end] 有重疊、但 stock_id 不在資料庫現有清單裡」
+    的區間，並把每個區間裁切到資料庫涵蓋期間內（clipped_start/clipped_end
+    兩欄，clipped_end 用 window_end 補上開放式區間的 NaT，方便直接拿去當
+    yfinance fetch_price 的 start_date/end_date 參數）。
+
+    抽成獨立函式讓 scripts/list_sp500_removed_stocks_from_db.py（只列名單）
+    跟批次測試 yfinance 覆蓋率的腳本共用同一套「誰缺資料」邏輯，兩邊的
+    名單不會因為各自重新實作而兜不起來。
+    """
+    overlaps_window = (intervals["start_date"] <= window_end) & (
+        intervals["end_date"].isna() | (intervals["end_date"] >= window_start)
+    )
+    in_window = intervals[overlaps_window].copy()
+    missing = in_window[~in_window["stock_id"].isin(db_stock_ids)].sort_values(["stock_id", "start_date"])
+    missing["clipped_start"] = missing["start_date"].clip(lower=window_start)
+    missing["clipped_end"] = missing["end_date"].fillna(window_end)
+    return missing.reset_index(drop=True)
