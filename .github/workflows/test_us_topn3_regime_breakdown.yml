@@ -1,0 +1,37 @@
+name: Test top_n=3 Regime Breakdown (Momentum vs Flat vs Correction)
+
+# 手動觸發：使用者問「動能強勢期超額報酬、平穩期不輸大盤」這個假設是否
+# 成立，討論後決定用客觀的市場狀態三分位分組（QQQ 自身 T-1 為止 126 日
+# 已實現報酬率）拆解 top_n=3 在整段可用歷史裡各狀態下的表現，而不是繼續
+# 用人為切的樣本內/樣本外日期分界。見
+# scripts/test_us_topn3_regime_breakdown_from_db.py 開頭的完整背景說明
+# 跟 tw_quant/market_regime_breakdown.py 的分組邏輯。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test top_n=3 regime breakdown
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_topn3_regime_breakdown_from_db.py
