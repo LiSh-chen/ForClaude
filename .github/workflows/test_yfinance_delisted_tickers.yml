@@ -1,0 +1,33 @@
+name: Test Yfinance Delisted Ticker Coverage
+
+# 抽樣測試 yfinance 能不能抓到已被踢出 S&P 500、資料庫裡完全沒資料的股票的
+# 歷史股價（scripts/list_sp500_removed_stocks_from_db.py 列出 177 檔缺漏
+# 名單之後的下一步）。純讀取 yfinance，不寫入資料庫。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test yfinance coverage for sample of delisted S&P 500 stocks
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_yfinance_delisted_tickers.py
