@@ -98,6 +98,32 @@ def test_start_date_reuses_full_history_for_warmup():
     assert gated_trade_count >= 5
 
 
+def test_rebalance_dates_anchored_to_full_history_not_slice_start():
+    """調倉日曆要錨定在完整歷史的第一天，不能被 start_date 切片起點污染——
+    不然同一組 factor_cfg，光是 start_date 給的日期不同，調倉日期本身就會
+    跟著平移，對高度集中的 top_n 小組合來說，買到/賣掉的股票可能完全不同，
+    報酬率能差到一倍以上（見 2026-09-19 對話紀錄：把同一段歷史切成兩段
+    分別回測、再跟一次連續回測接起來對比時，總報酬對不上，根源就是這個）。
+    """
+    data = generate_synthetic_universe(SyntheticUniverseConfig(n_stocks=20, n_days=600, seed=5))
+    cfg = StrategyConfig()
+    factor_cfg = FactorConfig(momentum_window=20, rebalance_freq_days=10, top_n=5)
+
+    full_dates = sorted(data["prices"]["date"].unique())
+    expected_rebalance_dates = set(full_dates[:: factor_cfg.rebalance_freq_days])
+
+    late_start = full_dates[303]  # 刻意選一個「不是」完整歷史調倉日的日期
+    assert late_start not in expected_rebalance_dates
+
+    gated_result = run_factor_backtest(data["prices"], cfg, factor_cfg, start_date=late_start)
+
+    entry_dates = set(gated_result.trades["entry_date"]) | {
+        pos.entry_date for pos in gated_result.open_positions.values()
+    }
+    assert entry_dates, "測試前提：這個窗格內應該至少進場過一次"
+    assert entry_dates <= expected_rebalance_dates
+
+
 def test_top_n_one_still_enters_despite_fee_on_top_of_full_budget():
     """top_n=1 時 per_stock_budget = 全部資金，floor 完股數後剛好用滿預算，
     手續費疊上去會讓 total_cost 略微超過 cash，導致每次進場都被 continue

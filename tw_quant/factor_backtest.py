@@ -84,13 +84,22 @@ def run_factor_backtest(
     master["pool"] = pool.values
     master["momentum"] = ranking_signal.values if hasattr(ranking_signal, "values") else ranking_signal
 
+    # 調倉日曆的起點永遠錨定在完整歷史的第一天，不能等 start_date/end_date
+    # 切片完才算——不然同一組 factor_cfg 只因為傳進來的 start_date 不同，
+    # 調倉日期本身就會跟著平移。對月調倉、只押 top_n=3 這種高度集中的組合來說，
+    # 調倉日期差個幾天，實際買到/賣掉哪幾檔就可能完全不同，算出來的報酬率可以
+    # 差到一倍以上——這正是把同一段歷史切成兩段分別回測、再跟一次連續回測
+    # 對比時，總報酬對不起來的根本原因（見 2026-09-19 對話紀錄的
+    # regime breakdown 交叉檢查）。先在完整（未切片）日期序列上決定哪些日子
+    # 是調倉日，再用 start_date/end_date 篩選要不要「允許」在那天交易，
+    # 兩者分開處理，調倉日曆才不會被切片起點污染。
+    full_dates = sorted(master["date"].unique())
+    rebalance_dates = set(full_dates[:: factor_cfg.rebalance_freq_days])
+
     if start_date is not None:
         master = master[master["date"] >= pd.Timestamp(start_date)]
     if end_date is not None:
         master = master[master["date"] <= pd.Timestamp(end_date)]
-
-    dates = sorted(master["date"].unique())
-    rebalance_dates = set(dates[:: factor_cfg.rebalance_freq_days])
 
     cash = cfg.initial_capital
     positions: dict[str, Position] = {}
