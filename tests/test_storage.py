@@ -177,32 +177,61 @@ def test_us_prices_is_idempotent_no_duplicates(store):
     assert len(store.load_us_prices()) == 2
 
 
-def test_us_index_membership_round_trip(store):
-    df = pd.DataFrame(
-        {"stock_id": ["AAPL", "NVDA"], "date_added": pd.to_datetime(["1982-11-30", "2001-06-08"])}
+def _membership_rows(stock_ids, start_dates, end_dates=None):
+    return pd.DataFrame(
+        {
+            "stock_id": stock_ids,
+            "start_date": pd.to_datetime(start_dates),
+            "end_date": pd.to_datetime(end_dates) if end_dates is not None else [pd.NaT] * len(stock_ids),
+        }
     )
+
+
+def test_us_index_membership_round_trip(store):
+    df = _membership_rows(["AAPL", "NVDA"], ["1982-11-30", "2001-06-08"])
     store.upsert_us_index_membership(df)
 
     loaded = store.load_us_index_membership()
     assert len(loaded) == 2
-    added = loaded.set_index("stock_id")["date_added"]
-    assert added["AAPL"] == pd.Timestamp("1982-11-30")
-    assert added["NVDA"] == pd.Timestamp("2001-06-08")
+    started = loaded.set_index("stock_id")["start_date"]
+    assert started["AAPL"] == pd.Timestamp("1982-11-30")
+    assert started["NVDA"] == pd.Timestamp("2001-06-08")
+    assert loaded["end_date"].isna().all()
 
 
-def test_us_index_membership_upsert_overwrites_by_stock_id(store):
-    store.upsert_us_index_membership(pd.DataFrame({"stock_id": ["AAPL"], "date_added": pd.to_datetime(["1982-11-30"])}))
-    store.upsert_us_index_membership(pd.DataFrame({"stock_id": ["AAPL"], "date_added": pd.to_datetime(["1990-01-01"])}))
+def test_us_index_membership_round_trip_with_end_date(store):
+    df = _membership_rows(["CELG"], ["2005-01-01"], ["2019-11-21"])
+    store.upsert_us_index_membership(df)
+
+    loaded = store.load_us_index_membership()
+    assert loaded["end_date"].iloc[0] == pd.Timestamp("2019-11-21")
+
+
+def test_us_index_membership_upsert_overwrites_same_start_date(store):
+    store.upsert_us_index_membership(_membership_rows(["AAPL"], ["1982-11-30"]))
+    store.upsert_us_index_membership(_membership_rows(["AAPL"], ["1982-11-30"], ["2000-01-01"]))
 
     loaded = store.load_us_index_membership()
     assert len(loaded) == 1
-    assert loaded["date_added"].iloc[0] == pd.Timestamp("1990-01-01")
+    assert loaded["end_date"].iloc[0] == pd.Timestamp("2000-01-01")
+
+
+def test_us_index_membership_upsert_adds_second_interval_for_different_start_date(store):
+    """同一檔股票中途被剔除又重新加入：兩段不同 start_date 的區間該是兩列，
+    不是互相覆蓋——這是跟舊版（PK 只有 stock_id）行為不同的地方。
+    """
+    store.upsert_us_index_membership(_membership_rows(["FLIP"], ["2010-01-01"], ["2015-01-01"]))
+    store.upsert_us_index_membership(_membership_rows(["FLIP"], ["2018-01-01"]))
+
+    loaded = store.load_us_index_membership()
+    assert len(loaded) == 2
+    assert set(loaded["start_date"]) == {pd.Timestamp("2010-01-01"), pd.Timestamp("2018-01-01")}
 
 
 def test_us_index_membership_load_returns_empty_frame_when_no_data(store):
     loaded = store.load_us_index_membership()
     assert loaded.empty
-    assert list(loaded.columns) == ["stock_id", "date_added"]
+    assert list(loaded.columns) == ["stock_id", "start_date", "end_date"]
 
 
 def test_latest_date_returns_none_when_empty(store):

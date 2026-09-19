@@ -90,9 +90,10 @@ def main() -> None:
     # 加入指數」的股票，部分修正存活者偏差（見該模組檔頭說明）。這裡每次
     # 執行都存，不受 FORCE_BACKFILL 影響——只是覆寫最新的加入日期紀錄，
     # 成本很低，不需要另外判斷要不要更新。
-    membership = constituents[["stock_id", "date_added"]]
+    membership = constituents[["stock_id", "date_added"]].rename(columns={"date_added": "start_date"})
+    membership["end_date"] = pd.NaT  # 目前仍是成分股，還沒觀察到剔除日期（開放式區間）
     store.upsert_us_index_membership(membership)
-    n_missing_date = membership["date_added"].isna().sum()
+    n_missing_date = membership["start_date"].isna().sum()
     print(
         f"已更新 {len(membership)} 檔的指數加入日期記錄"
         f"（{n_missing_date} 檔缺加入日期，回測時視為一直都在指數裡）\n"

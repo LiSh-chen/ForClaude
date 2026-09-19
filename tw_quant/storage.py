@@ -27,7 +27,7 @@ PRICE_COLS = ["date", "stock_id", "industry", "open", "high", "low", "close", "v
 MARGIN_COLS = ["date", "stock_id", "margin_purchase_balance", "short_balance"]
 MONTH_REVENUE_COLS = ["date", "stock_id", "revenue", "revenue_year", "revenue_month"]
 SHARES_ISSUED_COLS = ["date", "stock_id", "shares_issued"]
-US_INDEX_MEMBERSHIP_COLS = ["stock_id", "date_added"]
+US_INDEX_MEMBERSHIP_COLS = ["stock_id", "start_date", "end_date"]
 
 
 class DataStore(ABC):
@@ -145,11 +145,43 @@ class SQLiteDataStore(DataStore):
                 )
                 """
             )
+            self._migrate_us_index_membership(conn)
+
+    def _migrate_us_index_membership(self, conn: sqlite3.Connection) -> None:
+        """`us_index_membership` 原本是「一檔股票一列、只存加入日期」
+        （PK 是 stock_id），只夠表示「這檔股票現在還在指數裡、哪天加入的」。
+        補回被剔除股票的歷史資料需要同一檔股票可能有多段區間（加入/剔除
+        日期都要存，中途被剔除又重新加入的話會有不只一段），改成
+        `(stock_id, start_date, end_date)`、PK 是 `(stock_id, start_date)`。
+
+        正式環境（Neon Postgres）已經有舊表格跑了一段時間，不能單純
+        `CREATE TABLE IF NOT EXISTS` 了事——那樣舊表格會原封不動留著、
+        新程式碼卻預期新欄位名稱，直接炸掉。這裡偵測舊表格存不存在、
+        有沒有 `start_date` 欄位，沒有的話才搬資料、換表格；已經是新結構
+        就直接 no-op，可以每次啟動都安全重跑。
+        """
+        cols = [row[1] for row in conn.execute("PRAGMA table_info(us_index_membership)").fetchall()]
+        if cols and "start_date" not in cols:
+            conn.execute("ALTER TABLE us_index_membership RENAME TO us_index_membership_old")
+            conn.execute(
+                """
+                CREATE TABLE us_index_membership (
+                    stock_id TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT,
+                    PRIMARY KEY (stock_id, start_date)
+                )
+                """
+            )
+            conn.execute(
+                "INSERT INTO us_index_membership (stock_id, start_date, end_date) "
+                "SELECT stock_id, date_added, NULL FROM us_index_membership_old WHERE date_added IS NOT NULL"
+            )
+            conn.execute("DROP TABLE us_index_membership_old")
+        else:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS us_index_membership (
-                    stock_id TEXT NOT NULL PRIMARY KEY,
-                    date_added TEXT
+                    stock_id TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT,
+                    PRIMARY KEY (stock_id, start_date)
                 )
                 """
             )
@@ -252,16 +284,20 @@ class SQLiteDataStore(DataStore):
         if df.empty:
             return
         d = df.copy()
-        d["date_added"] = pd.to_datetime(d["date_added"]).dt.strftime("%Y-%m-%d")
+        d["start_date"] = pd.to_datetime(d["start_date"]).dt.strftime("%Y-%m-%d")
+        end = pd.to_datetime(d["end_date"])
+        d["end_date"] = end.dt.strftime("%Y-%m-%d").where(end.notna(), None)
         rows = list(d[US_INDEX_MEMBERSHIP_COLS].itertuples(index=False, name=None))
         with self._connect() as conn:
             conn.executemany(
-                "INSERT OR REPLACE INTO us_index_membership (stock_id, date_added) VALUES (?,?)", rows
+                "INSERT OR REPLACE INTO us_index_membership (stock_id, start_date, end_date) VALUES (?,?,?)", rows
             )
 
     def load_us_index_membership(self) -> pd.DataFrame:
         with self._connect() as conn:
-            df = pd.read_sql_query("SELECT * FROM us_index_membership", conn, parse_dates=["date_added"])
+            df = pd.read_sql_query(
+                "SELECT * FROM us_index_membership", conn, parse_dates=["start_date", "end_date"]
+            )
         if df.empty:
             return pd.DataFrame(columns=US_INDEX_MEMBERSHIP_COLS)
         return df[US_INDEX_MEMBERSHIP_COLS]
@@ -370,15 +406,43 @@ class PostgresDataStore(DataStore):
                 )
                 """
             )
+            self._migrate_us_index_membership(cur)
+            conn.commit()
+
+    def _migrate_us_index_membership(self, cur) -> None:
+        """見 SQLiteDataStore._migrate_us_index_membership 的完整說明：把舊的
+        「一檔股票一列、PK 是 stock_id、只存加入日期」表格，遷移成
+        `(stock_id, start_date, end_date)`、PK 是 `(stock_id, start_date)`
+        的多區間表格，才能表示被剔除股票的剔除日期、以及中途被剔除又
+        重新加入的多段區間。跟 SQLite 版一樣偵測欄位存不存在，冪等、
+        可以每次啟動都安全重跑，不會对已經是新結構的表格重複搬資料。
+        """
+        cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'us_index_membership'")
+        cols = [row[0] for row in cur.fetchall()]
+        if cols and "start_date" not in cols:
+            cur.execute("ALTER TABLE us_index_membership RENAME TO us_index_membership_old")
             cur.execute(
                 """
-                CREATE TABLE IF NOT EXISTS us_index_membership (
-                    stock_id TEXT NOT NULL PRIMARY KEY,
-                    date_added DATE
+                CREATE TABLE us_index_membership (
+                    stock_id TEXT NOT NULL, start_date DATE NOT NULL, end_date DATE,
+                    PRIMARY KEY (stock_id, start_date)
                 )
                 """
             )
-            conn.commit()
+            cur.execute(
+                "INSERT INTO us_index_membership (stock_id, start_date, end_date) "
+                "SELECT stock_id, date_added, NULL FROM us_index_membership_old WHERE date_added IS NOT NULL"
+            )
+            cur.execute("DROP TABLE us_index_membership_old")
+        else:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS us_index_membership (
+                    stock_id TEXT NOT NULL, start_date DATE NOT NULL, end_date DATE,
+                    PRIMARY KEY (stock_id, start_date)
+                )
+                """
+            )
 
     def upsert_prices(self, df: pd.DataFrame) -> None:
         if df.empty:
@@ -519,15 +583,17 @@ class PostgresDataStore(DataStore):
         if df.empty:
             return
         d = df.copy()
-        d["date_added"] = pd.to_datetime(d["date_added"]).dt.strftime("%Y-%m-%d")
+        d["start_date"] = pd.to_datetime(d["start_date"]).dt.strftime("%Y-%m-%d")
+        end = pd.to_datetime(d["end_date"])
+        d["end_date"] = end.dt.strftime("%Y-%m-%d").where(end.notna(), None)
         rows = list(d[US_INDEX_MEMBERSHIP_COLS].itertuples(index=False, name=None))
         with self._connect() as conn, conn.cursor() as cur:
             self._execute_values(
                 cur,
                 """
-                INSERT INTO us_index_membership (stock_id, date_added)
+                INSERT INTO us_index_membership (stock_id, start_date, end_date)
                 VALUES %s
-                ON CONFLICT (stock_id) DO UPDATE SET date_added = EXCLUDED.date_added
+                ON CONFLICT (stock_id, start_date) DO UPDATE SET end_date = EXCLUDED.end_date
                 """,
                 rows,
             )
@@ -535,7 +601,9 @@ class PostgresDataStore(DataStore):
 
     def load_us_index_membership(self) -> pd.DataFrame:
         with self._connect() as conn:
-            df = pd.read_sql_query("SELECT * FROM us_index_membership", conn, parse_dates=["date_added"])
+            df = pd.read_sql_query(
+                "SELECT * FROM us_index_membership", conn, parse_dates=["start_date", "end_date"]
+            )
         if df.empty:
             return pd.DataFrame(columns=US_INDEX_MEMBERSHIP_COLS)
         return df[US_INDEX_MEMBERSHIP_COLS]
