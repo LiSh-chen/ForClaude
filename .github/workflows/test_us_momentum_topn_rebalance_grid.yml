@@ -1,0 +1,35 @@
+name: Test US Momentum Top-N x Rebalance Frequency Cross Grid
+
+# 手動觸發：10.8 節只測調倉頻率（固定 top_n=20）、10.11 節只測持股檔數
+# （固定 rebalance=21天），沒測過兩個維度交叉組合。這裡跑完整交叉網格
+# top_n∈{1,2,3,5,10} × rebalance_freq_days∈{5,10,21,42,63}，看有沒有
+# 比任何單一維度找到的最佳值更好的組合。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test momentum top-n x rebalance cross grid
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_momentum_topn_rebalance_grid_from_db.py
