@@ -1,0 +1,36 @@
+name: List S&P 500 Removed Stocks Missing From DB
+
+# 列出「存活者偏差」還沒解決的那一半：曾經是 S&P 500 成分股、在資料庫涵蓋
+# 期間內被剔除、資料庫裡完全沒有資料的股票名單（用 fja05680/sp500 這個
+# 社群維護的歷史成分股快照重建時間點成分股，見
+# scripts/list_sp500_removed_stocks_from_db.py 的背景說明）。純讀取/診斷，
+# 不寫入資料庫。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: List removed S&P 500 stocks missing from DB
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/list_sp500_removed_stocks_from_db.py
