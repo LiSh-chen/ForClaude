@@ -1,0 +1,48 @@
+name: Export Full top_n x Rebalance x Momentum-Window Grid
+
+# 手動觸發：使用者要求把「回測系統的所有核心參數都可選擇/調整」搬到
+# 儀表板上。瀏覽器沒辦法即時重跑 577 檔股票 × 8 年資料的 Python 回測
+# 引擎，所以把 top_n × rebalance_freq_days × momentum_window 這三個
+# 動量集中度策略最核心的參數，全部交叉組合（168 組合）用 GitHub
+# Actions 真實跑一次存起來，前端用下拉選單查表，瞬間換算但背後永遠是
+# 預先算好的真實數字。見 scripts/export_topn_full_grid_from_db.py
+# 開頭的完整背景說明。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    # 168 組合 × 2 期間 = 336 次完整回測，比先前任何一個匯出腳本都大，
+    # 給比較寬裕的 timeout；預期實際執行時間遠低於這個上限。
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Export full top_n x rebalance x momentum-window grid
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/export_topn_full_grid_from_db.py
+
+      - name: Commit exported grid data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/topn_grid_metrics.parquet data/topn_grid_equity.parquet
+          git diff --cached --quiet || git commit -m "chore: export full top_n x rebalance x momentum-window grid $(date -u +%F)"
+          git push
