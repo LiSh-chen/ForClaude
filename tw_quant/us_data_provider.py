@@ -105,6 +105,16 @@ def parse_yfinance_earnings_dates(earnings_dates: pd.DataFrame, stock_id: str) -
     但正式策略訊號（見 scripts/test_us_pead_earnings_drift_from_db.py）
     不直接用它，而是自己用 eps_estimate/eps_actual 重新計算——避免依賴一個
     沒辦法從外部稽核公式定義的第三方欄位。
+
+    2026-09-20 用真實資料跑第一次全量回填（577 檔）時，實測發現約 13%
+    的股票（75/577）在同一個 stock_id 底下會出現重複的 date（yfinance
+    對少數股票的財報公布日資料本身有重複列，原因不明，可能是估計值
+    修正後的重複紀錄），寫進 Postgres 時整批 upsert 用 ON CONFLICT DO
+    UPDATE，同一批次裡出現重複主鍵會直接報錯（"ON CONFLICT DO UPDATE
+    command cannot affect row a second time"），SQLite 因為是逐列
+    INSERT OR REPLACE 沒踩到這個問題，掩蓋了這裡的資料品質瑕疵。這裡
+    主動去重：同一天出現多筆時，優先保留欄位比較完整（非空值較多）的
+    那一筆，避免整批寫入失敗。
     """
     if earnings_dates is None or earnings_dates.empty:
         return pd.DataFrame(columns=US_EARNINGS_COLUMNS)
@@ -121,7 +131,11 @@ def parse_yfinance_earnings_dates(earnings_dates: pd.DataFrame, stock_id: str) -
     out["eps_estimate"] = earnings_dates[estimate_col].to_numpy() if estimate_col else float("nan")
     out["eps_actual"] = earnings_dates[actual_col].to_numpy() if actual_col else float("nan")
     out["surprise_pct"] = earnings_dates[surprise_col].to_numpy() if surprise_col else float("nan")
-    return out[US_EARNINGS_COLUMNS].sort_values("date").reset_index(drop=True)
+
+    out["_completeness"] = out[["eps_estimate", "eps_actual", "surprise_pct"]].notna().sum(axis=1)
+    out = out.sort_values(["date", "_completeness"], ascending=[True, False])
+    out = out.drop_duplicates(subset="date", keep="first").drop(columns="_completeness")
+    return out[US_EARNINGS_COLUMNS].reset_index(drop=True)
 
 
 class YFinanceUSDataProvider:

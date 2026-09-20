@@ -133,3 +133,21 @@ def test_parse_yfinance_earnings_dates_handles_none():
     result = parse_yfinance_earnings_dates(None, "AAPL")
     assert result.empty
     assert list(result.columns) == US_EARNINGS_COLUMNS
+
+
+def test_parse_yfinance_earnings_dates_dedupes_same_day_keeping_more_complete_row():
+    """2026-09-20 全量回填時實測發現：約 13% 的股票 yfinance 對同一天會
+    回傳重複列，寫進 Postgres 的 ON CONFLICT DO UPDATE 在同一批次裡遇到
+    重複主鍵會直接報錯，整批股票的資料都寫不進去。這裡驗證去重邏輯：
+    同一天有多筆時，保留欄位比較完整（非空值較多）的那一筆。
+    """
+    idx = pd.DatetimeIndex(["2024-01-25", "2024-01-25"])  # 同一天重複兩筆
+    raw = pd.DataFrame(
+        {"EPS Estimate": [1.0, 1.0], "Reported EPS": [None, 1.1], "Surprise(%)": [None, 10.0]},
+        index=idx,
+    )
+    result = parse_yfinance_earnings_dates(raw, "AAPL")
+
+    assert len(result) == 1  # 去重成只剩一筆
+    assert result["eps_actual"].iloc[0] == 1.1  # 保留比較完整（有實際EPS）的那筆
+    assert result["surprise_pct"].iloc[0] == 10.0

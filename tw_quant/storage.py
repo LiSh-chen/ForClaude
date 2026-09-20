@@ -667,6 +667,13 @@ class PostgresDataStore(DataStore):
         if df.empty:
             return
         d = _normalize_dates(df)
+        # ON CONFLICT DO UPDATE 在同一批次的 VALUES 裡出現重複主鍵
+        # (date, stock_id) 會直接報錯（"cannot affect row a second time"）
+        # ——2026-09-20 全量回填美股財報公布資料時，13% 的股票（yfinance
+        # 資料本身就有重複列）就是這樣整批寫入失敗。呼叫端
+        # (parse_yfinance_earnings_dates) 已經在源頭去重，這裡是防禦性的
+        # 第二層保護，不假設所有未來呼叫端都會記得先去重。
+        d = d.drop_duplicates(subset=["date", "stock_id"], keep="last")
         rows = list(d[US_EARNINGS_COLS].itertuples(index=False, name=None))
         with self._connect() as conn, conn.cursor() as cur:
             self._execute_values(
