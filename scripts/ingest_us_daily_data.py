@@ -78,6 +78,7 @@ def main() -> None:
     lookback_days = int(os.environ.get("LOOKBACK_DAYS", "10"))
     sleep_s = float(os.environ.get("REQUEST_SLEEP_SECONDS", "0.3"))
     force_backfill = os.environ.get("FORCE_BACKFILL", "").lower() == "true"
+    backfill_years = int(os.environ.get("BACKFILL_YEARS", "8"))
 
     provider = YFinanceUSDataProvider()
     store = get_data_store()
@@ -105,7 +106,17 @@ def main() -> None:
     # （拿沒看過的更早期間跑同一組固定參數），這裡拉長到 8 年——多數 S&P 500
     # 成分股 yfinance 都能回溯到這麼久，個別較晚上市/加入指數的公司會自然
     # 從實際掛牌日開始，不會是錯誤。
-    backfill_start = (pd.Timestamp.today() - pd.Timedelta(days=365 * 8)).strftime("%Y-%m-%d")
+    #
+    # BACKFILL_YEARS 開放可調（預設仍是 8，不影響既有排程）：2026-09-20
+    # 為了測試動能策略在 2008 金融風暴期間的表現，一次性拉長到 20 年，
+    # 讓現有 577 檔成分股回溯到 2006 年左右，2008 危機當時還在暖身期
+    # （min_history_days=252 + momentum_window=126）之前留出緩衝。注意
+    # 這只解決「現有 577 檔股票有更早的股價資料」，不解決「雷曼兄弟、
+    # Bear Stearns、Washington Mutual 這些 2008 危機當時就被剔除指數、
+    # 現在完全不在 577 檔名單裡」的存活者偏差——那一半要靠另外重跑
+    # scripts/backfill_removed_sp500_stocks.py（見 tw_quant/sp500_history.py）
+    # 才可能補回一部分（且很多當年破產下市的公司 yfinance 本來就查無資料）。
+    backfill_start = (pd.Timestamp.today() - pd.Timedelta(days=365 * backfill_years)).strftime("%Y-%m-%d")
 
     total_rows = 0
     failures: list[str] = []

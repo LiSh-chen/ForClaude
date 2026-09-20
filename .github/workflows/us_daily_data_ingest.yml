@@ -16,9 +16,13 @@ on:
   workflow_dispatch:
     inputs:
       force_backfill:
-        description: "忽略每檔股票現有資料，強制全部重新回填 3 年"
+        description: "忽略每檔股票現有資料，強制全部重新回填"
         type: boolean
         default: false
+      backfill_years:
+        description: "force_backfill=true 時，回填幾年歷史（預設 8；測 2008 金融風暴需要拉到 ~20）"
+        type: string
+        default: "8"
 
 permissions:
   contents: write
@@ -34,7 +38,11 @@ jobs:
     # timeout 被砍掉，run #3（id 35324991527）卡在 in_progress 直到
     # timeout 強制 cancelled，8 年資料量每檔股票約 2000 個交易日（vs
     # 3 年版的 752 天），單檔抓取+寫入時間明顯變長，拉高到 90 分鐘。
-    timeout-minutes: 90
+    #
+    # backfill_years=20（2026-09-20 為測 2008 金融風暴新增）資料量約是
+    # 8 年版的 2.5 倍，比照同比例再留安全邊際，拉高到 300 分鐘；平常的
+    # 每日增量同步跟預設 8 年版 force_backfill 都遠遠用不到這個上限。
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
 
@@ -49,6 +57,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           FORCE_BACKFILL: ${{ inputs.force_backfill }}
+          BACKFILL_YEARS: ${{ inputs.backfill_years || '8' }}
           PYTHONUNBUFFERED: "1"
         run: python scripts/ingest_us_daily_data.py
 

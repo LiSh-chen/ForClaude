@@ -1,0 +1,36 @@
+name: Test US Momentum 2008 Crisis Extension
+
+# 手動觸發：動量策略（top_n=3, momentum_window=126, rebalance_freq_days=21——
+# 跟報告主要引用的參數相同）延伸到 2008 金融風暴期間的測試。必須先用加大
+# BACKFILL_YEARS 的 us_daily_data_ingest.yml 把價格資料回填到 2008 年之前，
+# 這支 workflow 才有資料可用（見 scripts/test_us_momentum_2008_crisis_from_db.py
+# 檔頭的存活者偏差警語，這是本次測試最大的方法論限制）。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test momentum strategy extended to 2008 crisis
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_momentum_2008_crisis_from_db.py
