@@ -31,6 +31,16 @@ find_missing_intervals() 自動去抓這批 2008 年代的缺漏區間（因為�
 （但仍不完整）的資料集上表現出的方向性訊號」，不能當作「這組策略在真實
 2008 年會有多少最大回撤」的可靠估計——真正的數字幾乎肯定更差。
 
+2026-09-20 補充：20 年回填跑完後，匯出成 repo 快照這一步失敗了——
+data/us_prices_snapshot.parquet 膨脹到 101.2 MB，超過 GitHub 單檔 100 MB
+push 上限（pre-receive hook 擋下），repo 裡的快照檔還停在舊的 8 年版。
+資料庫（Postgres）裡的資料是完整寫入成功的，所以這支腳本改成直接讀
+tw_quant.storage.get_data_store()（連資料庫整表讀），不透過
+tw_quant.data_snapshot 那份卡在 100MB 上限、還沒更新的本機快照——這是
+唯一需要更早期歷史資料的腳本，直接連資料庫讀一次的網路傳輸成本可以
+接受，不必為了這一支腳本去動其他 20+ 支腳本共用、刻意保持精簡的
+snapshot pipeline。
+
 用法：
     python scripts/test_us_momentum_2008_crisis_from_db.py
 """
@@ -47,7 +57,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tw_quant import us_costs
 from tw_quant.backtest_stats import metrics_from_result
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
-from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
+from tw_quant.storage import get_data_store
 from tw_quant.us_config import build_us_config
 from tw_quant.us_data_provider import YFinanceUSDataProvider
 from tw_quant.us_universe import filter_prices_by_index_membership
@@ -94,11 +104,12 @@ def _pool_size_snapshot(us_prices: pd.DataFrame, cfg, as_of: str) -> int:
 
 
 def main() -> None:
-    us_prices_raw = load_us_prices_snapshot()
-    membership = load_us_index_membership_snapshot()
+    store = get_data_store()
+    us_prices_raw = store.load_us_prices()
+    membership = store.load_us_index_membership()
 
     if us_prices_raw.empty:
-        print("快照裡沒有任何美股價量資料。先跑過 backfill_years 加大的 US ingest workflow。", file=sys.stderr)
+        print("資料庫裡沒有任何美股價量資料。先跑過 backfill_years 加大的 US ingest workflow。", file=sys.stderr)
         sys.exit(1)
 
     earliest_raw = us_prices_raw["date"].min()
