@@ -1,0 +1,35 @@
+name: Test US PEAD + Sector Momentum Filter
+
+# 手動觸發：PEAD 事件驅動版（公布後隔天立刻買入）再疊加「族群資金流向」
+# 篩選——只在近期股價動能最強的前幾個 GICS 產業裡的股票，財報驚喜幅度
+# 達標才進場。並排印出「有/沒有族群篩選」兩組結果方便直接比較。只讀本機
+# Parquet 快照，不連資料庫。見
+# scripts/test_us_pead_sector_momentum_from_db.py 開頭的完整背景說明。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test US PEAD + sector momentum filter
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_pead_sector_momentum_from_db.py
