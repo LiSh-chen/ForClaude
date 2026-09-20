@@ -1,0 +1,37 @@
+name: Test US Momentum vs PEAD Correlation and Blend
+
+# 手動觸發：動量策略（top_n=3）在樣本內大贏 QQQ、樣本外小贏；PEAD+族群
+# 篩選策略則是樣本內輸 QQQ、樣本外（風險調整後）小贏。這裡算兩者逐日
+# 報酬率的相關係數（有沒有真正的分散效果），再看一個最單純的 50/50
+# 固定權重混合表現如何。只讀本機 Parquet 快照，不連資料庫。見
+# scripts/test_us_momentum_pead_correlation_from_db.py 開頭的完整背景
+# 說明——PEAD 這邊用的是修好 event_drift_backtest.py 的 equity_curve
+# 窗格 bug 之後的版本，數字跟修 bug 前報告過的不一樣。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test momentum vs PEAD correlation and blend
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_momentum_pead_correlation_from_db.py
