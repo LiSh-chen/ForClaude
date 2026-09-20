@@ -103,6 +103,17 @@ def run_event_drift_backtest(
     只限制「哪些事件的 known_date 落在這個窗格內才可能觸發新進場」，價量
     資料永遠用完整 prices（不切片）——已經觸發的部位可以持有到窗格結束
     之後才出場，這是預期行為，不是 bug。
+
+    回傳的 equity_curve 會裁到 [start_date, 實際需要的結束日] 這個區間
+    （結束日取 end_date 跟「最後一筆交易/未平倉部位的日期」兩者較晚的
+    一個，讓跨過窗格結束才出場的部位能完整反映），不是完整價量資料的
+    整個日期範圍——2026-09-20 發現這裡原本沒有裁切，回傳的 equity_curve
+    橫跨全部歷史（含窗格外一長串沒有任何部位、報酬率永遠是 0 的日子），
+    導致 metrics_from_result 算 CAGR 時的年數分母用整段歷史長度（例如
+    8年）而不是真正的交易窗格長度（例如樣本內只有3年），CAGR 被嚴重
+    低估、Sharpe 也被摻進大量 0 報酬率的日子所扭曲——這是已經送進
+    GitHub Actions 跑過三次的真實 bug，見 2026-09-20 對話紀錄的重新
+    驗證結果。
     """
     master = prices.sort_values(["stock_id", "date"]).reset_index(drop=True)
     by_stock = {sid: g.set_index("date")[["open", "close"]] for sid, g in master.groupby("stock_id", sort=False)}
@@ -195,6 +206,14 @@ def run_event_drift_backtest(
         equity_rows.append((date, mtm))
 
     equity_df = pd.DataFrame(equity_rows, columns=["date", "equity"]).set_index("date")
+
+    window_start = pd.Timestamp(start_date) if start_date is not None else calendar[0]
+    window_end = pd.Timestamp(end_date) if end_date is not None else calendar[-1]
+    relevant_dates = [t.entry_date for t in trades] + [t.exit_date for t in trades] + [p["entry_date"] for p in open_by_stock.values()]
+    if relevant_dates:
+        window_end = max(window_end, max(relevant_dates))
+    equity_df = equity_df.loc[(equity_df.index >= window_start) & (equity_df.index <= window_end)]
+
     trades_df = pd.DataFrame([t.__dict__ for t in trades])
     open_positions = {
         sid: Position(

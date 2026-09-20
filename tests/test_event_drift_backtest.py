@@ -204,6 +204,43 @@ def test_run_backtest_start_end_date_restricts_which_events_can_trigger():
     assert all(d >= dates[30] for d in all_entry_dates)
 
 
+def test_run_backtest_equity_curve_trimmed_to_requested_window_not_full_history():
+    """2026-09-20 發現的真實 bug：equity_curve 原本橫跨完整 prices 的整個
+    日期範圍，不管 start_date/end_date 怎麼設，導致 metrics_from_result
+    算 CAGR 用的年數分母是整段歷史長度，不是真正的交易窗格長度，CAGR
+    被嚴重低估。這裡驗證：只給 start_date 時，equity_curve 不該包含
+    start_date 之前的任何日期，長度也不該是完整歷史的長度。
+    """
+    dates = pd.bdate_range("2024-01-01", periods=500)  # 遠長於窗格本身，模擬「完整歷史遠長於樣本內期間」
+    prices = _flat_price_df("S1", dates)
+    events = pd.DataFrame([{"stock_id": "S1", "known_date": dates[450], "signal": 0.2}])
+    cfg = _zero_cost_cfg()
+    drift_cfg = EventDriftConfig(entry_lag_days=1, holding_days=10, max_concurrent_positions=1)
+
+    window_start = dates[400]
+    result = run_event_drift_backtest(prices, events, cfg, drift_cfg, start_date=window_start)
+
+    assert result.equity_curve.index.min() == window_start
+    assert len(result.equity_curve) <= 100  # 遠小於完整 500 天歷史，不該被完整歷史的長度污染
+
+
+def test_run_backtest_equity_curve_extends_past_end_date_for_late_triggered_position():
+    """窗格結束前才觸發的部位，equity_curve 該延伸到它真正出場那天，
+    不能在 end_date 當天硬生生截斷（那樣會漏掉還在跑的部位、也不符合
+    「已觸發部位可以持有到窗格結束之後才出場」這個既有承諾）。"""
+    dates = pd.bdate_range("2024-01-01", periods=100)
+    prices = _flat_price_df("S1", dates)
+    events = pd.DataFrame([{"stock_id": "S1", "known_date": dates[50], "signal": 0.2}])
+    cfg = _zero_cost_cfg()
+    drift_cfg = EventDriftConfig(entry_lag_days=1, holding_days=20, max_concurrent_positions=1)
+
+    end_date = dates[55]  # 窗格在部位還沒出場之前就結束了（出場預計在 dates[51+20]=dates[71]）
+    result = run_event_drift_backtest(prices, events, cfg, drift_cfg, start_date=None, end_date=end_date)
+
+    assert result.equity_curve.index.max() >= dates[71]
+    assert len(result.trades) == 1
+
+
 def test_run_backtest_handles_no_events():
     dates = pd.bdate_range("2024-01-01", periods=10)
     prices = _flat_price_df("S1", dates)
