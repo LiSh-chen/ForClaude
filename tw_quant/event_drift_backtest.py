@@ -40,6 +40,21 @@ from tw_quant.config import StrategyConfig
 
 EVENT_COLS = ["stock_id", "known_date", "signal"]
 
+# events 傳進來的 known_date 是「市場當時就知道的日期」，但 by_stock 的價量
+# 資料可能已經被存活者偏差過濾（tw_quant.us_universe.filter_prices_by_index_membership）
+# 只留下該股票「當時是指數成分股」的區間——如果事件發生在該股票被過濾掉的
+# 空窗期（例如財報事件是 2019 年、但這檔股票直到 2026 年才被收錄進指數
+# 快照），searchsorted 找到的「known_date 之後第一個有資料的交易日」可能是
+# 好幾年後，等於把 2019 年的驚喜訊號套用到 2026 年的進場——這不是真的
+# PEAD 漂移，是資料空窗期造成的錯誤配對。用這個容忍值擋掉：找到的日期
+# 距離 known_date 超過這麼多「日曆天」就視為「這檔股票在事件當下沒有可用
+# 資料」，直接跳過這筆事件（不是硬幣，是真的沒有部位可以進場）。10天
+# 涵蓋一般週末+假期的最大合理間隔（2026-09-20 發現：不設這個容忍值時，
+# 全部 38126 筆候選事件裡有 25823 筆（68%）進場日期跟事件日期相差超過
+# 30 天，最誇張的相差超過 20 年——這個 bug 影響了先前所有跑過的
+# PEAD 事件驅動策略報告數字，不只是 equity_curve 窗格裁切那個 bug）。
+MAX_KNOWN_DATE_GAP_DAYS = 10
+
 
 @dataclass
 class EventDriftConfig:
@@ -67,6 +82,10 @@ def _build_entry_exit_candidates(
             continue
         dates = stock_df.index
         base_idx = dates.searchsorted(row.known_date, side="left")
+        if base_idx >= len(dates):
+            continue  # 事件之後這檔股票完全沒有資料（例如已被移出指數快照）
+        if (dates[base_idx] - row.known_date).days > MAX_KNOWN_DATE_GAP_DAYS:
+            continue  # 事件當下這檔股票不在存活者偏差過濾後的資料裡，不是真的可交易時機
         entry_idx = base_idx + drift_cfg.entry_lag_days
         if entry_idx >= len(dates):
             continue  # 事件發生在資料尾端附近，之後沒有足夠交易日可以進場

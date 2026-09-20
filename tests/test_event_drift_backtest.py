@@ -96,6 +96,33 @@ def test_build_candidates_skips_events_with_no_room_to_enter():
     assert candidates == []
 
 
+def test_build_candidates_skips_events_in_survivorship_filtered_data_gap():
+    # 模擬存活者偏差過濾後的價量資料：這檔股票只剩下最近一小段區間有資料
+    # （例如它是最近才被收錄進指數快照的成分股），但事件的 known_date
+    # 是很久以前——不該把這筆事件「傳送」到資料開始的那天去進場，
+    # 應該直接跳過（2026-09-20 發現：修這個之前，searchsorted 會找到
+    # 資料裡「known_date 之後第一個可用日期」，可能相差好幾年）。
+    recent_dates = pd.bdate_range("2026-06-01", periods=30)
+    by_stock = {"S1": _flat_price_df("S1", recent_dates).set_index("date")[["open", "close"]]}
+    events = pd.DataFrame([{"stock_id": "S1", "known_date": pd.Timestamp("2019-05-30"), "signal": 0.2}])
+    drift_cfg = EventDriftConfig(entry_lag_days=1, holding_days=5)
+
+    candidates = _build_entry_exit_candidates(events, by_stock, drift_cfg)
+    assert candidates == []
+
+
+def test_build_candidates_keeps_events_within_normal_holiday_gap():
+    # 正常的假期/週末間隔（在容忍值之內）不該被誤判成資料空窗期。
+    dates = pd.bdate_range("2024-01-01", periods=30)
+    by_stock = {"S1": _flat_price_df("S1", dates).set_index("date")[["open", "close"]]}
+    known_date = dates[5] + pd.Timedelta(days=3)  # 落在週末，事件當下沒有交易日但間隔很小
+    events = pd.DataFrame([{"stock_id": "S1", "known_date": known_date, "signal": 0.2}])
+    drift_cfg = EventDriftConfig(entry_lag_days=1, holding_days=5)
+
+    candidates = _build_entry_exit_candidates(events, by_stock, drift_cfg)
+    assert len(candidates) == 1
+
+
 def test_run_backtest_zero_cost_matches_hand_calc_for_single_trade():
     dates = pd.bdate_range("2024-01-01", periods=30)
     prices = _flat_price_df("S1", dates, price=100.0)
