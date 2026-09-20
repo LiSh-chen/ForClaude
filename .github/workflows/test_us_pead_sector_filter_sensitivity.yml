@@ -1,0 +1,37 @@
+name: Test US PEAD Sector Filter Sensitivity
+
+# 手動觸發：驗證 test_us_pead_sector_momentum_from_db.py 找到的樣本外
+# 改善（holding_days=60、驚喜幅度門檻=10%，族群篩選後 Sharpe 從 0.21
+# 大幅提升到 0.68，逼近 QQQ 的 0.69）是不是在合理的族群篩選參數範圍內
+# 普遍存在，而不是單一組合的運氣。固定住進出場參數，只對族群篩選本身
+# 的兩個參數（回看天數、前K強產業）做網格。只讀本機 Parquet 快照，不連
+# 資料庫。見 scripts/test_us_pead_sector_filter_sensitivity_from_db.py
+# 開頭的完整背景說明。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test US PEAD sector filter sensitivity
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_pead_sector_filter_sensitivity_from_db.py
