@@ -110,3 +110,22 @@ class YFinanceUSDataProvider:
         ticker = yf.Ticker(stock_id)
         history = ticker.history(start=start_date, end=end_date, auto_adjust=True)
         return parse_yfinance_history(history, stock_id, industry)
+
+    def fetch_quarterly_fundamentals(self, stock_id: str, earnings_limit: int = 40) -> dict:
+        """一次性抓某檔股票的季報損益表 + 財報公布日期，供
+        scripts/probe_us_fundamentals_data.py 探路用——回傳 yfinance 的原始
+        DataFrame，不做欄位對應/清理，因為這一步的目的正是要先看清楚
+        yfinance 實際回傳的欄位長怎樣、涵蓋度/歷史深度夠不夠，再決定要不要
+        投入正式資料管線（見探路腳本開頭的完整背景說明）。
+
+        earnings_limit：get_earnings_dates 預設只回傳 12 筆（約 3 年），
+        探路想知道「最多能拿到多深的歷史」，所以預設調高到 40 筆（約 10 年，
+        如果 Yahoo Finance 真的有留這麼久的話）。
+        """
+        import yfinance as yf
+
+        ticker = yf.Ticker(normalize_yfinance_ticker(stock_id))
+        return {
+            "quarterly_income_stmt": ticker.quarterly_income_stmt,
+            "earnings_dates": ticker.get_earnings_dates(limit=earnings_limit),
+        }

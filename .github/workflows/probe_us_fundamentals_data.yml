@@ -1,0 +1,35 @@
+name: Probe US Fundamentals Data (yfinance quarterly financials feasibility)
+
+# 手動觸發：使用者想探討美股財報基本面策略（PEAD、營收成長動能、
+# valuation 因子），這三個方向都仰賴 yfinance 的季報財務資料，但品質/
+# 深度從沒在這個專案裡驗證過。這是一次性的探路/驗貨，不是正式資料管線，
+# 不寫入資料庫。見 scripts/probe_us_fundamentals_data.py 開頭的完整背景
+# 說明。只需要連 yfinance，不需要 DATABASE_URL。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Probe US fundamentals data feasibility
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/probe_us_fundamentals_data.py
