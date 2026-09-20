@@ -73,19 +73,20 @@ jobs:
         run: python scripts/export_us_data_snapshot.py
 
       # 注意（2026-09-20，backfill_years=20 那次觀察到）：資料量拉大到
-      # 20 年時 us_prices_snapshot.parquet 會超過 101 MB，超過 GitHub 單檔
-      # 100 MB push 上限，這一步會失敗（pre-receive hook 擋下），但這之前
-      # 的「Run US ingestion」寫入資料庫那步已經成功、資料沒有遺失，只是
-      # 沒辦法再靠這份 commit 進 repo 的快照分享給其他腳本讀——需要更早
-      # 歷史的腳本（例如 test_us_momentum_2008_crisis_from_db.py）改成直接
-      # 連資料庫讀，不依賴這份快照。平常 8 年版的每日/一般回填不會踩到
-      # 這個上限，不特別處理（Git LFS 對這種偶爾才需要的大量歷史回填是
-      # 過度工程）。
+      # 20 年時單一 us_prices_snapshot.parquet 會超過 101 MB，超過 GitHub
+      # 單檔 100 MB push 上限，會被 pre-receive hook 擋下。已修正：
+      # tw_quant/data_snapshot.py 的 export_us_snapshot 現在依列數自動把
+      # us_prices 拆成多個檔案（第一份沿用原檔名，超過門檻的部分依序寫成
+      # us_prices_snapshot.part2.parquet、part3.parquet……）。這裡用
+      # -A + glob 一併 git add：資料量變小、part 檔案數變少時，export 那步
+      # 會把多出來的舊 part 檔案從硬碟刪掉，-A 才會把這個刪除也一起
+      # stage（純 git add 只會 stage 現存檔案，留下已刪除但 repo 裡還有的
+      # 舊 part 檔案，讀取端 glob 進來就會變成重複資料）。
       - name: Commit US data snapshot
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/us_prices_snapshot.parquet data/us_index_membership_snapshot.parquet
+          git add -A -- data/us_prices_snapshot*.parquet data/us_index_membership_snapshot.parquet
           git diff --cached --quiet || git commit -m "chore: update US data snapshot for strategy scripts $(date -u +%F)"
           git push
 
