@@ -1,0 +1,36 @@
+name: Test US PEAD Event-Driven Strategy
+
+# 手動觸發：財報驚喜漂移（PEAD）事件驅動版——公布後幾個交易日內進場、固定
+# 持有一段天數後出場，不等全域調倉日曆。跟定期調倉版本
+# （test_us_pead_earnings_drift.yml）並存、互相對照，不取代它。只讀本機
+# Parquet 快照（us_prices_snapshot / us_index_membership_snapshot /
+# us_earnings_snapshot），不連資料庫。見
+# scripts/test_us_pead_event_driven_from_db.py 開頭的完整背景說明。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test US PEAD event-driven strategy
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_pead_event_driven_from_db.py
