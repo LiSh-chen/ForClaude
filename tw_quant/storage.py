@@ -28,6 +28,7 @@ MARGIN_COLS = ["date", "stock_id", "margin_purchase_balance", "short_balance"]
 MONTH_REVENUE_COLS = ["date", "stock_id", "revenue", "revenue_year", "revenue_month"]
 SHARES_ISSUED_COLS = ["date", "stock_id", "shares_issued"]
 US_INDEX_MEMBERSHIP_COLS = ["stock_id", "start_date", "end_date"]
+US_EARNINGS_COLS = ["date", "stock_id", "eps_estimate", "eps_actual", "surprise_pct"]  # date = 財報公布日
 
 
 class DataStore(ABC):
@@ -76,6 +77,14 @@ class DataStore(ABC):
 
     @abstractmethod
     def load_us_index_membership(self) -> pd.DataFrame: ...
+
+    @abstractmethod
+    def upsert_us_earnings(self, df: pd.DataFrame) -> None: ...
+
+    @abstractmethod
+    def load_us_earnings(
+        self, start_date: str | None = None, end_date: str | None = None, stock_ids: list[str] | None = None
+    ) -> pd.DataFrame: ...
 
     @abstractmethod
     def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None: ...
@@ -162,6 +171,15 @@ class SQLiteDataStore(DataStore):
                     date TEXT NOT NULL, stock_id TEXT NOT NULL, industry TEXT,
                     open REAL, high REAL, low REAL, close REAL,
                     volume INTEGER, turnover_value REAL,
+                    PRIMARY KEY (date, stock_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS us_earnings (
+                    date TEXT NOT NULL, stock_id TEXT NOT NULL,
+                    eps_estimate REAL, eps_actual REAL, surprise_pct REAL,
                     PRIMARY KEY (date, stock_id)
                 )
                 """
@@ -319,6 +337,21 @@ class SQLiteDataStore(DataStore):
             return pd.DataFrame(columns=US_INDEX_MEMBERSHIP_COLS)
         return df[US_INDEX_MEMBERSHIP_COLS]
 
+    def upsert_us_earnings(self, df: pd.DataFrame) -> None:
+        if df.empty:
+            return
+        d = _normalize_dates(df)
+        rows = list(d[US_EARNINGS_COLS].itertuples(index=False, name=None))
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO us_earnings "
+                "(date, stock_id, eps_estimate, eps_actual, surprise_pct) VALUES (?,?,?,?,?)",
+                rows,
+            )
+
+    def load_us_earnings(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
+        return self._load("us_earnings", US_EARNINGS_COLS, start_date, end_date, stock_ids)
+
     def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None:
         query = f"SELECT MAX(date) FROM {table}"
         params: tuple = ()
@@ -419,6 +452,15 @@ class PostgresDataStore(DataStore):
                     date DATE NOT NULL, stock_id TEXT NOT NULL, industry TEXT,
                     open DOUBLE PRECISION, high DOUBLE PRECISION, low DOUBLE PRECISION,
                     close DOUBLE PRECISION, volume BIGINT, turnover_value DOUBLE PRECISION,
+                    PRIMARY KEY (date, stock_id)
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS us_earnings (
+                    date DATE NOT NULL, stock_id TEXT NOT NULL,
+                    eps_estimate DOUBLE PRECISION, eps_actual DOUBLE PRECISION, surprise_pct DOUBLE PRECISION,
                     PRIMARY KEY (date, stock_id)
                 )
                 """
@@ -620,6 +662,28 @@ class PostgresDataStore(DataStore):
         if df.empty:
             return pd.DataFrame(columns=US_INDEX_MEMBERSHIP_COLS)
         return df[US_INDEX_MEMBERSHIP_COLS]
+
+    def upsert_us_earnings(self, df: pd.DataFrame) -> None:
+        if df.empty:
+            return
+        d = _normalize_dates(df)
+        rows = list(d[US_EARNINGS_COLS].itertuples(index=False, name=None))
+        with self._connect() as conn, conn.cursor() as cur:
+            self._execute_values(
+                cur,
+                """
+                INSERT INTO us_earnings (date, stock_id, eps_estimate, eps_actual, surprise_pct)
+                VALUES %s
+                ON CONFLICT (date, stock_id) DO UPDATE SET
+                    eps_estimate = EXCLUDED.eps_estimate, eps_actual = EXCLUDED.eps_actual,
+                    surprise_pct = EXCLUDED.surprise_pct
+                """,
+                rows,
+            )
+            conn.commit()
+
+    def load_us_earnings(self, start_date=None, end_date=None, stock_ids=None) -> pd.DataFrame:
+        return self._load("us_earnings", US_EARNINGS_COLS, start_date, end_date, stock_ids)
 
     def latest_date(self, table: str, stock_id: str | None = None) -> pd.Timestamp | None:
         query = f"SELECT MAX(date) FROM {table}"

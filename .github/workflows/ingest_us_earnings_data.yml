@@ -1,0 +1,73 @@
+name: Ingest US Earnings Data (yfinance quarterly EPS + report dates)
+
+# 手動觸發：2026-09-19 探路（probe_us_fundamentals_data.yml）確認 yfinance
+# 的財報公布日資料涵蓋度/深度/日期精確度都堪用，可以推進 PEAD（財報驚喜
+# 漂移）策略。這裡回填全部已追蹤股票的財報公布歷史到 us_earnings 表格，
+# 再匯出快照供策略回測腳本讀取。不像每日價量排程那樣定期跑——財報公布
+# 頻率是季度，之後真的需要更新時再手動觸發即可，見
+# scripts/ingest_us_earnings_data.py 開頭的完整背景說明。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    # 577 檔股票、每檔 1 次 API 呼叫 + 0.3 秒間隔，實測探路階段 40 檔跑
+    # 兩次 API 呼叫花了約 66 秒，這裡只有一次呼叫，抓保守一點的上限。
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Ingest US earnings data
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/ingest_us_earnings_data.py
+
+      - name: Export US earnings snapshot for strategy scripts
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/export_us_earnings_snapshot.py
+
+      - name: Commit US earnings snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/us_earnings_snapshot.parquet
+          git diff --cached --quiet || git commit -m "chore: update US earnings snapshot for PEAD strategy $(date -u +%F)"
+          git push
+
+      - name: Determine storage mode
+        id: storage
+        env:
+          DB_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -n "$DB_URL" ]; then
+            echo "use_git_snapshot=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "use_git_snapshot=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit updated local SQLite snapshot
+        if: steps.storage.outputs.use_git_snapshot == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/tw_market.db
+          git diff --cached --quiet || git commit -m "chore: US earnings data sync $(date -u +%F)"
+          git push

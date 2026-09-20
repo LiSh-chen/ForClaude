@@ -256,6 +256,61 @@ def test_us_index_membership_load_returns_empty_frame_when_no_data(store):
     assert list(loaded.columns) == ["stock_id", "start_date", "end_date"]
 
 
+def _earnings_rows(dates, stock_id="AAPL"):
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "stock_id": [stock_id] * len(dates),
+            "eps_estimate": [1.0] * len(dates),
+            "eps_actual": [1.1] * len(dates),
+            "surprise_pct": [10.0] * len(dates),
+        }
+    )
+
+
+def test_us_earnings_round_trip(store):
+    dates = pd.to_datetime(["2024-01-25", "2024-04-25"])
+    store.upsert_us_earnings(_earnings_rows(dates))
+
+    loaded = store.load_us_earnings()
+    assert len(loaded) == 2
+    assert set(loaded["stock_id"]) == {"AAPL"}
+    assert loaded["eps_actual"].iloc[0] == 1.1
+    assert loaded["surprise_pct"].iloc[0] == 10.0
+
+
+def test_us_earnings_is_idempotent_no_duplicates(store):
+    dates = pd.to_datetime(["2024-01-25"])
+    store.upsert_us_earnings(_earnings_rows(dates))
+    store.upsert_us_earnings(_earnings_rows(dates))
+    assert len(store.load_us_earnings()) == 1
+
+
+def test_us_earnings_upsert_overwrites_changed_values(store):
+    dates = pd.to_datetime(["2024-01-25"])
+    store.upsert_us_earnings(_earnings_rows(dates))
+    updated = _earnings_rows(dates)
+    updated["eps_actual"] = 1.2
+    store.upsert_us_earnings(updated)
+
+    loaded = store.load_us_earnings()
+    assert len(loaded) == 1
+    assert loaded["eps_actual"].iloc[0] == 1.2
+
+
+def test_us_earnings_stays_separate_from_us_prices_and_tw_tables(store):
+    dates = pd.to_datetime(["2024-01-25"])
+    store.upsert_us_earnings(_earnings_rows(dates))
+    assert store.load_prices().empty
+    assert store.load_us_prices().empty
+
+
+def test_us_earnings_load_returns_empty_frame_when_no_data(store):
+    loaded = store.load_us_earnings()
+    assert loaded.empty
+    assert list(loaded.columns) == ["date", "stock_id", "eps_estimate", "eps_actual", "surprise_pct"]
+
+
 def test_latest_date_returns_none_when_empty(store):
     assert store.latest_date("prices") is None
 

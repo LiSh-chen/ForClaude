@@ -11,7 +11,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tw_quant.data_snapshot import (
+    export_us_earnings_snapshot,
     export_us_snapshot,
+    load_us_earnings_snapshot,
     load_us_index_membership_snapshot,
     load_us_prices_snapshot,
 )
@@ -86,3 +88,42 @@ def test_export_creates_parent_directory_if_missing(tmp_path):
 
     assert nested_prices.exists()
     assert nested_membership.exists()
+
+
+def test_export_then_load_round_trips_earnings(tmp_path):
+    earnings = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-01-25", "2024-04-25"]),
+            "stock_id": ["AAPL", "AAPL"],
+            "eps_estimate": [1.0, 1.1],
+            "eps_actual": [1.05, 1.2],
+            "surprise_pct": [5.0, 9.1],
+        }
+    )
+    store = mock.Mock()
+    store.load_us_earnings.return_value = earnings
+
+    path = tmp_path / "earnings.parquet"
+    n_rows = export_us_earnings_snapshot(store, path=path)
+
+    assert n_rows == 2
+    assert path.exists()
+
+    loaded = load_us_earnings_snapshot(path)
+    pd.testing.assert_frame_equal(loaded, earnings)
+
+
+def test_load_us_earnings_snapshot_raises_clear_error_when_missing(tmp_path):
+    missing_path = tmp_path / "does_not_exist.parquet"
+    with pytest.raises(FileNotFoundError, match="找不到美股財報公布快照檔"):
+        load_us_earnings_snapshot(missing_path)
+
+
+def test_export_us_earnings_snapshot_creates_parent_directory_if_missing(tmp_path):
+    store = mock.Mock()
+    store.load_us_earnings.return_value = pd.DataFrame(columns=["date", "stock_id"])
+    nested_path = tmp_path / "nested" / "earnings.parquet"
+
+    export_us_earnings_snapshot(store, path=nested_path)
+
+    assert nested_path.exists()

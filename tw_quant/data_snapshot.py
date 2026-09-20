@@ -31,6 +31,7 @@ import pandas as pd
 SNAPSHOT_DIR = Path(__file__).resolve().parents[1] / "data"
 US_PRICES_SNAPSHOT_PATH = SNAPSHOT_DIR / "us_prices_snapshot.parquet"
 US_INDEX_MEMBERSHIP_SNAPSHOT_PATH = SNAPSHOT_DIR / "us_index_membership_snapshot.parquet"
+US_EARNINGS_SNAPSHOT_PATH = SNAPSHOT_DIR / "us_earnings_snapshot.parquet"
 
 
 def export_us_snapshot(store, prices_path: Path = US_PRICES_SNAPSHOT_PATH, membership_path: Path = US_INDEX_MEMBERSHIP_SNAPSHOT_PATH) -> tuple[int, int]:
@@ -71,5 +72,32 @@ def load_us_index_membership_snapshot(path: Path = US_INDEX_MEMBERSHIP_SNAPSHOT_
             f"找不到美股指數成分股快照檔 {path}——需要先跑過 scripts/export_us_data_snapshot.py"
             "（或讓 us_daily_data_ingest.yml / backfill_removed_sp500_stocks.yml 的"
             "匯出步驟先執行過一次並 commit 回 repo），才會有這個檔案可以讀。"
+        )
+    return pd.read_parquet(path)
+
+
+def export_us_earnings_snapshot(store, path: Path = US_EARNINGS_SNAPSHOT_PATH) -> int:
+    """從傳入的 DataStore 讀出目前的 us_earnings 全部內容，寫成 Parquet
+    快照檔。回傳列數方便呼叫端印出摘要。
+
+    獨立成自己的函式（不是塞進 export_us_snapshot），因為財報公布資料的
+    更新排程（一次性/低頻，見 scripts/ingest_us_earnings_data.py）跟每日
+    價量排程（us_daily_data_ingest.yml）完全不同——如果塞進同一個匯出
+    函式，每天排程都會跑的價量匯出步驟會在 earnings ingestion 真的執行過
+    一次之前，就用空的 us_earnings 表覆寫掉這份快照。
+    """
+    us_earnings = store.load_us_earnings()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    us_earnings.to_parquet(path, index=False)
+    return len(us_earnings)
+
+
+def load_us_earnings_snapshot(path: Path = US_EARNINGS_SNAPSHOT_PATH) -> pd.DataFrame:
+    """讀本機的美股財報公布快照檔，語意同 load_us_prices_snapshot。"""
+    if not path.exists():
+        raise FileNotFoundError(
+            f"找不到美股財報公布快照檔 {path}——需要先跑過 scripts/ingest_us_earnings_data.py"
+            "（或讓 ingest_us_earnings_data.yml 執行過一次並 commit 回 repo），"
+            "才會有這個檔案可以讀。"
         )
     return pd.read_parquet(path)

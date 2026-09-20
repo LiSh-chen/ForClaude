@@ -11,9 +11,11 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tw_quant.us_data_provider import (
+    US_EARNINGS_COLUMNS,
     US_PRICE_COLUMNS,
     normalize_yfinance_ticker,
     parse_sp500_wikipedia_table,
+    parse_yfinance_earnings_dates,
     parse_yfinance_history,
 )
 
@@ -91,3 +93,43 @@ def test_parse_yfinance_history_handles_empty_result():
     result = parse_yfinance_history(pd.DataFrame(), "AAPL", "Information Technology")
     assert result.empty
     assert list(result.columns) == US_PRICE_COLUMNS
+
+
+def test_parse_yfinance_earnings_dates_converts_to_long_format():
+    idx = pd.DatetimeIndex(["2024-01-25", "2024-04-25"], tz="America/New_York")
+    raw = pd.DataFrame(
+        {"EPS Estimate": [1.0, 1.1], "Reported EPS": [1.05, 1.2], "Surprise(%)": [5.0, 9.1]},
+        index=idx,
+    )
+    result = parse_yfinance_earnings_dates(raw, "AAPL")
+
+    assert list(result.columns) == US_EARNINGS_COLUMNS
+    assert len(result) == 2
+    assert (result["stock_id"] == "AAPL").all()
+    assert result["date"].dt.tz is None  # 時區該被去掉，跟其他資料的 naive datetime 一致
+    assert result["eps_estimate"].tolist() == [1.0, 1.1]
+    assert result["eps_actual"].tolist() == [1.05, 1.2]
+    assert result["surprise_pct"].tolist() == [5.0, 9.1]
+
+
+def test_parse_yfinance_earnings_dates_matches_columns_case_and_space_insensitively():
+    """2026-09-19 探路時發現不能假設欄位名稱完全固定，模糊比對要真的有效。"""
+    idx = pd.DatetimeIndex(["2024-01-25"])
+    raw = pd.DataFrame({"epsestimate": [1.0], "REPORTED eps": [1.1]}, index=idx)
+    result = parse_yfinance_earnings_dates(raw, "AAPL")
+
+    assert result["eps_estimate"].iloc[0] == 1.0
+    assert result["eps_actual"].iloc[0] == 1.1
+    assert result["surprise_pct"].isna().all()  # 沒有 surprise 欄位時該是 NaN，不是報錯
+
+
+def test_parse_yfinance_earnings_dates_handles_empty_result():
+    result = parse_yfinance_earnings_dates(pd.DataFrame(), "AAPL")
+    assert result.empty
+    assert list(result.columns) == US_EARNINGS_COLUMNS
+
+
+def test_parse_yfinance_earnings_dates_handles_none():
+    result = parse_yfinance_earnings_dates(None, "AAPL")
+    assert result.empty
+    assert list(result.columns) == US_EARNINGS_COLUMNS

@@ -25,6 +25,7 @@ import io
 import pandas as pd
 
 US_PRICE_COLUMNS = ["date", "stock_id", "industry", "open", "high", "low", "close", "volume", "turnover_value"]
+US_EARNINGS_COLUMNS = ["date", "stock_id", "eps_estimate", "eps_actual", "surprise_pct"]  # date = 財報公布日
 
 
 def normalize_yfinance_ticker(ticker: str) -> str:
@@ -79,6 +80,50 @@ def parse_yfinance_history(history: pd.DataFrame, stock_id: str, industry: str) 
     return df[US_PRICE_COLUMNS]
 
 
+def _find_col_label(columns, keywords: tuple[str, ...]) -> str | None:
+    """在 earnings_dates 的欄位名稱裡，用不分大小寫/空格的關鍵字模糊比對找
+    第一個符合的欄位——2026-09-19 用 scripts/probe_us_fundamentals_data.py
+    探路時，就是靠這種模糊比對才驗證出 yfinance 1.7.0 實際回傳的欄位可以
+    正確對到「預期EPS/實際EPS」，不要求完全相符是刻意的：不同版本/不同
+    公司回傳的確切欄位名稱可能不完全一致，模糊比對比較不容易因為 Yahoo
+    調整格式就整批解析失敗。
+    """
+    for label in columns:
+        text = str(label).lower().replace(" ", "")
+        if all(k in text for k in keywords):
+            return label
+    return None
+
+
+def parse_yfinance_earnings_dates(earnings_dates: pd.DataFrame, stock_id: str) -> pd.DataFrame:
+    """把 yf.Ticker(...).get_earnings_dates(...) 回傳的原始 DataFrame（列是
+    財報公布日、欄位包含類似「EPS Estimate」「Reported EPS」「Surprise(%)」
+    的財報公布日期資料）轉成跟 tw_quant.storage.US_EARNINGS_COLS 一樣的
+    長格式欄位。
+
+    這裡把 yfinance 自帶的 Surprise(%) 也原樣存起來（surprise_pct 欄位），
+    但正式策略訊號（見 scripts/test_us_pead_earnings_drift_from_db.py）
+    不直接用它，而是自己用 eps_estimate/eps_actual 重新計算——避免依賴一個
+    沒辦法從外部稽核公式定義的第三方欄位。
+    """
+    if earnings_dates is None or earnings_dates.empty:
+        return pd.DataFrame(columns=US_EARNINGS_COLUMNS)
+
+    idx = earnings_dates.index
+    if getattr(idx, "tz", None) is not None:
+        idx = idx.tz_localize(None)
+
+    estimate_col = _find_col_label(earnings_dates.columns, ("estimate", "eps"))
+    actual_col = _find_col_label(earnings_dates.columns, ("reported", "eps"))
+    surprise_col = _find_col_label(earnings_dates.columns, ("surprise",))
+
+    out = pd.DataFrame({"date": pd.DatetimeIndex(idx), "stock_id": stock_id})
+    out["eps_estimate"] = earnings_dates[estimate_col].to_numpy() if estimate_col else float("nan")
+    out["eps_actual"] = earnings_dates[actual_col].to_numpy() if actual_col else float("nan")
+    out["surprise_pct"] = earnings_dates[surprise_col].to_numpy() if surprise_col else float("nan")
+    return out[US_EARNINGS_COLUMNS].sort_values("date").reset_index(drop=True)
+
+
 class YFinanceUSDataProvider:
     """薄薄一層包住 yfinance，介面盡量比照 FinMindDataProvider（同樣是
     「一次一檔股票、一個日期區間」的呼叫方式），讓 ingest 腳本可以重用
@@ -110,6 +155,26 @@ class YFinanceUSDataProvider:
         ticker = yf.Ticker(stock_id)
         history = ticker.history(start=start_date, end=end_date, auto_adjust=True)
         return parse_yfinance_history(history, stock_id, industry)
+
+    def fetch_earnings_history(self, stock_id: str, limit: int = 80) -> pd.DataFrame:
+        """抓某檔股票的財報公布日歷史（含 EPS 預期/實際/驚喜幅度），轉成
+        US_EARNINGS_COLUMNS 長格式，供 scripts/ingest_us_earnings_data.py
+        寫進資料庫用。跟 fetch_quarterly_fundamentals 不同：這裡回傳的是
+        已經清理過、可以直接 upsert 的乾淨格式，fetch_quarterly_fundamentals
+        回傳原始 yfinance DataFrame 是給探路腳本看格式用的，不是同一個
+        用途。
+
+        limit 預設 80（希望能拿到約 20 年份），實際能拿到多少受 Yahoo
+        Finance 保留的歷史深度限制——2026-09-19 用
+        scripts/probe_us_fundamentals_data.py 探路 40 檔的實測結果：
+        平均約 48.7 筆、大部分回溯到 2013~2014 年（約 10~12 年），少數
+        較晚上市/分拆的公司歷史較短。
+        """
+        import yfinance as yf
+
+        ticker = yf.Ticker(normalize_yfinance_ticker(stock_id))
+        earnings_dates = ticker.get_earnings_dates(limit=limit)
+        return parse_yfinance_earnings_dates(earnings_dates, stock_id)
 
     def fetch_quarterly_fundamentals(self, stock_id: str, earnings_limit: int = 40) -> dict:
         """一次性抓某檔股票的季報損益表 + 財報公布日期，供
