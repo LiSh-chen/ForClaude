@@ -1,0 +1,35 @@
+name: Test US PEAD Earnings Drift Strategy
+
+# 手動觸發：財報驚喜漂移（PEAD）策略回測，只讀本機 Parquet 快照
+# （us_prices_snapshot / us_index_membership_snapshot / us_earnings_snapshot），
+# 不連資料庫。要先跑過 ingest_us_earnings_data.yml 把
+# data/us_earnings_snapshot.parquet commit 進 repo，這裡才有財報資料可用。
+# 見 scripts/test_us_pead_earnings_drift_from_db.py 開頭的完整背景說明。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test US PEAD earnings drift strategy
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_pead_earnings_drift_from_db.py
