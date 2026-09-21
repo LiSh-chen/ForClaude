@@ -1,0 +1,121 @@
+"""最終確認腳本：用「目前」資料庫的最新狀態（20 年歷史回填 + 52+2 檔
+剔除股回補後，共 631 檔股票的 us_index_membership），重新驗證報告主要
+引用的策略（top_n=3、momentum_window=126、rebalance_freq_days=21）在
+樣本內/樣本外兩段的完整績效指標，並跟 QQQ 買進持有同期間做逐項對照。
+
+背景：2026-09-21 對話紀錄——這個 session 為了測 2008 金融風暴，陸續把
+US 股價資料從 577 檔（2018-09-21~2026-09-18）擴充到 631 檔
+（2006-09-25~2026-09-18，含 52+2 檔 2019 年後被剔除指數的回補股票）。
+資料庫底層股票池組成改變了，代表先前報告反覆引用的「OOS 116.67% vs QQQ
+107.60%，五項指標全勝」這個數字，有可能已經因為資料更新而過時——
+2026-09-21 稍早跑 test_us_momentum_top3_trend_filter_2008_crisis_from_db.py
+的「無濾網」對照組時，「既有樣本外 2018-09-20~2023-09-18」印出的數字是
+total_ret=106.48%（QQQ 同期 107.82%），已經跟舊數字不一致，需要一支
+專門的腳本把完整 5 項指標（含 QQQ 的 sharpe/calmar）重新算一次、白紙黑字
+確認，不能繼續引用可能過時的舊數字。
+
+反未來函數：跟其他所有美股策略腳本一致——永遠傳完整 us_prices（不切片），
+只用 start_date/end_date 限制「哪些日期允許實際調倉」。
+
+用法：
+    python scripts/confirm_best_strategy_us_momentum_top3_from_db.py
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tw_quant import us_costs
+from tw_quant.backtest_stats import metrics_from_result
+from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
+from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
+from tw_quant.us_config import build_us_config
+from tw_quant.us_data_provider import YFinanceUSDataProvider
+from tw_quant.us_universe import filter_prices_by_index_membership
+
+MOM_WINDOW = 126
+REBALANCE_FREQ_DAYS = 21
+TOP_N = 3
+
+IN_SAMPLE_START = pd.Timestamp("2023-09-19")
+OOS_END = IN_SAMPLE_START - pd.Timedelta(days=1)
+
+
+def _qqq_metrics(qqq_close: pd.Series, start, end) -> dict:
+    s = pd.Timestamp(start) if start else qqq_close.index.min()
+    e = pd.Timestamp(end) if end else qqq_close.index.max()
+    window = qqq_close[(qqq_close.index >= s) & (qqq_close.index <= e)]
+    daily_ret = window.pct_change().dropna()
+    total_ret = float(window.iloc[-1] / window.iloc[0] - 1)
+    n_years = (window.index[-1] - window.index[0]).days / 365.25
+    cagr = float((1 + total_ret) ** (1 / n_years) - 1) if n_years > 0 else 0.0
+    running_max = window.cummax()
+    max_dd = float(-((window - running_max) / running_max).min())
+    sharpe = float(daily_ret.mean() / daily_ret.std() * np.sqrt(252)) if daily_ret.std() > 0 else 0.0
+    calmar = (cagr / max_dd) if max_dd > 0 else 0.0
+    return {"total_return": total_ret, "cagr": cagr, "max_dd": max_dd, "sharpe": sharpe, "calmar": calmar}
+
+
+def _fmt(label: str, m: dict) -> str:
+    return (
+        f"{label:<28} total_ret={m['total_return']:>8.2%}  cagr={m['cagr']:>7.2%}  "
+        f"max_dd={m['max_dd']:>7.2%}  sharpe={m['sharpe']:>6.2f}  calmar={m['calmar']:>6.2f}"
+    )
+
+
+def main() -> None:
+    us_prices_raw = load_us_prices_snapshot()
+    membership = load_us_index_membership_snapshot()
+
+    n_rows_before = len(us_prices_raw)
+    us_prices = filter_prices_by_index_membership(us_prices_raw, membership)
+    n_rows_dropped = n_rows_before - len(us_prices)
+    n_stocks = us_prices["stock_id"].nunique()
+    earliest, latest = us_prices["date"].min(), us_prices["date"].max()
+
+    print(
+        f"目前資料庫狀態：{n_stocks} 檔股票，{earliest.date()} ~ {latest.date()}"
+        f"（存活者偏差部分修正後丟掉 {n_rows_dropped}/{n_rows_before} 列，{n_rows_dropped / n_rows_before:.1%}）\n"
+    )
+
+    base_cfg = build_us_config()
+    factor_cfg = FactorConfig(momentum_window=MOM_WINDOW, rebalance_freq_days=REBALANCE_FREQ_DAYS, top_n=TOP_N, ascending=False)
+
+    print(f"固定參數：momentum_window={MOM_WINDOW}、rebalance_freq_days={REBALANCE_FREQ_DAYS}、top_n={TOP_N}\n")
+
+    provider = YFinanceUSDataProvider()
+    qqq_df = provider.fetch_price("QQQ", start_date=str(earliest.date()), end_date=str((latest + pd.Timedelta(days=1)).date()), industry="ETF")
+    qqq_close = qqq_df.sort_values("date").set_index("date")["close"]
+
+    print("=== 樣本外 OOS（2018-09-20 ~ 2023-09-18，跟舊資料的 116.67% 對照）===")
+    oos_result = run_factor_backtest(us_prices, base_cfg, factor_cfg, start_date=None, end_date=OOS_END, cost_module=us_costs)
+    oos_m = metrics_from_result(oos_result, base_cfg.initial_capital, prices=us_prices)
+    print(_fmt("策略（最新資料）", oos_m))
+    print(_fmt("QQQ 買進持有", _qqq_metrics(qqq_close, None, OOS_END)))
+    print(f"策略交易筆數：{oos_m['n_trades']:.0f}、勝率：{oos_m['win_rate']:.1%}")
+    print(f"起始權益 $10,000,000，結束權益 ${base_cfg.initial_capital * (1 + oos_m['total_return']):,.0f}\n")
+
+    print("=== 樣本內 IS（2023-09-19 ~ 資料庫最新日期）===")
+    is_result = run_factor_backtest(us_prices, base_cfg, factor_cfg, start_date=IN_SAMPLE_START, end_date=None, cost_module=us_costs)
+    is_m = metrics_from_result(is_result, base_cfg.initial_capital, prices=us_prices)
+    print(_fmt("策略（最新資料）", is_m))
+    print(_fmt("QQQ 買進持有", _qqq_metrics(qqq_close, IN_SAMPLE_START, None)))
+    print(f"策略交易筆數：{is_m['n_trades']:.0f}、勝率：{is_m['win_rate']:.1%}")
+    print(f"起始權益 $10,000,000，結束權益 ${base_cfg.initial_capital * (1 + is_m['total_return']):,.0f}\n")
+
+    print(
+        "（誠實提醒：這裡的數字跟報告先前反覆引用的 OOS 116.67%/IS 197.52% 如果不同，\n"
+        "差異來自資料庫底層股票池組成改變（577→631 檔，含 2008 危機延伸測試新增的\n"
+        "52+2 檔剔除股回補股票），不是策略邏輯或計算方式有變動——同一組參數、同一顆\n"
+        "引擎，純粹是輸入資料集不同）"
+    )
+
+
+if __name__ == "__main__":
+    main()

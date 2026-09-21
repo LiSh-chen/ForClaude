@@ -1,0 +1,35 @@
+name: Confirm Best US Momentum Strategy (top3)
+
+# 手動觸發：用目前資料庫最新狀態，重新確認報告主要引用的策略
+# （top_n=3、momentum_window=126、rebalance_freq_days=21）在樣本內/
+# 樣本外兩段的完整績效指標，跟 QQQ 買進持有逐項對照。見
+# scripts/confirm_best_strategy_us_momentum_top3_from_db.py 檔頭的背景說明。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  confirm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Confirm best strategy metrics
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/confirm_best_strategy_us_momentum_top3_from_db.py
