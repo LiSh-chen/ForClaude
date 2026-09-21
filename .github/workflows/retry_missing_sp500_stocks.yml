@@ -1,0 +1,54 @@
+name: Retry Missing S&P 500 Stocks (period=max)
+
+# 手動觸發：對 backfill_removed_sp500_stocks.yml 仍查無資料的 320 檔股票，
+# 改用 period="max"（要 yfinance 有的全部歷史，不指定 start/end 窗口）
+# 重試一次，篩出「查詢窗口設錯」造成的假陰性（見
+# scripts/retry_missing_sp500_stocks_from_db.py 檔頭的完整背景說明）。
+# 會真的寫入資料庫（不是唯讀診斷），但是 upsert-based，冪等，可以安全重跑。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Retry missing S&P 500 stocks with period=max
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/retry_missing_sp500_stocks_from_db.py
+
+      # 見 us_daily_data_ingest.yml 同一個步驟的說明：把回填後的最新資料
+      # 匯出成 Parquet 快照 commit 回 repo，策略腳本才能改讀本機檔案、
+      # 不用再連資料庫整表撈一次。us_prices 可能被拆成多個 part 檔案，
+      # 用 -A + glob 一併 git add。
+      - name: Export US data snapshot for strategy scripts
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/export_us_data_snapshot.py
+
+      - name: Commit US data snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A -- data/us_prices_snapshot*.parquet data/us_index_membership_snapshot.parquet
+          git diff --cached --quiet || git commit -m "chore: update US data snapshot after retrying missing S&P 500 stocks $(date -u +%F)"
+          git push

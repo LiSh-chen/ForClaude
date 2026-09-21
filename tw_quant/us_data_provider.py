@@ -170,6 +170,26 @@ class YFinanceUSDataProvider:
         history = ticker.history(start=start_date, end=end_date, auto_adjust=True)
         return parse_yfinance_history(history, stock_id, industry)
 
+    def fetch_price_full_history(self, stock_id: str, industry: str = "") -> pd.DataFrame:
+        """跟 fetch_price 一樣，但用 period="max" 而不是指定 start/end——
+        2026-09-21 補齊 2008 年代被剔除 S&P 500 成分股的歷史股價時發現，
+        部分股票用 history(start=clipped_start, end=clipped_end) 查詢會
+        回報「possibly delisted; no timezone found」或「Data doesn't
+        exist for startDate=X, endDate=Y」，但 yfinance 對這檔股票本身
+        不是完全沒有資料——只是指定的查詢窗口跟 yfinance 內部記錄的實際
+        掛牌區間對不上（誤差可能來自 fja05680/sp500 快照的加入/剔除日期
+        跟 yfinance 認定的實際交易區間有落差）。用 period="max" 直接要
+        「這檔股票 yfinance 有的全部歷史」，呼叫端自己再篩選需要的日期
+        範圍，用來跟 fetch_price 的結果交叉比對，篩出「真的查無資料」跟
+        「窗口設錯」這兩種不同失敗原因。見
+        scripts/retry_missing_sp500_stocks_from_db.py。
+        """
+        import yfinance as yf
+
+        ticker = yf.Ticker(stock_id)
+        history = ticker.history(period="max", auto_adjust=True)
+        return parse_yfinance_history(history, stock_id, industry)
+
     def fetch_earnings_history(self, stock_id: str, limit: int = 80) -> pd.DataFrame:
         """抓某檔股票的財報公布日歷史（含 EPS 預期/實際/驚喜幅度），轉成
         US_EARNINGS_COLUMNS 長格式，供 scripts/ingest_us_earnings_data.py
