@@ -268,6 +268,44 @@ def test_run_backtest_equity_curve_extends_past_end_date_for_late_triggered_posi
     assert len(result.trades) == 1
 
 
+def test_run_backtest_membership_param_skips_event_outside_membership_window_without_breaking_price_continuity():
+    """2026-09-21 架構修正：membership 用來判斷「這筆事件當下這檔股票是不是
+    指數成分股」，不是拿來砍價格序列——即使股價資料完整連續，事件發生在
+    membership 空窗期（例如股票中途被剔除指數）內就該被跳過；發生在
+    membership 有效區間內的事件則正常觸發，不受價格序列完整與否影響。
+    """
+    dates = pd.bdate_range("2024-01-01", periods=60)
+    prices = _flat_price_df("S1", dates)  # 完整連續的價格序列，不像舊版那樣被砍過
+    events = pd.DataFrame(
+        [
+            {"stock_id": "S1", "known_date": dates[5], "signal": 0.2},  # membership 空窗期內，該被跳過
+            {"stock_id": "S1", "known_date": dates[40], "signal": 0.3},  # membership 有效區間內，該正常觸發
+        ]
+    )
+    # S1 只有 dates[30] 之後才是已知的指數成分股（模擬「中途被剔除又重新納入」）
+    membership = pd.DataFrame({"stock_id": ["S1"], "start_date": [dates[30]], "end_date": [pd.NaT]})
+    cfg = _zero_cost_cfg()
+    drift_cfg = EventDriftConfig(entry_lag_days=1, holding_days=5, max_concurrent_positions=5)
+
+    result = run_event_drift_backtest(prices, events, cfg, drift_cfg, membership=membership)
+
+    opened_known_dates = set(pd.to_datetime(result.trades["entry_date"])) if not result.trades.empty else set()
+    assert len(result.trades) + len(result.open_positions) == 1  # 只有 membership 有效區間內那筆事件觸發
+    assert dates[6] not in opened_known_dates  # 空窗期那筆事件（entry 該是 dates[5+1]）沒有被觸發
+
+
+def test_run_backtest_membership_none_keeps_old_behavior_unchanged():
+    dates = pd.bdate_range("2024-01-01", periods=60)
+    prices = _flat_price_df("S1", dates)
+    events = pd.DataFrame([{"stock_id": "S1", "known_date": dates[5], "signal": 0.2}])
+    cfg = _zero_cost_cfg()
+    drift_cfg = EventDriftConfig(entry_lag_days=1, holding_days=5, max_concurrent_positions=5)
+
+    result = run_event_drift_backtest(prices, events, cfg, drift_cfg)  # membership 預設 None
+
+    assert len(result.trades) + len(result.open_positions) == 1
+
+
 def test_run_backtest_handles_no_events():
     dates = pd.bdate_range("2024-01-01", periods=10)
     prices = _flat_price_df("S1", dates)

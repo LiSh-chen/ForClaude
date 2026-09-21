@@ -33,6 +33,16 @@
      估出的避險比例（beta）去加權——嚴格的「市場中性」應該是兩腿的
      曝險金額依 beta 比例配置，這裡用等金額是常見的簡化做法，會讓實際
      組合曝險跟真正的 beta-neutral 有落差。
+
+2026-09-21 架構修正：美股呼叫端一律傳完整、未過濾的 prices（不要用
+filter_prices_by_index_membership 事先砍過）——共整合檢定跟價差 z-score
+都需要完整連續的歷史價格才能算對。`run_pairs_trading_backtest` 新增的
+membership 參數改在「每次換股選配對」這一步才介入：候選股票必須在
+formation window 最後一天（換股當天的前一個交易日，符合既有 T-1 已知
+資訊慣例）是已知的指數成分股才能入選，不是在算共整合之前就先砍價格
+序列——這跟 tw_quant/factor_backtest.py、tw_quant/backtest.py 的
+membership 參數是同一套 2026-09-21 架構修正。membership=None（預設）
+不套用任何資格過濾，台股呼叫端不需要傳這個參數。
 """
 
 from __future__ import annotations
@@ -48,6 +58,7 @@ from statsmodels.tsa.stattools import coint
 from tw_quant import costs as cost_mod
 from tw_quant.backtest import BacktestResult, TradeRecord
 from tw_quant.config import StrategyConfig
+from tw_quant.us_universe import membership_eligibility_mask
 
 
 @dataclass
@@ -93,6 +104,7 @@ def _find_pairs(
     window_dates: pd.Index,
     rt_cfg: PairsTradingConfig,
     turnover_pivot: pd.DataFrame | None = None,
+    membership: pd.DataFrame | None = None,
 ) -> list[tuple[str, str, float]]:
     """在 window_dates 這段歷史窗格裡，對同產業配對做共整合檢定，回傳
     [(stock_a, stock_b, beta), ...]，依 p-value 由小到大排序、只取前 top_n_pairs 組。
@@ -100,10 +112,24 @@ def _find_pairs(
 
     turnover_pivot：選填，只有在 rt_cfg.max_stocks_per_industry 有設定時才需要，
     用來依平均成交金額排序、決定超過上限時保留哪些股票。
+
+    membership：選填，2026-09-21 架構修正——候選股票必須在 window_dates
+    最後一天（換股當下最新已知的一天）是已知的指數成分股才能入選，不合格
+    的股票直接排除在候選之外（跟 close_pivot 本身有沒有資料無關，資料永遠
+    是完整未過濾的）。
     """
     window = close_pivot.loc[window_dates]
+    eligible_stocks: set[str] | None = None
+    if membership is not None and len(window_dates) > 0:
+        reference_date = window_dates[-1]
+        ref_frame = pd.DataFrame({"stock_id": list(window.columns), "date": reference_date})
+        eligible_mask = membership_eligibility_mask(ref_frame, membership)
+        eligible_stocks = set(ref_frame.loc[eligible_mask.values, "stock_id"])
+
     by_industry: dict[str, list[str]] = {}
     for stock_id in window.columns:
+        if eligible_stocks is not None and stock_id not in eligible_stocks:
+            continue
         col = window[stock_id]
         # 除了 NaN，還要濾掉價格 <= 0 的股票——真實資料裡有些股票在某些日子
         # 價格是 0（缺資料/停牌被記成 0，不是 NaN），log(0) = -inf 會讓
@@ -172,11 +198,18 @@ def _zscore_series(spread: pd.Series, window: int) -> pd.Series:
 
 
 def run_pairs_trading_backtest(
-    prices: pd.DataFrame, cfg: StrategyConfig, rt_cfg: PairsTradingConfig, cost_module=cost_mod
+    prices: pd.DataFrame,
+    cfg: StrategyConfig,
+    rt_cfg: PairsTradingConfig,
+    cost_module=cost_mod,
+    membership: pd.DataFrame | None = None,
 ) -> BacktestResult:
     """cost_module：選填，同 tw_quant.backtest.run_backtest 的用法，用來替換
     台股成本模型（例如美股，見 tw_quant/us_costs.py），重用同一套配對交易
-    引擎。"""
+    引擎。
+
+    membership：選填，見本檔案開頭「2026-09-21 架構修正」段落與
+    `_find_pairs` 的說明——`prices` 永遠要傳完整未過濾的價格序列。"""
     master = prices.sort_values(["stock_id", "date"]).reset_index(drop=True)
     close_pivot = master.pivot(index="date", columns="stock_id", values="close").sort_index()
     open_pivot = master.pivot(index="date", columns="stock_id", values="open").sort_index()
@@ -250,7 +283,7 @@ def run_pairs_trading_backtest(
             for key in list(open_pairs.keys()):
                 _close_pair(key, date)
             window_dates = dates[i - rt_cfg.formation_window : i]
-            active_pairs = _find_pairs(close_pivot, industry_map, window_dates, rt_cfg, turnover_pivot)
+            active_pairs = _find_pairs(close_pivot, industry_map, window_dates, rt_cfg, turnover_pivot, membership)
             spread_cache = {}
             for a, b, beta in active_pairs:
                 spread = np.log(close_pivot[a]) - beta * np.log(close_pivot[b])

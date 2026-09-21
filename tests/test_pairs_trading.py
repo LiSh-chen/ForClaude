@@ -58,6 +58,36 @@ def test_find_pairs_selects_cointegrated_pair_over_unrelated_one():
     assert ("B", "C") not in pair_keys
 
 
+def test_find_pairs_membership_param_excludes_ineligible_stock_from_candidates():
+    """2026-09-21 架構修正：membership 只在挑配對這一步濾掉候選股票，不能
+    拿來事先砍 close_pivot 本身——用跟上面同一組「A/B 真共整合」合成資料，
+    如果把 A 標成「在 window_dates 最後一天還不是指數成分股」，即使 A/B
+    確實共整合，這組配對也不該被選中。
+    """
+    rng = np.random.default_rng(42)
+    n = 300
+    log_a = np.cumsum(rng.normal(0, 0.01, n))
+    noise = np.zeros(n)
+    for t in range(1, n):
+        noise[t] = 0.6 * noise[t - 1] + rng.normal(0, 0.005)
+    log_b = log_a + noise
+    log_c = np.cumsum(rng.normal(0, 0.01, n))
+
+    series = {"A": np.exp(log_a) * 100, "B": np.exp(log_b) * 100, "C": np.exp(log_c) * 100}
+    industry = {"A": "IND", "B": "IND", "C": "IND"}
+    master = _make_price_frame(n, series, industry).pivot(index="date", columns="stock_id", values="close").sort_index()
+
+    rt_cfg = PairsTradingConfig(coint_pvalue_threshold=0.05, top_n_pairs=5)
+    # A 要到 window 最後一天之後才成為已知的指數成分股 -> 選配對當下不合格
+    membership = pd.DataFrame({"stock_id": ["A"], "start_date": [master.index[-1] + pd.Timedelta(days=1)], "end_date": [pd.NaT]})
+
+    pairs = _find_pairs(master, industry, master.index, rt_cfg, membership=membership)
+
+    pair_keys = {(a, b) for a, b, _ in pairs}
+    assert ("A", "B") not in pair_keys  # A 不合格，即使 A/B 真的共整合也不該入選
+    assert not any("A" in key for key in pair_keys)
+
+
 def test_find_pairs_excludes_stocks_with_zero_price_in_window():
     """真實資料裡有些股票某天價格是 0（不是 NaN）——log(0) = -inf 會讓
     beta 迴歸跟 p-value 都壞掉，還可能讓壞資料的配對因為數值不穩定而排到

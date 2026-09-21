@@ -36,6 +36,7 @@ from tw_quant.mdd import MDDManager
 from tw_quant.portfolio_risk import TradeCandidate
 from tw_quant.regime import compute_regime_light
 from tw_quant.signals import generate_strategy_a_signals, generate_strategy_b_signals
+from tw_quant.us_universe import membership_eligibility_mask
 
 
 @dataclass
@@ -99,6 +100,7 @@ def _prepare_master_frame(
     margin_short: pd.DataFrame,
     cfg: StrategyConfig,
     entry_signal_fn: EntrySignalFn | None = None,
+    membership: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     master = prices.sort_values(["stock_id", "date"]).reset_index(drop=True).copy()
     master["rolling_high_10"] = ind.rolling_max(master, "high", cfg.sizing.chandelier_lookback)
@@ -108,6 +110,18 @@ def _prepare_master_frame(
     entry_a, entry_b = entry_signal_fn(master, prices, margin_short, cfg)
     master["entry_signal_a"] = entry_a
     master["entry_signal_b"] = entry_b
+
+    # 2026-09-21 架構修正（跟 tw_quant/factor_backtest.py 的 membership 參數
+    # 同一套道理）：entry_signal_fn 永遠吃完整、未過濾的 prices 算訊號（均線/
+    # ATR/量能這些指標才不會因為股票中途被剔除指數又重新納入而失真），
+    # membership 資格判定改在訊號算完之後才疊加——用 T-1 已知的資格遮罩去
+    # AND 進兩條進場訊號，不是在算訊號之前就先砍價格序列。membership=None
+    # （預設）不做任何資格過濾，保留舊行為（例如台股本來就不需要這個機制）。
+    if membership is not None:
+        raw_member = membership_eligibility_mask(master, membership)
+        member_t_minus_1 = ind.shift_by_group(raw_member.astype(float), master, periods=1).fillna(0).astype(bool)
+        master["entry_signal_a"] = master["entry_signal_a"].astype(bool) & member_t_minus_1
+        master["entry_signal_b"] = master["entry_signal_b"].astype(bool) & member_t_minus_1
 
     regime_light = compute_regime_light(master, cfg.regime, cfg.pool.min_history_days)
     master = master.merge(
@@ -125,6 +139,7 @@ def run_backtest(
     entry_signal_fn: EntrySignalFn | None = None,
     pre_holiday_exit_dates: set[pd.Timestamp] | None = None,
     cost_module=cost_mod,
+    membership: pd.DataFrame | None = None,
 ) -> BacktestResult:
     """執行完整回測。historical_mdd=None 代表不啟用 MDD 熔斷（用於第一次跑出
     基準 MDD），拿到基準值後再傳入做第二次帶熔斷機制的回測。
@@ -135,6 +150,15 @@ def run_backtest(
     兩者皆為對齊 master 列順序的布林陣列。用來在同一套出場/風控引擎下比較
     不同進場邏輯（例如拉回買進、相對強度動能、超跌反彈），見
     scripts/explore_alt_strategies_from_db.py。
+
+    membership：選填（`(stock_id, start_date, end_date)` 區間表，見
+    tw_quant/us_universe.py），用來在美股上套用存活者偏差修正。`prices`
+    永遠要傳完整、未過濾的價格序列（不要用 filter_prices_by_index_membership
+    事先砍過）——entry_signal_fn 依賴的均線/ATR/量能這些指標才算得對；
+    membership 資格判定改在兩條進場訊號算完之後，才用 T-1 已知的資格遮罩
+    AND 進去，跟 tw_quant/factor_backtest.py 的 membership 參數是同一個
+    2026-09-21 架構修正。`membership=None`（預設）不套用任何資格過濾，
+    台股呼叫端不需要傳這個參數。
 
     pre_holiday_exit_dates：選填，長假風控疊加層。這裡放的日期是「長假前
     最後一個交易日的前一個交易日」（也就是訊號日 T，執行日 T+1 剛好等於
@@ -149,7 +173,7 @@ def run_backtest(
     重用在別的市場（例如美股，見 tw_quant/us_costs.py），不用另外複製一份
     出場/風控邏輯。
     """
-    master = _prepare_master_frame(prices, margin_short, cfg, entry_signal_fn)
+    master = _prepare_master_frame(prices, margin_short, cfg, entry_signal_fn, membership=membership)
     pre_holiday_exit_dates = pre_holiday_exit_dates or set()
 
     cash = cfg.initial_capital

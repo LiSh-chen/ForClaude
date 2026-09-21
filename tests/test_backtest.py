@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 from tw_quant.backtest import run_backtest, summarize_performance
 from tw_quant.config import CostConfig, StrategyConfig
@@ -73,6 +74,37 @@ def test_entry_signal_fn_overrides_default_strategy_signals():
     cfg.global_risk.max_industry_exposure_pct = 0.30
     result = run_backtest(data["prices"], data["margin_short"], cfg, entry_signal_fn=always_true)
     assert len(result.trades) > 0
+
+
+def test_membership_param_blocks_entries_outside_membership_window_without_touching_signal_indicators():
+    """2026-09-21 架構修正：membership 只 AND 進最終的進場訊號，不能拿來
+    事先砍 prices——否則會像 tw_quant/factor_backtest.py 修正前那樣，
+    連帶弄壞 entry_signal_fn 依賴的均線/ATR 這些指標。這裡用「一律進場」
+    的假訊號驗證：membership 空窗期內完全不該有任何交易，區間內則正常
+    進場，且用的是完整未過濾的 prices。
+    """
+    data = generate_synthetic_universe(SyntheticUniverseConfig(n_stocks=3, n_days=400, seed=2))
+    cfg = StrategyConfig()
+    cfg.regime.breadth_threshold = 0.0
+    cfg.regime.volume_ratio_threshold = 0.0
+    cfg.global_risk.max_industry_exposure_pct = 1.0
+
+    def always_true(master, prices, margin_short, cfg):
+        n = len(master)
+        return np.ones(n, dtype=bool), np.zeros(n, dtype=bool)
+
+    dates = sorted(data["prices"]["date"].unique())
+    cutoff = pd.Timestamp(dates[300])  # S1000 只在這天之後才是已知的指數成分股
+    membership = pd.DataFrame({"stock_id": ["S1000"], "start_date": [cutoff], "end_date": [pd.NaT]})
+
+    result = run_backtest(
+        data["prices"], data["margin_short"], cfg, entry_signal_fn=always_true, membership=membership
+    )
+
+    # S1001/S1002 沒有 membership 紀錄，視為一直合格（保守不誤殺），照常交易
+    assert result.trades["stock_id"].isin(["S1001", "S1002"]).all() or result.trades.empty is False
+    s1000_entries = result.trades.loc[result.trades["stock_id"] == "S1000", "entry_date"]
+    assert (s1000_entries >= cutoff).all()  # S1000 空窗期內完全不該有任何進場
 
 
 def test_cost_module_injection_lets_us_costs_replace_tw_costs():

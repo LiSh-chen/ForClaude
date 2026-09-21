@@ -37,22 +37,29 @@ import pandas as pd
 from tw_quant import costs as cost_mod
 from tw_quant.backtest import BacktestResult, Position, TradeRecord
 from tw_quant.config import StrategyConfig
+from tw_quant.us_universe import membership_eligibility_mask
 
 EVENT_COLS = ["stock_id", "known_date", "signal"]
 
-# events 傳進來的 known_date 是「市場當時就知道的日期」，但 by_stock 的價量
-# 資料可能已經被存活者偏差過濾（tw_quant.us_universe.filter_prices_by_index_membership）
-# 只留下該股票「當時是指數成分股」的區間——如果事件發生在該股票被過濾掉的
-# 空窗期（例如財報事件是 2019 年、但這檔股票直到 2026 年才被收錄進指數
-# 快照），searchsorted 找到的「known_date 之後第一個有資料的交易日」可能是
-# 好幾年後，等於把 2019 年的驚喜訊號套用到 2026 年的進場——這不是真的
-# PEAD 漂移，是資料空窗期造成的錯誤配對。用這個容忍值擋掉：找到的日期
-# 距離 known_date 超過這麼多「日曆天」就視為「這檔股票在事件當下沒有可用
-# 資料」，直接跳過這筆事件（不是硬幣，是真的沒有部位可以進場）。10天
-# 涵蓋一般週末+假期的最大合理間隔（2026-09-20 發現：不設這個容忍值時，
-# 全部 38126 筆候選事件裡有 25823 筆（68%）進場日期跟事件日期相差超過
-# 30 天，最誇張的相差超過 20 年——這個 bug 影響了先前所有跑過的
-# PEAD 事件驅動策略報告數字，不只是 equity_curve 窗格裁切那個 bug）。
+# events 傳進來的 known_date 是「市場當時就知道的日期」。這裡的 by_stock
+# 永遠用完整、未過濾的價格序列建構（呼叫端不該再用
+# tw_quant.us_universe.filter_prices_by_index_membership 事先砍過），
+# 所以 searchsorted 找到的「known_date 之後第一個有資料的交易日」正常
+# 情況下就是緊接在事件之後的下一個交易日。10 天只是擋掉真正的資料尾端
+# /資料缺口（例如事件發生在整個快照涵蓋範圍的最後幾天，之後這檔股票
+# 完全沒有更多資料），不再是用來吸收存活者偏差過濾造成的假空窗期——
+# 見下面 run_event_drift_backtest 的 membership 參數說明。
+#
+# ★ 2026-09-21 架構修正前的舊版本：呼叫端會先用
+# filter_prices_by_index_membership 把 by_stock 的價格序列砍過一輪，
+# 讓「該股票被剔除又重新納入指數」的空窗期在價格序列裡完全消失。事件
+# 發生在空窗期時，searchsorted 會跳過空窗、找到「重新納入之後」的第一筆
+# 資料——可能是好幾年後，等於把舊事件的訊號套用到多年後的進場。
+# 2026-09-20 發現：不設這個容忍值時，全部 38126 筆候選事件裡有 25823 筆
+# （68%）進場日期跟事件日期相差超過 30 天，最誇張的相差超過 20 年。
+# 當時的修正只是加這個容忍值去「擋掉」明顯異常的配對，沒有解決根源——
+# 根源跟 tw_quant/factor_backtest.py 的 membership bug 完全一樣：不該
+# 在計算任何東西（這裡是「事件後最近的交易日」）之前就先砍價格序列。
 MAX_KNOWN_DATE_GAP_DAYS = 10
 
 
@@ -117,11 +124,22 @@ def run_event_drift_backtest(
     start_date: str | pd.Timestamp | None = None,
     end_date: str | pd.Timestamp | None = None,
     cost_module=cost_mod,
+    membership: pd.DataFrame | None = None,
 ) -> BacktestResult:
     """events 須有 stock_id / known_date / signal 三欄。start_date/end_date
     只限制「哪些事件的 known_date 落在這個窗格內才可能觸發新進場」，價量
     資料永遠用完整 prices（不切片）——已經觸發的部位可以持有到窗格結束
     之後才出場，這是預期行為，不是 bug。
+
+    `prices` 須是完整、未過濾的價格序列（呼叫端不要再用
+    filter_prices_by_index_membership 事先砍過一輪）——2026-09-21 架構
+    修正：`membership` 參數改在「決定哪些事件是有效候選」這一步才介入
+    （用 membership_eligibility_mask 判斷這檔股票在 known_date 當天是不是
+    已知的指數成分股，不是的事件直接丟掉），而不是先砍價格序列本身。
+    這樣「找事件後最近的交易日」永遠用真實連續的股價資料，不會因為股票
+    曾經被剔除指數又重新納入，而把事件跟好幾年後的交易日錯誤配對（見
+    上面 MAX_KNOWN_DATE_GAP_DAYS 的說明）。`membership=None`（預設）保留
+    舊行為，不做任何資格過濾。
 
     回傳的 equity_curve 會裁到 [start_date, 實際需要的結束日] 這個區間
     （結束日取 end_date 跟「最後一筆交易/未平倉部位的日期」兩者較晚的
@@ -142,6 +160,11 @@ def run_event_drift_backtest(
         filtered_events = filtered_events[filtered_events["known_date"] >= pd.Timestamp(start_date)]
     if end_date is not None:
         filtered_events = filtered_events[filtered_events["known_date"] <= pd.Timestamp(end_date)]
+
+    if membership is not None and not filtered_events.empty:
+        event_points = filtered_events.rename(columns={"known_date": "date"})[["stock_id", "date"]]
+        eligible = membership_eligibility_mask(event_points, membership)
+        filtered_events = filtered_events[eligible.values]
 
     candidates = _build_entry_exit_candidates(filtered_events, by_stock, drift_cfg)
     entries_by_date: dict[pd.Timestamp, list[dict]] = {}
