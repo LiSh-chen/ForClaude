@@ -28,6 +28,21 @@ momentum_window，把每一格的摘要指標（兩個期間）跟樣本外逐�
 反未來函數：跟前面所有腳本一樣，永遠傳完整 us_prices（不切片），只用
 start_date/end_date 限制「哪些日期允許實際調倉」。
 
+2026-09-21 架構修正（兩處，跟前一版比對時務必注意）：
+  1. 改用完整未過濾的 us_prices + run_factor_backtest 的 membership 參數，
+     取代先前「先用 filter_prices_by_index_membership 砍過一輪再傳進
+     引擎」的舊寫法——後者會連帶砍掉均線/均量/歷史長度指標賴以計算的
+     完整價格序列，誤傷 MRVL、FLEX、CASY、COHR、CIEN 等 14 檔歷史悠久、
+     但指數成分股身份中途一度中斷又重新加入的股票（詳見
+     tw_quant/us_universe.py 檔頭說明）。
+  2. 「樣本外」窗口原本寫 `(None, OOS_END)`，start_date=None 的語意是
+     「不限制起點」——資料庫還只到 2018-09-21 時這剛好等於 OOS_START，
+     但資料庫已經擴充到 2006-09-25（見 2008 金融風暴延伸測試），None
+     現在會把 2008 危機那段也混進「樣本外」窗口，不是原本定義的
+     2018-2023 那五年。這裡改成明確傳 OOS_START，不再依賴 None 的
+     隱含語意（這正是 confirm_best_strategy_us_momentum_top3_from_db.py
+     第一次跑就踩到的同一個 bug，這裡一併修正）。
+
 輸出：
   - data/topn_grid_metrics.parquet：168 組合 × 2 期間的摘要指標
   - data/topn_grid_equity.parquet：168 組合的樣本外逐日權益曲線
@@ -53,15 +68,15 @@ from tw_quant.curve_export import equity_rows_from_result
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.us_config import build_us_config
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 TOP_N_GRID = (1, 2, 3, 5, 10, 20, 30, 50)
 REBALANCE_FREQ_GRID = (5, 10, 21, 42, 63, 126, 252)
 MOM_WINDOW_GRID = (63, 126, 252)
 
 IN_SAMPLE_START = "2023-09-19"
+OOS_START = "2018-09-20"
 OOS_END = pd.Timestamp(IN_SAMPLE_START) - pd.Timedelta(days=1)
-PERIODS = [("樣本內", IN_SAMPLE_START, None), ("樣本外", None, OOS_END)]
+PERIODS = [("樣本內", IN_SAMPLE_START, None), ("樣本外", OOS_START, OOS_END)]
 
 METRICS_PATH = Path(__file__).resolve().parents[1] / "data" / "topn_grid_metrics.parquet"
 EQUITY_PATH = Path(__file__).resolve().parents[1] / "data" / "topn_grid_equity.parquet"
@@ -74,9 +89,8 @@ def main() -> None:
         print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
 
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
-    print(f"讀到 {us_prices['stock_id'].nunique()} 檔美股的資料（{earliest.date()} ~ {latest.date()}）")
+    print(f"讀到 {us_prices['stock_id'].nunique()} 檔美股的資料（{earliest.date()} ~ {latest.date()}，完整未過濾）")
 
     base_cfg = build_us_config()
     total_combos = len(TOP_N_GRID) * len(REBALANCE_FREQ_GRID) * len(MOM_WINDOW_GRID)
@@ -92,7 +106,8 @@ def main() -> None:
                 for rebal in REBALANCE_FREQ_GRID:
                     factor_cfg = FactorConfig(momentum_window=mw, rebalance_freq_days=rebal, top_n=top_n, ascending=False)
                     result = run_factor_backtest(
-                        us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, cost_module=us_costs
+                        us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date,
+                        cost_module=us_costs, membership=membership,
                     )
                     m = metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
                     metrics_rows.append(

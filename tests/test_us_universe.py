@@ -9,7 +9,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tw_quant.us_universe import filter_prices_by_index_membership
+from tw_quant.us_universe import filter_prices_by_index_membership, membership_eligibility_mask
 
 
 def test_filters_out_rows_before_start_date():
@@ -111,6 +111,37 @@ def test_open_ended_end_date_keeps_rows_through_latest_data():
     result = filter_prices_by_index_membership(prices, membership)
 
     assert len(result) == 2
+
+
+def test_membership_eligibility_mask_matches_filter_but_keeps_all_rows():
+    """2026-09-21 架構修正：membership_eligibility_mask 回傳的遮罩，邏輯
+    要跟 filter_prices_by_index_membership 完全一致，差別只在於不砍列——
+    兩者對同一筆資料的「合格與否」判斷必須相同，只是回傳形式不同。
+    """
+    prices = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2020-01-01", "2020-06-01", "2021-01-01"]),
+            "stock_id": ["A", "A", "A"],
+            "close": [1.0, 2.0, 3.0],
+        }
+    )
+    membership = pd.DataFrame({"stock_id": ["A"], "start_date": pd.to_datetime(["2020-05-01"]), "end_date": [pd.NaT]})
+
+    mask = membership_eligibility_mask(prices, membership)
+    filtered = filter_prices_by_index_membership(prices, membership)
+
+    assert mask.tolist() == [False, True, True]
+    assert len(mask) == len(prices)  # 不砍列，跟 filter 版本（會砍到剩 2 列）不同
+    assert filtered["date"].tolist() == pd.to_datetime(["2020-06-01", "2021-01-01"]).tolist()
+
+
+def test_membership_eligibility_mask_defaults_true_for_untracked_stock():
+    prices = pd.DataFrame({"date": pd.to_datetime(["2020-01-01"]), "stock_id": ["B"], "close": [1.0]})
+    membership = pd.DataFrame({"stock_id": ["A"], "start_date": pd.to_datetime(["2020-05-01"]), "end_date": [pd.NaT]})
+
+    mask = membership_eligibility_mask(prices, membership)
+
+    assert mask.tolist() == [True]
 
 
 def test_multiple_intervals_keeps_rows_in_either_interval():

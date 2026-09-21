@@ -32,6 +32,30 @@
   資料——這裡沒辦法無中生有，需要另一個能提供這些下市股票歷史股價的
   資料源才能补上。AVB、EQR 這 2 檔則是 yfinance 抓到的資料量異常（區間
   對得上但只抓回一個月資料），原因待查，暫不計入已回填名單。
+
+★★ 2026-09-21 架構修正（filter_prices_by_index_membership 的已知副作用）★★
+使用者發現：`scripts/ingest_us_daily_data.py` 每次執行都用 Wikipedia 當下
+「Date added」欄位整批覆寫 `us_index_membership.start_date`——如果一家公司
+曾經一度被剔除指數、之後又重新納入，Wikipedia 的「Date added」只會記錄
+「最近一次」加入日期，不會保留更早那段成分股身份。全樣本清查（630 檔）
+發現至少 14 檔長期上市公司（MRVL、FLEX、CASY、COHR、CIEN、FIX、CRH、EME
+等，原始股價資料完整涵蓋 2006~2026 年）因此被誤判成分股身份只有近期
+幾十~兩百多天，被 `filter_prices_by_index_membership` 砍掉絕大部分真實
+歷史，導致這些股票的 60 日均線、5 日均量、252 天最短歷史門檻全部算不準，
+系統性地被 `tw_quant.signals.build_pool_mask` 排除在股票池外——即使股價
+資料本身完整無缺。
+
+根本問題是「先過濾價格序列、再算指標」這個順序本身：指標（均線/均量/
+歷史長度/動量排名）需要完整、連續的真實股價序列才能算對，「是否為當前
+指數成分股」則是另一件事——不該混在一起處理。正確作法是：**指標永遠用
+完整未過濾的 us_prices 算，「是否為成分股」只在最後決定「這天能不能被
+選中」時，額外用 `membership_eligibility_mask` 當一個獨立的資格遮罩疊加
+上去**（T-1 為止已知資訊，用法見 tw_quant/factor_backtest.py
+run_factor_backtest 的 membership 參數）——不再讓它去汙染價格序列本身。
+
+`filter_prices_by_index_membership`（整段過濾掉不合格的列）保留下來給
+還沒改用新架構的舊腳本相容用，但新的動量策略腳本一律改用下面的
+`membership_eligibility_mask`（只回傳遮罩，不動價格序列）。
 """
 
 from __future__ import annotations
@@ -39,21 +63,26 @@ from __future__ import annotations
 import pandas as pd
 
 
-def filter_prices_by_index_membership(prices: pd.DataFrame, membership: pd.DataFrame) -> pd.DataFrame:
-    """membership 須有 stock_id、start_date、end_date 三欄（見
-    tw_quant.storage.DataStore.load_us_index_membership）。一檔股票可能有
-    不只一段區間（中途被剔除又重新加入）；end_date 是 NaT 代表這段區間
-    還沒觀察到終點（開放式）。
+def membership_eligibility_mask(prices: pd.DataFrame, membership: pd.DataFrame) -> pd.Series:
+    """跟 filter_prices_by_index_membership 判斷邏輯完全一致（membership 須
+    有 stock_id、start_date、end_date 三欄；一檔股票可能有不只一段區間；
+    end_date 是 NaT 代表還沒觀察到終點），差別是這裡只回傳跟 prices 等長、
+    同順序的布林遮罩（True=這天這檔股票是已知的指數成分股），不砍任何列。
 
-    沒有任何區間紀錄的股票（stock_id 根本不在 membership 裡）視為「不知道，
-    不過濾」——缺資料不代表排除，保守起見寧可不誤殺。
+    這樣呼叫端可以把「是否為成分股」當成跟均線/均量/歷史長度同一層級的
+    資格條件疊加進 build_pool_mask 的判定，而不用在指標計算之前就先把
+    價格序列砍出一堆缺口——後者正是 2026-09-21 發現的架構性 bug 根源
+    （見本檔案開頭的完整說明）。
+
+    沒有任何區間紀錄的股票（stock_id 根本不在 membership 裡）視為 True
+    （不知道，不代表排除），跟 filter_prices_by_index_membership 一致。
     """
     if membership.empty:
-        return prices
+        return pd.Series(True, index=prices.index)
 
     m = membership.dropna(subset=["start_date"])
     if m.empty:
-        return prices
+        return pd.Series(True, index=prices.index)
 
     eligible = pd.Series(True, index=prices.index)
     for stock_id, intervals in m.groupby("stock_id"):
@@ -68,4 +97,25 @@ def filter_prices_by_index_membership(prices: pd.DataFrame, membership: pd.DataF
             in_any_interval |= after_start & before_end
         eligible.loc[stock_rows] = in_any_interval
 
+    return eligible
+
+
+def filter_prices_by_index_membership(prices: pd.DataFrame, membership: pd.DataFrame) -> pd.DataFrame:
+    """membership 須有 stock_id、start_date、end_date 三欄（見
+    tw_quant.storage.DataStore.load_us_index_membership）。一檔股票可能有
+    不只一段區間（中途被剔除又重新加入）；end_date 是 NaT 代表這段區間
+    還沒觀察到終點（開放式）。
+
+    沒有任何區間紀錄的股票（stock_id 根本不在 membership 裡）視為「不知道，
+    不過濾」——缺資料不代表排除，保守起見寧可不誤殺。
+
+    ★ 注意（2026-09-21）：這個函式會把不合格的列整段砍掉，砍完之後任何
+    依賴 prices 逐股累積的滾動指標（均線/歷史天數）都會被連帶弄錯——見
+    本檔案開頭的架構修正說明。新的動量策略腳本不要再用這個函式配合
+    run_factor_backtest，改用 membership_eligibility_mask() 當資格遮罩、
+    傳 membership 參數給 run_factor_backtest，讓它在不破壞價格序列的
+    前提下處理。這個函式保留給還沒改用新架構、或本來就不需要逐股累積
+    指標的用途（例如純粹統計「過濾後還剩幾列」）。
+    """
+    eligible = membership_eligibility_mask(prices, membership)
     return prices[eligible].reset_index(drop=True)

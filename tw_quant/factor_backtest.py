@@ -26,6 +26,7 @@ from tw_quant import indicators as ind
 from tw_quant.backtest import BacktestResult, Position, TradeRecord
 from tw_quant.config import StrategyConfig
 from tw_quant.signals import build_pool_mask
+from tw_quant.us_universe import membership_eligibility_mask
 
 
 @dataclass
@@ -44,6 +45,7 @@ def run_factor_backtest(
     end_date: str | pd.Timestamp | None = None,
     signal_fn: Callable[[pd.DataFrame], pd.Series] | None = None,
     cost_module=cost_mod,
+    membership: pd.DataFrame | None = None,
 ) -> BacktestResult:
     """月/季調倉動能因子組合：固定頻率對魚池內個股依排名，等權重持有
     前 N 檔，只有在下次調倉日才換股，期間不做個股停損停利。
@@ -71,9 +73,24 @@ def run_factor_backtest(
     cost_module：選填，同 tw_quant.backtest.run_backtest 的用法，用來替換
     台股成本模型（例如美股，見 tw_quant/us_costs.py），重用同一套定期
     調倉引擎。
+
+    membership：選填，美股用（見 tw_quant/us_universe.py）。傳入時，「是否
+    為指數成分股」會用 membership_eligibility_mask 當成跟均線/均量/歷史
+    長度同一層級的資格條件（一樣 shift(1) 取 T-1 為止已知資訊）疊加進魚池
+    判定，不會去動 prices 本身——2026-09-21 發現先前呼叫端習慣先用
+    tw_quant.us_universe.filter_prices_by_index_membership 把 prices
+    砍過一輪再傳進來，會連帶砍掉均線/均量/歷史長度這些指標賴以計算的
+    完整價格序列，誤傷「公司歷史悠久、但指數成分股身份中途一度中斷又
+    重新加入」的股票（詳見 us_universe.py 檔頭的完整說明）。呼叫端應該
+    一律傳完整未過濾的 prices，改用這個參數傳 membership。
     """
     master = prices.sort_values(["stock_id", "date"]).reset_index(drop=True).copy()
     pool = build_pool_mask(master, cfg.pool)
+
+    if membership is not None:
+        raw_member = membership_eligibility_mask(master, membership)
+        member_t_minus_1 = ind.shift_by_group(raw_member.astype(float), master, periods=1).fillna(0).astype(bool)
+        pool = pool & member_t_minus_1
 
     if signal_fn is not None:
         ranking_signal = signal_fn(master)

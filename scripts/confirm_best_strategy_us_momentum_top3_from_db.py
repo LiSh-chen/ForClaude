@@ -17,6 +17,15 @@ total_ret=106.48%（QQQ 同期 107.82%），已經跟舊數字不一致，需要
 反未來函數：跟其他所有美股策略腳本一致——永遠傳完整 us_prices（不切片），
 只用 start_date/end_date 限制「哪些日期允許實際調倉」。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + run_factor_backtest 的
+membership 參數，取代先前「先用 filter_prices_by_index_membership 砍過
+一輪再傳進引擎」的舊寫法——後者會連帶砍掉均線/均量/歷史長度指標賴以
+計算的完整價格序列，誤傷「公司歷史悠久、但指數成分股身份中途一度中斷
+又重新加入」的股票（例如 MRVL、FLEX、CASY、COHR、CIEN 等 14 檔，詳見
+tw_quant/us_universe.py 檔頭說明）。這裡是第一支改用新架構重新驗證的
+腳本，數字如果跟先前（含這個 session 稍早）用舊架構跑出來的版本不同，
+差異就是這個 bug 修正的直接影響。
+
 用法：
     python scripts/confirm_best_strategy_us_momentum_top3_from_db.py
 """
@@ -37,7 +46,6 @@ from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.us_config import build_us_config
 from tw_quant.us_data_provider import YFinanceUSDataProvider
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 MOM_WINDOW = 126
 REBALANCE_FREQ_DAYS = 21
@@ -71,19 +79,13 @@ def _fmt(label: str, m: dict) -> str:
 
 
 def main() -> None:
-    us_prices_raw = load_us_prices_snapshot()
+    us_prices = load_us_prices_snapshot()  # 完整、未過濾——membership 資格判定交給 run_factor_backtest 處理
     membership = load_us_index_membership_snapshot()
 
-    n_rows_before = len(us_prices_raw)
-    us_prices = filter_prices_by_index_membership(us_prices_raw, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
     n_stocks = us_prices["stock_id"].nunique()
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
 
-    print(
-        f"目前資料庫狀態：{n_stocks} 檔股票，{earliest.date()} ~ {latest.date()}"
-        f"（存活者偏差部分修正後丟掉 {n_rows_dropped}/{n_rows_before} 列，{n_rows_dropped / n_rows_before:.1%}）\n"
-    )
+    print(f"目前資料庫狀態：{n_stocks} 檔股票，{earliest.date()} ~ {latest.date()}（完整未過濾，membership 資格判定交給引擎處理）\n")
 
     base_cfg = build_us_config()
     factor_cfg = FactorConfig(momentum_window=MOM_WINDOW, rebalance_freq_days=REBALANCE_FREQ_DAYS, top_n=TOP_N, ascending=False)
@@ -103,7 +105,7 @@ def main() -> None:
     # 的 79.04% 一模一樣，才發現 start_date=None 的語意已經隨資料庫擴充
     # 跟著變了）。動量排名計算依然用完整未切片的 us_prices（2006 年起的
     # 完整歷史），只是「允許交易」的窗口明確限制在 OOS_START~OOS_END。
-    oos_result = run_factor_backtest(us_prices, base_cfg, factor_cfg, start_date=OOS_START, end_date=OOS_END, cost_module=us_costs)
+    oos_result = run_factor_backtest(us_prices, base_cfg, factor_cfg, start_date=OOS_START, end_date=OOS_END, cost_module=us_costs, membership=membership)
     oos_m = metrics_from_result(oos_result, base_cfg.initial_capital, prices=us_prices)
     print(_fmt("策略（最新資料）", oos_m))
     print(_fmt("QQQ 買進持有", _qqq_metrics(qqq_close, OOS_START, OOS_END)))
@@ -111,7 +113,7 @@ def main() -> None:
     print(f"起始權益 $10,000,000，結束權益 ${base_cfg.initial_capital * (1 + oos_m['total_return']):,.0f}\n")
 
     print("=== 樣本內 IS（2023-09-19 ~ 資料庫最新日期）===")
-    is_result = run_factor_backtest(us_prices, base_cfg, factor_cfg, start_date=IN_SAMPLE_START, end_date=None, cost_module=us_costs)
+    is_result = run_factor_backtest(us_prices, base_cfg, factor_cfg, start_date=IN_SAMPLE_START, end_date=None, cost_module=us_costs, membership=membership)
     is_m = metrics_from_result(is_result, base_cfg.initial_capital, prices=us_prices)
     print(_fmt("策略（最新資料）", is_m))
     print(_fmt("QQQ 買進持有", _qqq_metrics(qqq_close, IN_SAMPLE_START, None)))
@@ -119,10 +121,12 @@ def main() -> None:
     print(f"起始權益 $10,000,000，結束權益 ${base_cfg.initial_capital * (1 + is_m['total_return']):,.0f}\n")
 
     print(
-        "（誠實提醒：這裡的數字跟報告先前反覆引用的 OOS 116.67%/IS 197.52% 如果不同，\n"
-        "差異來自資料庫底層股票池組成改變（577→631 檔，含 2008 危機延伸測試新增的\n"
-        "52+2 檔剔除股回補股票），不是策略邏輯或計算方式有變動——同一組參數、同一顆\n"
-        "引擎，純粹是輸入資料集不同）"
+        "（誠實提醒：這裡的數字如果跟這個 session 稍早（架構修正前）跑出來的版本不同，\n"
+        "差異來自 membership 架構修正本身——先前先過濾再算指標的舊寫法，會誤傷\n"
+        "MRVL、FLEX、CASY、COHR、CIEN 等 14 檔歷史悠久、但指數成分股身份中途一度\n"
+        "中斷又重新加入的股票，這裡改用完整未過濾的價格序列 + membership 參數，\n"
+        "讓這些股票的均線/均量/歷史長度指標算對，同一組參數、同一顆引擎，純粹是\n"
+        "股票池資格判定的架構不同）"
     )
 
 

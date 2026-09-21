@@ -1,9 +1,81 @@
+import pandas as pd
+
 from tw_quant.backtest import summarize_performance
 from tw_quant.config import CostConfig, StrategyConfig
 from tw_quant.data_provider import SyntheticUniverseConfig, generate_synthetic_universe
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.us_config import build_us_config
 from tw_quant import us_costs
+
+
+def _two_stock_prices(n_days: int = 400) -> pd.DataFrame:
+    """建一組兩檔股票的合成資料，專門用來重現 MRVL 那種「長期股票、但
+    membership 只記錄近期一小段區間」的情境：FAST 漲得比 SLOW 快（動量
+    永遠比較強），兩檔都有完整 n_days 天的連續歷史（遠超過
+    min_history_days=252），收盤價單調上升、站在自己的 60 日均線之上，
+    成交量固定夠大，確保兩檔在「有資格交易」這件事上只差 membership，
+    不會被均線/均量條件干擾判斷。
+    """
+    dates = pd.bdate_range("2020-01-02", periods=n_days)
+    rows = []
+    for stock_id, slope in [("FAST", 3.0), ("SLOW", 1.0)]:
+        for i, d in enumerate(dates):
+            price = 100.0 + slope * i
+            rows.append(
+                {
+                    "date": d, "stock_id": stock_id, "industry": "IND0",
+                    "open": price, "high": price, "low": price, "close": price,
+                    "volume": 5_000_000, "turnover_value": price * 5_000_000,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_membership_param_excludes_stock_before_its_window_without_touching_its_indicators():
+    """2026-09-21 架構修正的端對端回歸測試（重現 MRVL bug 的最小案例）：
+    FAST 有完整 400 天連續歷史、動量永遠比 SLOW 強，但 membership 只記錄
+    「第 350 天之後」是成分股。在 membership 區間開始「之前」的調倉日，
+    FAST 即使動量最強也不該被選中；「之後」的調倉日，FAST 應該正確入選
+    ——因為它的均線/均量/歷史長度是用完整 400 天序列算的，不會因為
+    membership 區間短就被誤判成歷史不足 252 天（這正是修正前 MRVL 被
+    誤傷的那個 bug）。
+    """
+    prices = _two_stock_prices(n_days=400)
+    dates = sorted(prices["date"].unique())
+    membership_start = dates[350]
+
+    membership = pd.DataFrame({"stock_id": ["FAST"], "start_date": [membership_start], "end_date": [pd.NaT]})
+
+    cfg = build_us_config()
+    factor_cfg = FactorConfig(momentum_window=30, rebalance_freq_days=30, top_n=1, ascending=False)
+
+    # 第一次調倉在 membership 區間開始「之前」：FAST 動量最強，但還不是
+    # 成分股，應該選不到，退而求其次選 SLOW。
+    early_end = dates[300]
+    early_result = run_factor_backtest(prices, cfg, factor_cfg, end_date=early_end, cost_module=us_costs, membership=membership)
+    early_positions = set(early_result.open_positions.keys()) | set(early_result.trades["stock_id"]) if not early_result.trades.empty else set(early_result.open_positions.keys())
+    assert "FAST" not in early_positions
+    assert "SLOW" in early_positions
+
+    # 之後的調倉在 membership 區間開始「之後」：FAST 現在是成分股了，
+    # 均線/歷史長度用完整序列算，依然合格，動量最強，應該被選中。
+    late_end = dates[390]
+    late_result = run_factor_backtest(prices, cfg, factor_cfg, end_date=late_end, cost_module=us_costs, membership=membership)
+    assert "FAST" in late_result.open_positions
+
+
+def test_membership_none_keeps_old_behavior_unchanged():
+    """membership=None（預設值）時，行為要跟修正前完全一樣——這個參數是
+    選填的，不能影響任何沒有傳它的既有呼叫端（台股回測、舊腳本）。
+    """
+    prices = _two_stock_prices(n_days=400)
+    cfg = build_us_config()
+    factor_cfg = FactorConfig(momentum_window=30, rebalance_freq_days=30, top_n=1, ascending=False)
+
+    result = run_factor_backtest(prices, cfg, factor_cfg, cost_module=us_costs)
+
+    # 沒有 membership 限制時，FAST 動量永遠最強，應該從一開始就被選中。
+    assert "FAST" in result.open_positions
 
 
 def test_cost_module_injection_lets_us_costs_replace_tw_costs():
