@@ -1,0 +1,34 @@
+name: Probe Current Market Regime
+
+# 手動觸發、唯讀診斷：QQQ 相對各條均線的現況、目前距歷史高點回落幅度、
+# 市場狀態分類、策略最新一天的排名快照（如果今天是調倉日會買哪些股票）。
+# 見 scripts/probe_current_market_regime_from_db.py 檔頭說明。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Probe current market regime
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/probe_current_market_regime_from_db.py
