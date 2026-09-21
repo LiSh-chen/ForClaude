@@ -1,0 +1,35 @@
+name: Probe Stooq for Missing S&P 500 Stocks
+
+# 手動觸發、唯讀診斷：測試 Stooq（免費歷史股價來源）對 yfinance 兩輪
+# 嘗試後仍完全查無資料的 2008 年代被剔除 S&P 500 成分股，有沒有更完整的
+# 收錄。不寫入資料庫，只印出覆蓋率統計，先看有沒有實質幫助再決定要不要
+# 做正式整合（見 tw_quant/stooq_provider.py 檔頭的完整背景說明）。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Probe Stooq coverage for missing stocks
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/probe_stooq_missing_sp500_stocks.py
