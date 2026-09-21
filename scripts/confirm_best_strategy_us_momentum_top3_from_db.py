@@ -44,6 +44,7 @@ REBALANCE_FREQ_DAYS = 21
 TOP_N = 3
 
 IN_SAMPLE_START = pd.Timestamp("2023-09-19")
+OOS_START = pd.Timestamp("2018-09-20")
 OOS_END = IN_SAMPLE_START - pd.Timedelta(days=1)
 
 
@@ -94,10 +95,18 @@ def main() -> None:
     qqq_close = qqq_df.sort_values("date").set_index("date")["close"]
 
     print("=== 樣本外 OOS（2018-09-20 ~ 2023-09-18，跟舊資料的 116.67% 對照）===")
-    oos_result = run_factor_backtest(us_prices, base_cfg, factor_cfg, start_date=None, end_date=OOS_END, cost_module=us_costs)
+    # 注意：start_date 必須明確指定 OOS_START，不能用 None——None 的語意是
+    # 「不限制起點」，資料庫還只到 2018-09-21 時 None 剛好等於 2018-09-20，
+    # 但現在資料庫擴充到 2006-09-25 了，None 會變成從 2006 年開始交易、
+    # 混入 2008 危機期間，不是原本定義的 OOS 段（這裡第一次跑就踩到這個
+    # 坑：QQQ total_ret 印出離譜的 951%，回撤也跟「延伸樣本外 2006-2018」
+    # 的 79.04% 一模一樣，才發現 start_date=None 的語意已經隨資料庫擴充
+    # 跟著變了）。動量排名計算依然用完整未切片的 us_prices（2006 年起的
+    # 完整歷史），只是「允許交易」的窗口明確限制在 OOS_START~OOS_END。
+    oos_result = run_factor_backtest(us_prices, base_cfg, factor_cfg, start_date=OOS_START, end_date=OOS_END, cost_module=us_costs)
     oos_m = metrics_from_result(oos_result, base_cfg.initial_capital, prices=us_prices)
     print(_fmt("策略（最新資料）", oos_m))
-    print(_fmt("QQQ 買進持有", _qqq_metrics(qqq_close, None, OOS_END)))
+    print(_fmt("QQQ 買進持有", _qqq_metrics(qqq_close, OOS_START, OOS_END)))
     print(f"策略交易筆數：{oos_m['n_trades']:.0f}、勝率：{oos_m['win_rate']:.1%}")
     print(f"起始權益 $10,000,000，結束權益 ${base_cfg.initial_capital * (1 + oos_m['total_return']):,.0f}\n")
 
