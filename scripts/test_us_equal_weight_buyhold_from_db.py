@@ -30,6 +30,12 @@ QQQ 這段期間的漲幅本來就集中在少數幾檔巨型科技/AI股，極�
 反未來函數：跟前面幾個腳本一樣，永遠傳完整 us_prices（不切片），只用
 start_date/end_date 限制「哪些日期允許實際調倉」。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）；
+「樣本外」窗口也改成明確傳 OOS_START，不再依賴 start_date=None 的隱含
+語意（資料庫擴充到 2006 年後，None 會混入 2008 危機期間）。
+
 用法：
     python scripts/test_us_equal_weight_buyhold_from_db.py
 """
@@ -48,7 +54,6 @@ from tw_quant.backtest_stats import metrics_from_result
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.us_config import build_us_config
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 TOP_N = 999  # 比魚池股數（最多 503 檔）還大，等同「全部買進」
 REBALANCE_FREQ_DAYS = 21  # 月調倉，非調參挑選；只是定期把魚池最新狀態同步進持股
@@ -56,6 +61,7 @@ REBALANCE_FREQ_DAYS = 21  # 月調倉，非調參挑選；只是定期把魚池�
 IN_SAMPLE_START = "2023-09-19"
 QQQ_IN_SAMPLE = {"total_return": 0.9358, "cagr": 0.2481, "max_dd": 0.2277, "sharpe": 1.19, "calmar": 1.09}
 QQQ_OOS = {"total_return": 1.0760, "cagr": 0.1580, "max_dd": 0.3512, "sharpe": 0.69, "calmar": 0.45}
+OOS_START = "2018-09-20"
 OOS_END = pd.Timestamp(IN_SAMPLE_START) - pd.Timedelta(days=1)
 
 HEADER = f"{'total_ret':>10} {'cagr':>8} {'max_dd':>8} {'sharpe':>7} {'calmar':>7}  {'n_held':>6}"
@@ -68,11 +74,14 @@ def _fmt_row(m: dict, n_held: int) -> str:
     )
 
 
-def _run_and_print(label: str, us_prices: pd.DataFrame, base_cfg, start_date, end_date, qqq_bench: dict) -> None:
+def _run_and_print(label: str, us_prices: pd.DataFrame, base_cfg, start_date, end_date, qqq_bench: dict, membership) -> None:
     factor_cfg = FactorConfig(
         momentum_window=21, rebalance_freq_days=REBALANCE_FREQ_DAYS, top_n=TOP_N, ascending=False
     )
-    result = run_factor_backtest(us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, cost_module=us_costs)
+    result = run_factor_backtest(
+        us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, cost_module=us_costs,
+        membership=membership,
+    )
     m = metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
     n_held = len(result.open_positions)
 
@@ -94,15 +103,6 @@ def main() -> None:
         print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
 
-    n_rows_before = len(us_prices)
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}，不解決被剔除股票完全消失那一半，"
-        "見 tw_quant/us_universe.py）\n"
-    )
-
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
     n_stocks = us_prices["stock_id"].nunique()
     print(f"讀到 {n_stocks} 檔美股的資料（{earliest.date()} ~ {latest.date()}）")
@@ -114,8 +114,8 @@ def main() -> None:
         "依然合格的舊持股不換手，只補位新符合資格/剔除新失格的股票"
     )
 
-    _run_and_print("樣本內（2023-09-19 ~ 資料庫最新日期，跟原始 QQQ 對照同期間）", us_prices, base_cfg, IN_SAMPLE_START, None, QQQ_IN_SAMPLE)
-    _run_and_print("樣本外（2018-09-20 ~ 2023-09-18）", us_prices, base_cfg, None, OOS_END, QQQ_OOS)
+    _run_and_print("樣本內（2023-09-19 ~ 資料庫最新日期，跟原始 QQQ 對照同期間）", us_prices, base_cfg, IN_SAMPLE_START, None, QQQ_IN_SAMPLE, membership)
+    _run_and_print("樣本外（2018-09-20 ~ 2023-09-18）", us_prices, base_cfg, OOS_START, OOS_END, QQQ_OOS, membership)
 
     print(
         "\n（這不是嚴格意義上的「買進整個 S&P 500」——魚池篩選（流動性+站上60日均線）\n"

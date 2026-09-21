@@ -40,6 +40,10 @@ tw_quant/data_snapshot.py 檔頭「us_prices 分檔」說明：第一份沿用�
 本機快照、不連資料庫」這個既有架構。這支腳本因此跟其他 20+ 支腳本一樣，
 改回呼叫 load_us_prices_snapshot() / load_us_index_membership_snapshot()。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）。
+
 用法：
     python scripts/test_us_momentum_2008_crisis_from_db.py
 """
@@ -59,7 +63,6 @@ from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.us_config import build_us_config
 from tw_quant.us_data_provider import YFinanceUSDataProvider
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 MOM_WINDOW = 126
 REBALANCE_FREQ_DAYS = 21
@@ -118,14 +121,7 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    n_rows_before = len(us_prices_raw)
-    us_prices = filter_prices_by_index_membership(us_prices_raw, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入/剔除區間過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}）——見檔頭★存活者偏差警語★，"
-        "這裡仍然不含 2008 年代被剔除指數、目前資料庫完全沒有資料的股票\n"
-    )
+    us_prices = us_prices_raw
 
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
     n_stocks = us_prices["stock_id"].nunique()
@@ -164,7 +160,7 @@ def main() -> None:
         result = run_factor_backtest(
             us_prices, base_cfg, factor_cfg,
             start_date=start, end_date=end,
-            cost_module=us_costs,
+            cost_module=us_costs, membership=membership,
         )
         m = metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
         results[label] = (m, result)

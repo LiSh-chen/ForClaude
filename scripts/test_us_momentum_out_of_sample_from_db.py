@@ -15,6 +15,13 @@ scripts/test_us_momentum_strategy_from_db.py 完全相同、沒有重新調參�
 發生在樣本外區間，動量排名計算永遠用完整歷史，不會因切片而重新累積
 暖身期。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）；
+另外原本只傳 end_date、不傳 start_date（隱含 None＝不限起點），docstring
+明確說這段樣本外是 2018-09-20~2023-09-17，資料庫擴充到 2006 年後 None
+會混入 2008 危機期間，改成明確傳 OOS_START。
+
 用法：
     python scripts/test_us_momentum_out_of_sample_from_db.py
 """
@@ -33,7 +40,6 @@ from tw_quant.backtest_stats import metrics_from_result
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.us_config import build_us_config
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_us_momentum_strategy_from_db import (  # noqa: E402
@@ -44,6 +50,7 @@ from test_us_momentum_strategy_from_db import (  # noqa: E402
 )
 
 IN_SAMPLE_START = pd.Timestamp(QQQ_START)  # 原始腳本拿來跟 QQQ 對照、也用來挑參數的窗格起點
+OOS_START = pd.Timestamp("2018-09-20")
 MIN_TRADES_FOR_RANKING = 10
 
 HEADER = (
@@ -68,21 +75,11 @@ def main() -> None:
         print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
 
-    n_rows_before = len(us_prices)
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}）——這段樣本外期間（2018-2023）正是現在 503 檔裡"
-        "24.5% 新進戶還沒加入指數的期間，過濾效果在這裡應該最明顯，"
-        "不解決被剔除股票完全消失那一半（見 tw_quant/us_universe.py）\n"
-    )
-
     earliest = us_prices["date"].min()
     n_stocks = us_prices["stock_id"].nunique()
     print(
         f"讀到 {n_stocks} 檔美股的資料（{earliest.date()} ~ {us_prices['date'].max().date()}）\n"
-        f"樣本外測試區間：{earliest.date()} ~ {(IN_SAMPLE_START - pd.Timedelta(days=1)).date()}\n"
+        f"樣本外測試區間：{OOS_START.date()} ~ {(IN_SAMPLE_START - pd.Timedelta(days=1)).date()}\n"
         f"（樣本內區間 {IN_SAMPLE_START.date()} 之後、跟 QQQ 對照的結果已在 "
         "test_us_momentum_strategy_from_db.py，這裡完全不重複、不重新調參，用同一組固定參數網格套在沒看過的更早期間）\n"
     )
@@ -101,8 +98,8 @@ def main() -> None:
                 )
                 result = run_factor_backtest(
                     us_prices, base_cfg, factor_cfg,
-                    end_date=IN_SAMPLE_START - pd.Timedelta(days=1),
-                    cost_module=us_costs,
+                    start_date=OOS_START, end_date=IN_SAMPLE_START - pd.Timedelta(days=1),
+                    cost_module=us_costs, membership=membership,
                 )
                 m = metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
                 rows.append({"mom_win": mom_win, "hold_days": hold_days, "top_n": top_n, **m})

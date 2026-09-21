@@ -24,6 +24,12 @@
 start_date/end_date 限制交易日期；ETF 買進持有指標直接用收盤價序列
 計算，不涉及排名或訊號，沒有未來函數的疑慮。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）；
+「樣本外」窗口也改成明確傳 OOS_START，不再依賴 start_date=None 的隱含
+語意（資料庫擴充到 2006 年後，None 會混入 2008 危機期間）。
+
 用法：
     python scripts/test_us_benchmark_comparison_from_db.py
 """
@@ -44,7 +50,6 @@ from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.us_config import build_us_config
 from tw_quant.us_data_provider import YFinanceUSDataProvider
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 MOM_WINDOW = 126
 REBALANCE_FREQ_DAYS = 21
@@ -57,6 +62,7 @@ ETF_LABELS = {
 }
 
 IN_SAMPLE_START = "2023-09-19"
+OOS_START = "2018-09-20"
 OOS_END = pd.Timestamp(IN_SAMPLE_START) - pd.Timedelta(days=1)
 
 HEADER = f"{'標的':>28} {'總報酬':>10} {'CAGR':>8} {'MDD':>8} {'Sharpe':>7} {'Calmar':>7}"
@@ -85,17 +91,18 @@ def _fmt_row(label: str, m: dict) -> str:
     )
 
 
-def _run_momentum(us_prices: pd.DataFrame, base_cfg, top_n: int, start_date, end_date) -> dict:
+def _run_momentum(us_prices: pd.DataFrame, base_cfg, top_n: int, start_date, end_date, membership) -> dict:
     factor_cfg = FactorConfig(
         momentum_window=MOM_WINDOW, rebalance_freq_days=REBALANCE_FREQ_DAYS, top_n=top_n, ascending=False
     )
     result = run_factor_backtest(
-        us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, cost_module=us_costs
+        us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, cost_module=us_costs,
+        membership=membership,
     )
     return metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
 
 
-def _print_period(label: str, us_prices, base_cfg, etf_closes: dict[str, pd.DataFrame], start_date, end_date) -> None:
+def _print_period(label: str, us_prices, base_cfg, etf_closes: dict[str, pd.DataFrame], start_date, end_date, membership) -> None:
     print(f"\n=== {label} ===")
     print(HEADER)
 
@@ -120,7 +127,7 @@ def _print_period(label: str, us_prices, base_cfg, etf_closes: dict[str, pd.Data
 
     print()
     for top_n in TOP_N_GRID:
-        m = _run_momentum(us_prices, base_cfg, top_n, start_date, end_date)
+        m = _run_momentum(us_prices, base_cfg, top_n, start_date, end_date, membership)
         print(_fmt_row(f"動量策略 top_n={top_n}", m))
 
 
@@ -131,15 +138,6 @@ def main() -> None:
     if us_prices.empty:
         print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
-
-    n_rows_before = len(us_prices)
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}，不解決被剔除股票完全消失那一半，"
-        "見 tw_quant/us_universe.py）\n"
-    )
 
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
     n_stocks = us_prices["stock_id"].nunique()
@@ -164,8 +162,8 @@ def main() -> None:
         f"（跟 10.5/10.11 節一致，非調參挑選）；持股檔數：{TOP_N_GRID}"
     )
 
-    _print_period("樣本內（2023-09-19 ~ 資料庫最新日期）", us_prices, base_cfg, etf_closes, IN_SAMPLE_START, None)
-    _print_period("樣本外（2018-09-20 ~ 2023-09-18，公允的比較基準）", us_prices, base_cfg, etf_closes, None, OOS_END)
+    _print_period("樣本內（2023-09-19 ~ 資料庫最新日期）", us_prices, base_cfg, etf_closes, IN_SAMPLE_START, None, membership)
+    _print_period("樣本外（2018-09-20 ~ 2023-09-18，公允的比較基準）", us_prices, base_cfg, etf_closes, OOS_START, OOS_END, membership)
 
     print(
         "\n（誠實揭露：「四檔ETF期初等額不再平衡」是期初各投入 1/4 資金、之後完全\n"
