@@ -1,0 +1,31 @@
+name: Debug Stooq Raw Response
+
+# 手動觸發、一次性除錯：probe_stooq_missing_sp500_stocks.py 對 320 檔
+# 全部回報查無資料，連現役股票理論上都不該失敗，這裡直接印出幾檔股票
+# （含 AAPL 當對照組）的 HTTP 回應原始內容，判斷是 API 串接問題還是
+# Stooq 真的沒收錄。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Print raw Stooq responses
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/debug_stooq_raw_response.py
