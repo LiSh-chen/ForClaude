@@ -1,0 +1,36 @@
+name: Test US Momentum top3 + Trend Filter (2008 Crisis)
+
+# 手動觸發：把已驗證過的 QQQ 絕對動能趨勢濾網（見 test_us_dual_momentum_from_db.py）
+# 接到報告主要引用的 top_n=3/momentum_window=126/rebalance_freq_days=21，
+# 測試危機核心期(2007-10~2009-12)、延伸樣本外(2006-2018)、既有樣本外
+# (2018-2023)、樣本內(2023至今) 四段——回答「市場系統性反轉時，加一層
+# 大盤趨勢濾網當停損機制，能不能改善策略表現」。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite (regression guard)
+        run: python -m pytest tests/ -q
+
+      - name: Test top3 momentum + trend filter across 2008 crisis
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/test_us_momentum_top3_trend_filter_2008_crisis_from_db.py
