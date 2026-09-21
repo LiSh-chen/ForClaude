@@ -26,6 +26,12 @@ filter_events_by_sector_momentum 的族群動能篩選），這裡只是把兩�
 算好的逐日報酬率序列拿來對齊、算相關係數跟簡單混合，不涉及新的訊號
 計算，沒有新的反未來函數風險。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）；
+「樣本外」窗口也改成明確傳 OOS_START，不再依賴 start_date=None 的隱含
+語意（資料庫擴充到 2006 年後，None 會混入 2008 危機期間）。
+
 用法：
     python scripts/test_us_momentum_pead_correlation_from_db.py
 """
@@ -49,7 +55,6 @@ from tw_quant.event_drift_backtest import EventDriftConfig, run_event_drift_back
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.leverage import metrics_from_equity_curve
 from tw_quant.us_config import build_us_config
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_us_pead_earnings_drift_from_db import _earnings_surprise_frame  # noqa: E402
@@ -67,6 +72,7 @@ PEAD_TOP_K_SECTORS = 2
 PEAD_MAX_CONCURRENT = 20
 
 IN_SAMPLE_START = "2023-09-19"
+OOS_START = "2018-09-20"
 OOS_END = pd.Timestamp(IN_SAMPLE_START) - pd.Timedelta(days=1)
 QQQ_IN_SAMPLE = {"total_return": 0.9358, "cagr": 0.2481, "max_dd": 0.2277, "sharpe": 1.19, "calmar": 1.09}
 QQQ_OOS = {"total_return": 1.0760, "cagr": 0.1580, "max_dd": 0.3512, "sharpe": 0.69, "calmar": 0.45}
