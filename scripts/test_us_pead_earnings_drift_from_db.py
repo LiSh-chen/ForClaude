@@ -28,6 +28,12 @@ us_earnings（不切片），只用 start_date/end_date 限制交易日期；訊
 用 merge_asof 對齊財報公布日、再 shift(1)，T 日的訊號只用到 T-1 為止
 已知的財報公布資訊。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）；
+「樣本外」窗口也改成明確傳 OOS_START，不再依賴 start_date=None 的隱含
+語意（資料庫擴充到 2006 年後，None 會混入 2008 危機期間）。
+
 用法：
     python scripts/test_us_pead_earnings_drift_from_db.py
 """
@@ -51,13 +57,13 @@ from tw_quant.data_snapshot import (
 )
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.us_config import build_us_config
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 REBALANCE_FREQ_GRID = (21, 42, 63)
 TOP_N_GRID = (5, 10, 20, 30)
 MIN_TRADES_FOR_RANKING = 10
 
 IN_SAMPLE_START = "2023-09-19"
+OOS_START = "2018-09-20"
 OOS_END = pd.Timestamp(IN_SAMPLE_START) - pd.Timedelta(days=1)
 QQQ_IN_SAMPLE = {"total_return": 0.9358, "cagr": 0.2481, "max_dd": 0.2277, "sharpe": 1.19, "calmar": 1.09}
 QQQ_OOS = {"total_return": 1.0760, "cagr": 0.1580, "max_dd": 0.3512, "sharpe": 0.69, "calmar": 0.45}
@@ -130,7 +136,7 @@ def _fmt_row(rebalance: int, top_n: int, m: dict) -> str:
     )
 
 
-def _run_grid(master_with_signal: pd.DataFrame, base_cfg, start_date, end_date, us_prices: pd.DataFrame) -> pd.DataFrame:
+def _run_grid(master_with_signal: pd.DataFrame, base_cfg, start_date, end_date, us_prices: pd.DataFrame, membership) -> pd.DataFrame:
     rows = []
     for rebalance in REBALANCE_FREQ_GRID:
         for top_n in TOP_N_GRID:
@@ -138,7 +144,7 @@ def _run_grid(master_with_signal: pd.DataFrame, base_cfg, start_date, end_date, 
             result = run_factor_backtest(
                 master_with_signal, base_cfg, factor_cfg,
                 start_date=start_date, end_date=end_date,
-                signal_fn=earnings_signal_fn, cost_module=us_costs,
+                signal_fn=earnings_signal_fn, cost_module=us_costs, membership=membership,
             )
             m = metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
             row = {"rebalance": rebalance, "top_n": top_n}
@@ -183,15 +189,6 @@ def main() -> None:
         )
         sys.exit(1)
 
-    n_rows_before = len(us_prices)
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}，不解決被剔除股票完全消失那一半，"
-        "見 tw_quant/us_universe.py）\n"
-    )
-
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
     n_stocks = us_prices["stock_id"].nunique()
     print(f"讀到 {n_stocks} 檔美股的價量資料（{earliest.date()} ~ {latest.date()}）")
@@ -208,10 +205,10 @@ def main() -> None:
     print(f"價量表裡有 {n_known} / {len(master_with_signal)} 列有已知的財報驚喜訊號可用\n")
     print(f"固定網格：rebalance_freq_days={REBALANCE_FREQ_GRID}、top_n={TOP_N_GRID}\n")
 
-    df_in = _run_grid(master_with_signal, base_cfg, IN_SAMPLE_START, None, us_prices)
+    df_in = _run_grid(master_with_signal, base_cfg, IN_SAMPLE_START, None, us_prices, membership)
     _print_period("樣本內（2023-09-19 ~ 資料庫最新日期）", df_in, QQQ_IN_SAMPLE)
 
-    df_oos = _run_grid(master_with_signal, base_cfg, None, OOS_END, us_prices)
+    df_oos = _run_grid(master_with_signal, base_cfg, OOS_START, OOS_END, us_prices, membership)
     _print_period("樣本外（2018-09-20 ~ 2023-09-18，公允的比較基準）", df_oos, QQQ_OOS)
 
     print(

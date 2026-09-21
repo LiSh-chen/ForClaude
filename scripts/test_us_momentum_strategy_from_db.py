@@ -16,6 +16,10 @@ signal_fn=None 時，預設排名依據就是「T-1 為止 momentum_window 日�
 規則——永遠傳完整 us_prices（不切片），只用 start_date 限制「哪些日期
 允許實際調倉」，動量排名計算永遠用完整歷史，不會因切片而重新累積暖身期。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）。
+
 兩段對照：
   1. QQQ_START 起 ~ 資料庫最新日期：跟 QQQ 買進持有同一段期間（見前述
      debug 診斷的 93.58%/24.81%/22.77%/1.19/1.09），直接比較。
@@ -42,7 +46,6 @@ from tw_quant.backtest_stats import metrics_from_result
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.us_config import build_us_config
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 QQQ_START = "2023-09-19"
 QQQ_TOTAL_RETURN, QQQ_CAGR, QQQ_MDD, QQQ_SHARPE, QQQ_CALMAR = 0.9358, 0.2481, 0.2277, 1.19, 1.09
@@ -74,19 +77,9 @@ def main() -> None:
         print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
 
-    n_stocks_before = us_prices["stock_id"].nunique()
-    n_rows_before = len(us_prices)
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}，只排除「當時還沒加入指數」的日期，"
-        "不解決被剔除股票完全消失那一半，見 tw_quant/us_universe.py）\n"
-    )
-
     n_stocks = us_prices["stock_id"].nunique()
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
-    print(f"讀到 {n_stocks_before} 檔美股的資料，過濾後 {n_stocks} 檔仍有資料（{earliest.date()} ~ {latest.date()}）\n")
+    print(f"讀到 {n_stocks} 檔美股的資料（{earliest.date()} ~ {latest.date()}，完整未過濾，membership 資格判定交給引擎處理）\n")
 
     base_cfg = build_us_config()
 
@@ -101,7 +94,8 @@ def main() -> None:
                     momentum_window=mom_win, rebalance_freq_days=hold_days, top_n=top_n, ascending=False
                 )
                 result = run_factor_backtest(
-                    us_prices, base_cfg, factor_cfg, start_date=QQQ_START, cost_module=us_costs
+                    us_prices, base_cfg, factor_cfg, start_date=QQQ_START, cost_module=us_costs,
+                    membership=membership,
                 )
                 m = metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
                 rows.append({"mom_win": mom_win, "hold_days": hold_days, "top_n": top_n, **m})
@@ -131,7 +125,7 @@ def main() -> None:
         f"換到完整 8 年資料（{earliest.date()} ~ {latest.date()}，含 2022 熊市/2020 COVID 崩盤）初步檢查 ==="
     )
     full_cfg = FactorConfig(momentum_window=best_mom_win, rebalance_freq_days=best_hold, top_n=best_top_n, ascending=False)
-    full_result = run_factor_backtest(us_prices, base_cfg, full_cfg, cost_module=us_costs)
+    full_result = run_factor_backtest(us_prices, base_cfg, full_cfg, cost_module=us_costs, membership=membership)
     full_m = metrics_from_result(full_result, base_cfg.initial_capital, prices=us_prices)
     print(HEADER)
     print(_fmt_row(best_mom_win, best_hold, best_top_n, full_m))

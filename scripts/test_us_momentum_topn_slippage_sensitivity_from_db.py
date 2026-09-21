@@ -32,6 +32,12 @@ Sharpe/MDD/CAGR 這裡不重新計算；真正嚴謹的做法需要把每筆滑�
 併回逐日權益曲線再重算全部指標，這裡先用比較快、比較直觀的版本看
 量級對不對，如果初步結果顯示滑價影響很大，才值得投入更多工夫做完整版。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）；
+「樣本外」窗口也改成明確傳 OOS_START，不再依賴 start_date=None 的隱含
+語意（資料庫擴充到 2006 年後，None 會混入 2008 危機期間）。
+
 用法：
     python scripts/test_us_momentum_topn_slippage_sensitivity_from_db.py
 """
@@ -52,7 +58,6 @@ from tw_quant.backtest_stats import metrics_from_result
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.us_config import build_us_config
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 MOM_WINDOW = 126
 REBALANCE_FREQ_DAYS = 21
@@ -63,6 +68,7 @@ ADV_WINDOW = 20
 IMPACT_SCENARIOS = {"樂觀": 0.0050, "中等": 0.0150, "悲觀": 0.0400}
 
 IN_SAMPLE_START = "2023-09-19"
+OOS_START = "2018-09-20"
 OOS_END = pd.Timestamp(IN_SAMPLE_START) - pd.Timedelta(days=1)
 
 
@@ -80,12 +86,13 @@ def _impact_cost(notional: float, adv: float | None, coef: float) -> float:
     return notional * coef * np.sqrt(participation)
 
 
-def _analyze(us_prices: pd.DataFrame, base_cfg, top_n: int, start_date, end_date, adv_lookup: dict) -> dict:
+def _analyze(us_prices: pd.DataFrame, base_cfg, top_n: int, start_date, end_date, adv_lookup: dict, membership) -> dict:
     factor_cfg = FactorConfig(
         momentum_window=MOM_WINDOW, rebalance_freq_days=REBALANCE_FREQ_DAYS, top_n=top_n, ascending=False
     )
     result = run_factor_backtest(
-        us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, cost_module=us_costs
+        us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, cost_module=us_costs,
+        membership=membership,
     )
     baseline_m = metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
 
@@ -121,7 +128,7 @@ def _analyze(us_prices: pd.DataFrame, base_cfg, top_n: int, start_date, end_date
     }
 
 
-def _print_period(label: str, us_prices, base_cfg, start_date, end_date, adv_lookup) -> None:
+def _print_period(label: str, us_prices, base_cfg, start_date, end_date, adv_lookup, membership) -> None:
     print(f"\n=== {label} ===")
     header = (
         f"{'top_n':>6} {'原始總報酬':>10} {'中位參與率':>11} {'最大參與率':>11}  "
@@ -129,7 +136,7 @@ def _print_period(label: str, us_prices, base_cfg, start_date, end_date, adv_loo
     )
     print(header)
     for top_n in TOP_N_GRID:
-        r = _analyze(us_prices, base_cfg, top_n, start_date, end_date, adv_lookup)
+        r = _analyze(us_prices, base_cfg, top_n, start_date, end_date, adv_lookup, membership)
         adj_str = "  ".join(f"{r['adjusted_total_return'][name]:>14.2%}" for name in IMPACT_SCENARIOS)
         print(
             f"{top_n:>6} {r['baseline_total_return']:>9.2%} {r['median_participation']:>10.2%} "
@@ -144,15 +151,6 @@ def main() -> None:
     if us_prices.empty:
         print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
-
-    n_rows_before = len(us_prices)
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}，不解決被剔除股票完全消失那一半，"
-        "見 tw_quant/us_universe.py）\n"
-    )
 
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
     n_stocks = us_prices["stock_id"].nunique()
@@ -169,8 +167,8 @@ def main() -> None:
         f"市場衝擊成本情境（參與率100%時的滑價 bps）：{ {k: f'{v:.2%}' for k, v in IMPACT_SCENARIOS.items()} }"
     )
 
-    _print_period("樣本內（2023-09-19 ~ 資料庫最新日期）", us_prices, base_cfg, IN_SAMPLE_START, None, adv_lookup)
-    _print_period("樣本外（2018-09-20 ~ 2023-09-18）", us_prices, base_cfg, None, OOS_END, adv_lookup)
+    _print_period("樣本內（2023-09-19 ~ 資料庫最新日期）", us_prices, base_cfg, IN_SAMPLE_START, None, adv_lookup, membership)
+    _print_period("樣本外（2018-09-20 ~ 2023-09-18）", us_prices, base_cfg, OOS_START, OOS_END, adv_lookup, membership)
 
     print(
         "\n（誠實揭露：這裡的「總報酬」調整是線性近似——原始總報酬減去估算的總滑價\n"

@@ -27,6 +27,15 @@ S&P 500 資料上，跟台股版（scripts/test_pairs_trading_from_db.py，結�
 借券費/保證金利息；配對只在同產業內找；避險比例形成期內凍結不重估）——
 這些限制對美股版一樣成立。
 
+2026-09-21 架構修正：這支腳本先前直接連 get_data_store()/store.
+load_us_prices()（本機空的 SQLite DB，這個沙盒環境完全連不到資料、
+根本跑不動），也完全沒有處理 S&P 500 存活者偏差。改成跟其他美股腳本
+一致，讀本機快照（load_us_prices_snapshot()/
+load_us_index_membership_snapshot()），並把 membership 參數傳進
+run_pairs_trading_backtest——候選股票是否合格改在 _find_pairs 內部、
+用配對形成窗格「最後一天」的 membership 資格判定，不再靠預先過濾價格
+樞紐表（詳見 tw_quant/pairs_trading.py 開頭說明）。
+
 用法：
     python scripts/test_us_pairs_trading_from_db.py
 """
@@ -42,8 +51,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tw_quant import us_costs
 from tw_quant.backtest_stats import metrics_from_result
+from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.pairs_trading import PairsTradingConfig, run_pairs_trading_backtest
-from tw_quant.storage import get_data_store
 from tw_quant.us_config import build_us_config
 
 FORMATION_WINDOW_GRID = (120, 180, 252)
@@ -69,11 +78,11 @@ def _fmt_row(formation_window: int, entry_z: float, m: dict) -> str:
 
 
 def main() -> None:
-    store = get_data_store()
-    us_prices = store.load_us_prices()
+    us_prices = load_us_prices_snapshot()
+    membership = load_us_index_membership_snapshot()
 
     if us_prices.empty:
-        print("資料庫裡沒有任何美股價量資料。", file=sys.stderr)
+        print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
 
     n_stocks = us_prices["stock_id"].nunique()
@@ -96,7 +105,7 @@ def main() -> None:
                 pre_filter_min_abs_corr=0.6,
                 max_stocks_per_industry=25,
             )
-            result = run_pairs_trading_backtest(us_prices, base_cfg, rt_cfg, cost_module=us_costs)
+            result = run_pairs_trading_backtest(us_prices, base_cfg, rt_cfg, cost_module=us_costs, membership=membership)
             m = metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
             row = {"formation_window": formation_window, "entry_z": entry_z}
             row.update(m)

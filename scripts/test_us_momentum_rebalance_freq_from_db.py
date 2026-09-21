@@ -27,6 +27,12 @@
 反未來函數：跟前面幾個腳本一樣，永遠傳完整 us_prices（不切片），只用
 start_date/end_date 限制「哪些日期允許實際調倉」。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）；
+「樣本外」窗口也改成明確傳 OOS_START，不再依賴 start_date=None 的隱含
+語意（資料庫擴充到 2006 年後，None 會混入 2008 危機期間）。
+
 用法：
     python scripts/test_us_momentum_rebalance_freq_from_db.py
 """
@@ -47,7 +53,6 @@ from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.us_config import build_us_config
 from tw_quant.us_data_provider import YFinanceUSDataProvider
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 from test_us_dual_momentum_from_db import MOM_WINDOW, TOP_N, make_trend_filtered_momentum_signal_fn  # noqa: E402
 
@@ -57,6 +62,7 @@ TREND_MA_FIXED = 150
 IN_SAMPLE_START = "2023-09-19"
 QQQ_IN_SAMPLE = {"total_return": 0.9358, "cagr": 0.2481, "max_dd": 0.2277, "sharpe": 1.19, "calmar": 1.09}
 QQQ_OOS = {"total_return": 1.0760, "cagr": 0.1580, "max_dd": 0.3512, "sharpe": 0.69, "calmar": 0.45}
+OOS_START = "2018-09-20"
 OOS_END = pd.Timestamp(IN_SAMPLE_START) - pd.Timedelta(days=1)
 
 HEADER = (
@@ -65,13 +71,13 @@ HEADER = (
 )
 
 
-def _run(us_prices: pd.DataFrame, base_cfg, signal_fn, rebalance_freq_days: int, start_date, end_date) -> dict:
+def _run(us_prices: pd.DataFrame, base_cfg, signal_fn, rebalance_freq_days: int, start_date, end_date, membership) -> dict:
     factor_cfg = FactorConfig(
         momentum_window=MOM_WINDOW, rebalance_freq_days=rebalance_freq_days, top_n=TOP_N, ascending=False
     )
     result = run_factor_backtest(
         us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date,
-        signal_fn=signal_fn, cost_module=us_costs,
+        signal_fn=signal_fn, cost_module=us_costs, membership=membership,
     )
     return metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
 
@@ -84,16 +90,16 @@ def _fmt_row(rebal_d: int, label: str, m: dict) -> str:
     )
 
 
-def _print_period(label: str, us_prices, base_cfg, qqq, start_date, end_date, qqq_bench: dict) -> None:
+def _print_period(label: str, us_prices, base_cfg, qqq, start_date, end_date, qqq_bench: dict, membership) -> None:
     print(f"\n=== {label} ===")
     print(HEADER)
 
     trend_signal_fn = make_trend_filtered_momentum_signal_fn(qqq, TREND_MA_FIXED)
 
     for rebal_d in REBALANCE_FREQ_GRID:
-        baseline = _run(us_prices, base_cfg, None, rebal_d, start_date, end_date)
+        baseline = _run(us_prices, base_cfg, None, rebal_d, start_date, end_date, membership)
         print(_fmt_row(rebal_d, "無濾網", baseline))
-        filtered = _run(us_prices, base_cfg, trend_signal_fn, rebal_d, start_date, end_date)
+        filtered = _run(us_prices, base_cfg, trend_signal_fn, rebal_d, start_date, end_date, membership)
         print(_fmt_row(rebal_d, "有濾網", filtered))
 
     print(
@@ -110,15 +116,6 @@ def main() -> None:
     if us_prices.empty:
         print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
-
-    n_rows_before = len(us_prices)
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}，不解決被剔除股票完全消失那一半，"
-        "見 tw_quant/us_universe.py）\n"
-    )
 
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
     n_stocks = us_prices["stock_id"].nunique()
@@ -142,8 +139,8 @@ def main() -> None:
         f"（10.7 節網格裡的中段值，非挑選出來表現最好的那個）；調倉頻率網格：{REBALANCE_FREQ_GRID} 個交易日"
     )
 
-    _print_period("樣本內（2023-09-19 ~ 資料庫最新日期，跟原始 QQQ 對照同期間）", us_prices, base_cfg, qqq, IN_SAMPLE_START, None, QQQ_IN_SAMPLE)
-    _print_period("樣本外（挑參數/濾網網格時都沒看過的更早期間，2018-09-20 ~ 2023-09-18）", us_prices, base_cfg, qqq, None, OOS_END, QQQ_OOS)
+    _print_period("樣本內（2023-09-19 ~ 資料庫最新日期，跟原始 QQQ 對照同期間）", us_prices, base_cfg, qqq, IN_SAMPLE_START, None, QQQ_IN_SAMPLE, membership)
+    _print_period("樣本外（挑參數/濾網網格時都沒看過的更早期間，2018-09-20 ~ 2023-09-18）", us_prices, base_cfg, qqq, OOS_START, OOS_END, QQQ_OOS, membership)
 
     print(
         "\n（誠實揭露：調倉頻率越高，複委託每股固定手續費的累積影響越大——已經反映在\n"

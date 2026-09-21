@@ -24,6 +24,10 @@ shift(1)，T 日的標籤只用到 T-1 為止已知的 QQQ 報酬率；三分位
 沒有用到策略本身逐日報酬率的計算，細節見 tw_quant/market_regime_breakdown.py
 開頭說明。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）。
+
 用法：
     python scripts/test_us_topn3_regime_breakdown_from_db.py
 """
@@ -50,7 +54,6 @@ from tw_quant.market_regime_breakdown import (
 )
 from tw_quant.us_config import build_us_config
 from tw_quant.us_data_provider import YFinanceUSDataProvider
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 MOM_WINDOW = 126
 REBALANCE_FREQ_DAYS = 21
@@ -88,15 +91,6 @@ def main() -> None:
         print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
 
-    n_rows_before = len(us_prices)
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}，不解決被剔除股票完全消失那一半，"
-        "見 tw_quant/us_universe.py）\n"
-    )
-
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
     n_stocks = us_prices["stock_id"].nunique()
     print(f"讀到 {n_stocks} 檔美股的資料（{earliest.date()} ~ {latest.date()}）")
@@ -120,7 +114,10 @@ def main() -> None:
     )
 
     factor_cfg = FactorConfig(momentum_window=MOM_WINDOW, rebalance_freq_days=REBALANCE_FREQ_DAYS, top_n=TOP_N, ascending=False)
-    result = run_factor_backtest(us_prices, base_cfg, factor_cfg, start_date=None, end_date=None, cost_module=us_costs)
+    result = run_factor_backtest(
+        us_prices, base_cfg, factor_cfg, start_date=None, end_date=None, cost_module=us_costs,
+        membership=membership,
+    )
     strat_equity = result.equity_curve["equity"]
     strat_ret_all = strat_equity.pct_change()
 

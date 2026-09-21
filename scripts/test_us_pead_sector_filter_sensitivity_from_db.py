@@ -19,6 +19,12 @@
 函式跟 test_us_pead_earnings_drift_from_db.py 的驚喜幅度計算（都是
 import，不重複定義）。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）；
+「樣本外」窗口也改成明確傳 OOS_START，不再依賴 start_date=None 的隱含
+語意（資料庫擴充到 2006 年後，None 會混入 2008 危機期間）。
+
 用法：
     python scripts/test_us_pead_sector_filter_sensitivity_from_db.py
 """
@@ -41,7 +47,6 @@ from tw_quant.data_snapshot import (
 )
 from tw_quant.event_drift_backtest import EventDriftConfig, run_event_drift_backtest
 from tw_quant.us_config import build_us_config
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_us_pead_earnings_drift_from_db import _earnings_surprise_frame  # noqa: E402
@@ -56,6 +61,7 @@ SECTOR_LOOKBACK_GRID = (20, 40, 60, 90)  # 60 是前次測過的值
 TOP_K_SECTORS_GRID = (2, 3, 5)  # 3 是前次測過的值（共 11 個有效 GICS 產業）
 
 IN_SAMPLE_START = "2023-09-19"
+OOS_START = "2018-09-20"
 OOS_END = pd.Timestamp(IN_SAMPLE_START) - pd.Timedelta(days=1)
 QQQ_IN_SAMPLE = {"total_return": 0.9358, "cagr": 0.2481, "max_dd": 0.2277, "sharpe": 1.19, "calmar": 1.09}
 QQQ_OOS = {"total_return": 1.0760, "cagr": 0.1580, "max_dd": 0.3512, "sharpe": 0.69, "calmar": 0.45}
@@ -78,7 +84,7 @@ def _fmt_row(lookback: int, top_k: int, n_evt: int, m: dict) -> str:
     )
 
 
-def run_sector_param_grid(us_prices: pd.DataFrame, events_all: pd.DataFrame, base_cfg) -> pd.DataFrame:
+def run_sector_param_grid(us_prices: pd.DataFrame, events_all: pd.DataFrame, base_cfg, membership=None) -> pd.DataFrame:
     """對族群篩選的兩個參數（回看天數、前K強產業）做網格，固定住
     entry_lag/holding_days/驚喜幅度門檻，樣本內外都跑，回傳長格式結果。
     獨立成函式方便測試（用小的合成資料驗證回傳的列數/欄位對不對，
@@ -93,10 +99,10 @@ def run_sector_param_grid(us_prices: pd.DataFrame, events_all: pd.DataFrame, bas
                 entry_lag_days=ENTRY_LAG_DAYS, holding_days=FIXED_HOLDING_DAYS,
                 signal_threshold=FIXED_THRESHOLD, max_concurrent_positions=MAX_CONCURRENT_POSITIONS,
             )
-            for period, start_date, end_date in (("in_sample", IN_SAMPLE_START, None), ("oos", None, OOS_END)):
+            for period, start_date, end_date in (("in_sample", IN_SAMPLE_START, None), ("oos", OOS_START, OOS_END)):
                 result = run_event_drift_backtest(
                     us_prices, events_filtered, base_cfg, drift_cfg,
-                    start_date=start_date, end_date=end_date, cost_module=us_costs,
+                    start_date=start_date, end_date=end_date, cost_module=us_costs, membership=membership,
                 )
                 m = metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
                 row = {"lookback": lookback, "top_k": top_k, "n_events": len(events_filtered), "period": period}
@@ -139,14 +145,6 @@ def main() -> None:
         )
         sys.exit(1)
 
-    n_rows_before = len(us_prices)
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}）\n"
-    )
-
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
     n_stocks = us_prices["stock_id"].nunique()
     print(f"讀到 {n_stocks} 檔美股的價量資料（{earliest.date()} ~ {latest.date()}）")
@@ -161,7 +159,7 @@ def main() -> None:
         f"族群篩選參數網格：回看天數={SECTOR_LOOKBACK_GRID}、前K強產業={TOP_K_SECTORS_GRID}\n"
     )
 
-    grid = run_sector_param_grid(us_prices, events_all, base_cfg)
+    grid = run_sector_param_grid(us_prices, events_all, base_cfg, membership)
 
     _print_period("樣本內（2023-09-19 ~ 資料庫最新日期）", grid[grid["period"] == "in_sample"], QQQ_IN_SAMPLE, float("nan"))
     _print_period("樣本外（2018-09-20 ~ 2023-09-18，公允的比較基準）", grid[grid["period"] == "oos"], QQQ_OOS, BASELINE_NO_FILTER_OOS_SHARPE)

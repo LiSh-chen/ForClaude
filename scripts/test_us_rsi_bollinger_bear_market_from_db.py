@@ -14,6 +14,13 @@ test_us_rsi_bollinger_out_of_sample_from_db.py）已經否證這個策略的
 反未來函數：永遠傳完整 us_prices（不切片），用 start_date/end_date
 限制交易只發生在熊市窗格內，排名指標計算永遠用完整歷史。
 
+2026-09-21 架構修正：這支腳本先前直接連 get_data_store()/store.
+load_us_prices()（本機空的 SQLite DB，這個沙盒環境完全連不到資料、
+根本跑不動），也完全沒有處理 S&P 500 存活者偏差。改成跟其他美股腳本
+一致，讀本機快照（load_us_prices_snapshot()/
+load_us_index_membership_snapshot()），並把 membership 參數傳進
+run_factor_backtest（詳見 tw_quant/us_universe.py 檔頭）。
+
 用法：
     python scripts/test_us_rsi_bollinger_bear_market_from_db.py
 """
@@ -29,8 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tw_quant import us_costs
 from tw_quant.backtest_stats import metrics_from_result
+from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
-from tw_quant.storage import get_data_store
 from tw_quant.us_config import build_us_config
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -60,11 +67,11 @@ def _fmt_row(label: str, hold_days: int, top_n: int, m: dict) -> str:
 
 
 def main() -> None:
-    store = get_data_store()
-    us_prices = store.load_us_prices()
+    us_prices = load_us_prices_snapshot()
+    membership = load_us_index_membership_snapshot()
 
     if us_prices.empty:
-        print("資料庫裡沒有任何美股價量資料。", file=sys.stderr)
+        print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
 
     earliest = us_prices["date"].min()
@@ -100,7 +107,7 @@ def main() -> None:
                 result = run_factor_backtest(
                     us_prices, base_cfg, factor_cfg,
                     start_date=BEAR_START, end_date=BEAR_END,
-                    signal_fn=fn, cost_module=us_costs,
+                    signal_fn=fn, cost_module=us_costs, membership=membership,
                 )
                 m = metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
                 rows.append({"signal": signal_name, "hold_days": hold_days, "top_n": top_n, **m})

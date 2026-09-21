@@ -31,6 +31,14 @@ docs/research_findings.md 的表格跟前端的「參數比較」表格裡，不
 完整 us_prices，只用 start_date/end_date 限制交易日期），沒有新增任何
 切片邏輯。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）；
+「樣本外」窗口也改成明確傳 OOS_START，不再依賴 start_date=None 的隱含
+語意（資料庫擴充到 2006 年後，None 會混入 2008 危機期間）。這支腳本的
+輸出（data/strategy_equity_curves.parquet、data/strategy_trades.parquet）
+餵給前端「動量策略完整交易明細」，這次修正後需要重新執行、重新匯出。
+
 用法：
     python scripts/export_strategy_curves_from_db.py
 """
@@ -57,7 +65,6 @@ from tw_quant.etf_combo import simulate_weighted_portfolio
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.us_config import build_us_config
 from tw_quant.us_data_provider import YFinanceUSDataProvider
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 from scripts.test_us_dual_momentum_from_db import make_trend_filtered_momentum_signal_fn
 from scripts.test_us_lowvol_factor_from_db import make_low_vol_signal_fn
@@ -72,17 +79,18 @@ BEST_VOL_WINDOW = 126
 ETF_TICKERS = ["QQQ", "VOO", "VTI", "VT"]
 
 IN_SAMPLE_START = "2023-09-19"
+OOS_START = "2018-09-20"
 OOS_END = pd.Timestamp(IN_SAMPLE_START) - pd.Timedelta(days=1)
-PERIODS = [("樣本內", IN_SAMPLE_START, None), ("樣本外", None, OOS_END)]
+PERIODS = [("樣本內", IN_SAMPLE_START, None), ("樣本外", OOS_START, OOS_END)]
 
 EQUITY_PATH = Path(__file__).resolve().parents[1] / "data" / "strategy_equity_curves.parquet"
 TRADES_PATH = Path(__file__).resolve().parents[1] / "data" / "strategy_trades.parquet"
 
 
-def _run_factor(label, us_prices, base_cfg, factor_cfg, signal_fn, start_date, end_date, period_label, equity_rows, trade_rows):
+def _run_factor(label, us_prices, base_cfg, factor_cfg, signal_fn, start_date, end_date, period_label, equity_rows, trade_rows, membership):
     result = run_factor_backtest(
         us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date,
-        signal_fn=signal_fn, cost_module=us_costs,
+        signal_fn=signal_fn, cost_module=us_costs, membership=membership,
     )
     equity_rows.append(equity_rows_from_result(period_label, label, result))
     trade_rows.append(trade_rows_from_result(period_label, label, result, prices=us_prices))
@@ -104,7 +112,6 @@ def main() -> None:
         print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
 
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
     print(f"讀到 {us_prices['stock_id'].nunique()} 檔美股的資料（{earliest.date()} ~ {latest.date()}）")
 
@@ -157,14 +164,14 @@ def main() -> None:
         _run_factor(
             "等權重全魚池(10.10)", us_prices, base_cfg,
             FactorConfig(momentum_window=21, rebalance_freq_days=21, top_n=999, ascending=False),
-            None, start_date, end_date, period_label, equity_rows, trade_rows,
+            None, start_date, end_date, period_label, equity_rows, trade_rows, membership,
         )
 
         for top_n in TOP_N_GRID:
             _run_factor(
                 f"top_n={top_n}", us_prices, base_cfg,
                 FactorConfig(momentum_window=MOM_WINDOW, rebalance_freq_days=REBALANCE_FREQ_DAYS, top_n=top_n, ascending=False),
-                None, start_date, end_date, period_label, equity_rows, trade_rows,
+                None, start_date, end_date, period_label, equity_rows, trade_rows, membership,
             )
 
         qqq = etf_closes["QQQ"]
@@ -172,20 +179,20 @@ def main() -> None:
             f"雙動能(濾網MA{BEST_TREND_MA})", us_prices, base_cfg,
             FactorConfig(momentum_window=MOM_WINDOW, rebalance_freq_days=REBALANCE_FREQ_DAYS, top_n=20, ascending=False),
             make_trend_filtered_momentum_signal_fn(qqq, BEST_TREND_MA), start_date, end_date,
-            period_label, equity_rows, trade_rows,
+            period_label, equity_rows, trade_rows, membership,
         )
 
         _run_factor(
             f"調倉{BEST_REBALANCE_FREQ_DAYS}天(top_n=20)", us_prices, base_cfg,
             FactorConfig(momentum_window=MOM_WINDOW, rebalance_freq_days=BEST_REBALANCE_FREQ_DAYS, top_n=20, ascending=False),
-            None, start_date, end_date, period_label, equity_rows, trade_rows,
+            None, start_date, end_date, period_label, equity_rows, trade_rows, membership,
         )
 
         _run_factor(
             f"低波動因子(vol_win={BEST_VOL_WINDOW})", us_prices, base_cfg,
             FactorConfig(rebalance_freq_days=REBALANCE_FREQ_DAYS, top_n=20, ascending=True),
             make_low_vol_signal_fn(BEST_VOL_WINDOW), start_date, end_date,
-            period_label, equity_rows, trade_rows,
+            period_label, equity_rows, trade_rows, membership,
         )
 
     equity_df = pd.concat(equity_rows, ignore_index=True)

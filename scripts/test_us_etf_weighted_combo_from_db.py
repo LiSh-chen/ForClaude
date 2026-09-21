@@ -20,6 +20,13 @@ QQQ 的結果後，明確要求驗證不同組合/配比、以及再平衡與否
 （及之前）的收盤價，見 tw_quant/etf_combo.py 說明；跟前面所有腳本
 一樣只用 start_date/end_date 限制期間，不影響這一點。
 
+不需要 2026-09-21 的 membership 架構修正：這支腳本純粹是 ETF 買進持有/
+再平衡模擬（QQQ/VOO/VTI/VT），完全不碰個股選股或指標計算，`us_prices`
+只拿來讀資料庫的最早/最新日期當作抓 ETF 歷史的範圍，不涉及
+S&P 500 成分股資格判定。但「樣本外」窗口原本用 start_date=None（隱含
+「不限起點」），資料庫擴充到 2006 年後 None 會把 2008 危機也算進
+「樣本外」，這裡一併改成明確傳 OOS_START。
+
 用法：
     python scripts/test_us_etf_weighted_combo_from_db.py
 """
@@ -41,6 +48,7 @@ from tw_quant.us_data_provider import YFinanceUSDataProvider
 ETF_TICKERS = ["QQQ", "VOO", "VTI", "VT"]
 
 IN_SAMPLE_START = "2023-09-19"
+OOS_START = "2018-09-20"
 OOS_END = pd.Timestamp(IN_SAMPLE_START) - pd.Timedelta(days=1)
 
 REBALANCE_GRID = [("不再平衡", None), ("每季再平衡（63交易日）", 63), ("每年再平衡（252交易日）", 252)]
@@ -128,7 +136,7 @@ def main() -> None:
     )
 
     _print_period("樣本內（2023-09-19 ~ 資料庫最新日期）", etf_closes, base_cfg, IN_SAMPLE_START, None)
-    _print_period("樣本外（2018-09-20 ~ 2023-09-18，公允的比較基準）", etf_closes, base_cfg, None, OOS_END)
+    _print_period("樣本外（2018-09-20 ~ 2023-09-18，公允的比較基準）", etf_closes, base_cfg, OOS_START, OOS_END)
 
     print(
         "\n（誠實揭露：這裡只測了 QQQ 搭配 VOO／VT／三檔混合／四檔等額這幾種\n"

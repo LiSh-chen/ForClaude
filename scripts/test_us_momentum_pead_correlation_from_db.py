@@ -87,13 +87,16 @@ def _fmt_row(label: str, m: dict) -> str:
     )
 
 
-def _momentum_equity(us_prices: pd.DataFrame, base_cfg, start_date, end_date) -> pd.Series:
+def _momentum_equity(us_prices: pd.DataFrame, base_cfg, start_date, end_date, membership) -> pd.Series:
     factor_cfg = FactorConfig(momentum_window=MOM_WINDOW, rebalance_freq_days=REBALANCE_FREQ_DAYS, top_n=TOP_N, ascending=False)
-    result = run_factor_backtest(us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, cost_module=us_costs)
+    result = run_factor_backtest(
+        us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, cost_module=us_costs,
+        membership=membership,
+    )
     return result.equity_curve["equity"]
 
 
-def _pead_sector_equity(us_prices: pd.DataFrame, events_all: pd.DataFrame, base_cfg, start_date, end_date) -> pd.Series:
+def _pead_sector_equity(us_prices: pd.DataFrame, events_all: pd.DataFrame, base_cfg, start_date, end_date, membership) -> pd.Series:
     events_filtered = filter_events_by_sector_momentum(events_all, us_prices, PEAD_SECTOR_LOOKBACK, PEAD_TOP_K_SECTORS)
     drift_cfg = EventDriftConfig(
         entry_lag_days=PEAD_ENTRY_LAG_DAYS, holding_days=PEAD_HOLDING_DAYS,
@@ -101,7 +104,7 @@ def _pead_sector_equity(us_prices: pd.DataFrame, events_all: pd.DataFrame, base_
     )
     result = run_event_drift_backtest(
         us_prices, events_filtered, base_cfg, drift_cfg,
-        start_date=start_date, end_date=end_date, cost_module=us_costs,
+        start_date=start_date, end_date=end_date, cost_module=us_costs, membership=membership,
     )
     return result.equity_curve["equity"]
 
@@ -145,14 +148,6 @@ def main() -> None:
         )
         sys.exit(1)
 
-    n_rows_before = len(us_prices)
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}）\n"
-    )
-
     n_stocks = us_prices["stock_id"].nunique()
     print(f"讀到 {n_stocks} 檔美股的價量資料\n")
     print(
@@ -164,12 +159,12 @@ def main() -> None:
     events_all = _earnings_surprise_frame(earnings).rename(columns={"surprise": "signal"})
     base_cfg = build_us_config()
 
-    mom_in = _momentum_equity(us_prices, base_cfg, IN_SAMPLE_START, None)
-    pead_in = _pead_sector_equity(us_prices, events_all, base_cfg, IN_SAMPLE_START, None)
+    mom_in = _momentum_equity(us_prices, base_cfg, IN_SAMPLE_START, None, membership)
+    pead_in = _pead_sector_equity(us_prices, events_all, base_cfg, IN_SAMPLE_START, None, membership)
     _print_period("樣本內（2023-09-19 ~ 資料庫最新日期）", mom_in, pead_in, QQQ_IN_SAMPLE)
 
-    mom_oos = _momentum_equity(us_prices, base_cfg, None, OOS_END)
-    pead_oos = _pead_sector_equity(us_prices, events_all, base_cfg, None, OOS_END)
+    mom_oos = _momentum_equity(us_prices, base_cfg, OOS_START, OOS_END, membership)
+    pead_oos = _pead_sector_equity(us_prices, events_all, base_cfg, OOS_START, OOS_END, membership)
     _print_period("樣本外（2018-09-20 ~ 2023-09-18，公允的比較基準）", mom_oos, pead_oos, QQQ_OOS)
 
     print(

@@ -14,6 +14,16 @@ $0.01 tick、無 1000 股整張限制），資料來源換成 us_prices。
 空的、欄位對齊的 DataFrame——mss_signal_fn 本來就完全不會用到這個參數，
 只是引擎簽名要求要傳。
 
+2026-09-21 架構修正：這支腳本先前直接連 get_data_store()/store.
+load_us_prices()（本機空的 SQLite DB，這個沙盒環境完全連不到資料、
+根本跑不動），也完全沒有處理 S&P 500 存活者偏差（比其他美股腳本用過
+的舊 filter_prices_by_index_membership 寫法還要原始——連那個部分修正
+都沒有）。改成跟其他美股腳本一致，讀本機快照
+（load_us_prices_snapshot()/load_us_index_membership_snapshot()），並把
+membership 參數傳進 run_backtest，讓完整未過濾的 us_prices 進去算指標、
+membership 只在最後決定「這天能不能被選中」時額外疊加（詳見
+tw_quant/us_universe.py 檔頭、tw_quant/backtest.py 的 membership 參數）。
+
 用法：
     python scripts/test_us_mss_strategy_from_db.py
 """
@@ -30,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tw_quant import us_costs
 from tw_quant.backtest import run_backtest
 from tw_quant.backtest_stats import metrics_from_result
-from tw_quant.storage import get_data_store
+from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.us_config import build_us_config
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -48,11 +58,11 @@ def build_us_mss_config():
 
 
 def main() -> None:
-    store = get_data_store()
-    us_prices = store.load_us_prices()
+    us_prices = load_us_prices_snapshot()
+    membership = load_us_index_membership_snapshot()
 
     if us_prices.empty:
-        print("資料庫裡沒有任何美股價量資料。", file=sys.stderr)
+        print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
 
     n_stocks = us_prices["stock_id"].nunique()
@@ -65,7 +75,8 @@ def main() -> None:
 
     cfg = build_us_mss_config()
     result = run_backtest(
-        us_prices, empty_margin_short, cfg, entry_signal_fn=mss_signal_fn, cost_module=us_costs
+        us_prices, empty_margin_short, cfg, entry_signal_fn=mss_signal_fn, cost_module=us_costs,
+        membership=membership,
     )
     m = metrics_from_result(result, cfg.initial_capital, prices=us_prices)
 

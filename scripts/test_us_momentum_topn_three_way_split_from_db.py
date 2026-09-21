@@ -31,6 +31,10 @@ start_date/end_date 限制「哪些日期允許實際調倉」；QQQ 買進持�
 重新計算，不是套用之前跑過的固定常數（因為這裡的三段期間邊界是全新的，
 沒有現成的 QQQ 對照數字可以重用）。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）。
+
 用法：
     python scripts/test_us_momentum_topn_three_way_split_from_db.py
 """
@@ -51,7 +55,6 @@ from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.us_config import build_us_config
 from tw_quant.us_data_provider import YFinanceUSDataProvider
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 MOM_WINDOW = 126
 REBALANCE_FREQ_DAYS = 21
@@ -90,12 +93,13 @@ def _fmt_row(top_n: int, m: dict, stocks_held: set[str]) -> str:
     )
 
 
-def _run(us_prices: pd.DataFrame, base_cfg, top_n: int, start_date, end_date) -> tuple[dict, set[str]]:
+def _run(us_prices: pd.DataFrame, base_cfg, top_n: int, start_date, end_date, membership) -> tuple[dict, set[str]]:
     factor_cfg = FactorConfig(
         momentum_window=MOM_WINDOW, rebalance_freq_days=REBALANCE_FREQ_DAYS, top_n=top_n, ascending=False
     )
     result = run_factor_backtest(
-        us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, cost_module=us_costs
+        us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, cost_module=us_costs,
+        membership=membership,
     )
     m = metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
     stocks_held = set(result.trades["stock_id"]) if not result.trades.empty else set()
@@ -103,11 +107,11 @@ def _run(us_prices: pd.DataFrame, base_cfg, top_n: int, start_date, end_date) ->
     return m, stocks_held
 
 
-def _print_period(label: str, us_prices, base_cfg, qqq, start_date, end_date) -> None:
+def _print_period(label: str, us_prices, base_cfg, qqq, start_date, end_date, membership) -> None:
     print(f"\n=== {label}（{pd.Timestamp(start_date).date()} ~ {pd.Timestamp(end_date).date()}） ===")
     print(HEADER)
     for top_n in TOP_N_GRID:
-        m, stocks_held = _run(us_prices, base_cfg, top_n, start_date, end_date)
+        m, stocks_held = _run(us_prices, base_cfg, top_n, start_date, end_date, membership)
         print(_fmt_row(top_n, m, stocks_held))
     qqq_m = _qqq_buyhold_metrics(qqq, start_date, end_date)
     print(
@@ -124,15 +128,6 @@ def main() -> None:
     if us_prices.empty:
         print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
-
-    n_rows_before = len(us_prices)
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}，不解決被剔除股票完全消失那一半，"
-        "見 tw_quant/us_universe.py）\n"
-    )
 
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
     n_stocks = us_prices["stock_id"].nunique()
@@ -169,9 +164,9 @@ def main() -> None:
         f"（跟 10.5/10.11 節一致，非調參挑選）；持股檔數網格：{TOP_N_GRID}"
     )
 
-    _print_period("P1（最早段）", us_prices, base_cfg, qqq, p1_start, p1_end)
-    _print_period("P2（中段）", us_prices, base_cfg, qqq, p2_start, p2_end)
-    _print_period("P3（最新段）", us_prices, base_cfg, qqq, p3_start, p3_end)
+    _print_period("P1（最早段）", us_prices, base_cfg, qqq, p1_start, p1_end, membership)
+    _print_period("P2（中段）", us_prices, base_cfg, qqq, p2_start, p2_end, membership)
+    _print_period("P3（最新段）", us_prices, base_cfg, qqq, p3_start, p3_end, membership)
 
     print(
         "\n（誠實揭露：這三段彼此不重疊，但個別跟原本的樣本內/樣本外窗格有重疊——\n"

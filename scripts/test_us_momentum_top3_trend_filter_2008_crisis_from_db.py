@@ -31,6 +31,10 @@ shift(1)、永遠傳完整 us_prices（不切片），只用 start_date/end_date
 2008 年代被剔除指數、yfinance 查無資料的公司完全不在資料庫裡，這裡的
 危機核心期數字仍然只能當方向性參考。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）。
+
 用法：
     python scripts/test_us_momentum_top3_trend_filter_2008_crisis_from_db.py
 """
@@ -50,7 +54,6 @@ from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.us_config import build_us_config
 from tw_quant.us_data_provider import YFinanceUSDataProvider
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_us_dual_momentum_from_db import make_trend_filtered_momentum_signal_fn  # noqa: E402
@@ -74,19 +77,20 @@ def _fmt_row(trend_ma, m: dict, n_bear_days) -> str:
     )
 
 
-def _run(us_prices: pd.DataFrame, base_cfg, signal_fn, start_date, end_date) -> dict:
+def _run(us_prices: pd.DataFrame, base_cfg, signal_fn, start_date, end_date, membership) -> dict:
     factor_cfg = FactorConfig(momentum_window=MOM_WINDOW, rebalance_freq_days=REBALANCE_FREQ_DAYS, top_n=TOP_N, ascending=False)
     result = run_factor_backtest(
-        us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, signal_fn=signal_fn, cost_module=us_costs,
+        us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, signal_fn=signal_fn,
+        cost_module=us_costs, membership=membership,
     )
     return metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
 
 
-def _print_period(label: str, us_prices, base_cfg, qqq, start_date, end_date) -> None:
+def _print_period(label: str, us_prices, base_cfg, qqq, start_date, end_date, membership) -> None:
     print(f"\n=== {label} ===")
     print(HEADER)
 
-    baseline = _run(us_prices, base_cfg, None, start_date, end_date)
+    baseline = _run(us_prices, base_cfg, None, start_date, end_date, membership)
     print(_fmt_row("無濾網", baseline, "-"))
 
     for ma_window in TREND_MA_GRID:
@@ -97,7 +101,7 @@ def _print_period(label: str, us_prices, base_cfg, qqq, start_date, end_date) ->
         window_mask = (qqq["date"] >= s) & (qqq["date"] <= e)
         n_bear_days = int((~is_bull[window_mask]).sum())
         signal_fn = make_trend_filtered_momentum_signal_fn(qqq, ma_window, momentum_window=MOM_WINDOW)
-        m = _run(us_prices, base_cfg, signal_fn, start_date, end_date)
+        m = _run(us_prices, base_cfg, signal_fn, start_date, end_date, membership)
         print(_fmt_row(ma_window, m, n_bear_days))
 
     window_close = qqq[(qqq["date"] >= (pd.Timestamp(start_date) if start_date else qqq["date"].min())) & (qqq["date"] <= (pd.Timestamp(end_date) if end_date else qqq["date"].max()))].sort_values("date")["close"]
@@ -115,14 +119,6 @@ def main() -> None:
     if us_prices.empty:
         print("快照裡沒有任何美股價量資料。", file=sys.stderr)
         sys.exit(1)
-
-    n_rows_before = len(us_prices)
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入/剔除區間過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}）——2008 年代被剔除指數、查無資料的公司仍然不在資料庫裡\n"
-    )
 
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
     n_stocks = us_prices["stock_id"].nunique()
@@ -152,7 +148,7 @@ def main() -> None:
         ("樣本內 2023-09-19~資料庫最新日期", "2023-09-19", None),
     ]
     for label, start, end in windows:
-        _print_period(label, us_prices, base_cfg, qqq, start, end)
+        _print_period(label, us_prices, base_cfg, qqq, start, end, membership)
 
     print(
         "\n（誠實揭露：趨勢濾網只在每次調倉日檢查一次，regime 中途翻轉要等到下次調倉才會\n"

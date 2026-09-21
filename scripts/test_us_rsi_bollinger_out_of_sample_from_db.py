@@ -14,6 +14,19 @@ docs/research_findings.md 第10.3節）需要樣本外驗證才能信任——
 切片而重新累積暨期），所以這裡永遠傳完整 us_prices，只用 end_date 限制交易只發生在
 樣本外區間。
 
+2026-09-21 架構修正：這支腳本先前直接連 get_data_store()/store.
+load_us_prices()（本機空的 SQLite DB，這個沙盒環境完全連不到資料、
+根本跑不動），也完全沒有處理 S&P 500 存活者偏差。改成跟其他美股腳本
+一致，讀本機快照（load_us_prices_snapshot()/
+load_us_index_membership_snapshot()），並把 membership 參數傳進
+run_factor_backtest（詳見 tw_quant/us_universe.py 檔頭）。這裡不設
+start_date（樣本外＝「資料庫最早日期 ~ IN_SAMPLE_START 前一天」，隨資料
+庫回填範圍動態變化）是本腳本原本就有意的設計，不是待修的 None-OOS bug
+——docstring 沒有像 test_us_momentum_out_of_sample_from_db.py 那樣把
+樣本外窗口釘死在 2018-09-20，這裡保留原行為，只是提醒：資料庫回填到
+2006 年後，這個「樣本外」現在也會納入 2008 危機期間，跟先前只回填到
+2018 年時的範圍不同。
+
 用法：
     python scripts/test_us_rsi_bollinger_out_of_sample_from_db.py
 """
@@ -29,8 +42,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tw_quant import us_costs
 from tw_quant.backtest_stats import metrics_from_result
+from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
-from tw_quant.storage import get_data_store
 from tw_quant.us_config import build_us_config
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -59,11 +72,11 @@ def _fmt_row(label: str, hold_days: int, top_n: int, m: dict) -> str:
 
 
 def main() -> None:
-    store = get_data_store()
-    us_prices = store.load_us_prices()
+    us_prices = load_us_prices_snapshot()
+    membership = load_us_index_membership_snapshot()
 
     if us_prices.empty:
-        print("資料庫裡沒有任何美股價量資料。", file=sys.stderr)
+        print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
 
     earliest = us_prices["date"].min()
@@ -106,6 +119,7 @@ def main() -> None:
                     end_date=IN_SAMPLE_START - pd.Timedelta(days=1),
                     signal_fn=fn,
                     cost_module=us_costs,
+                    membership=membership,
                 )
                 m = metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
                 rows.append({"signal": signal_name, "hold_days": hold_days, "top_n": top_n, **m})

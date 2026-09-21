@@ -29,6 +29,12 @@ log 用記憶比較。
 tw_quant/event_drift_backtest.py 跟 test_us_pead_earnings_drift_from_db.py
 開頭的說明。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）；
+「樣本外」窗口也改成明確傳 OOS_START，不再依賴 start_date=None 的隱含
+語意（資料庫擴充到 2006 年後，None 會混入 2008 危機期間）。
+
 用法：
     python scripts/test_us_pead_sector_momentum_from_db.py
 """
@@ -51,7 +57,6 @@ from tw_quant.data_snapshot import (
 )
 from tw_quant.event_drift_backtest import EventDriftConfig, run_event_drift_backtest
 from tw_quant.us_config import build_us_config
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_us_pead_earnings_drift_from_db import _earnings_surprise_frame  # noqa: E402
@@ -65,6 +70,7 @@ TOP_K_SECTORS = 3  # 只取動能最強的前 3 個產業（共 11 個有效 GIC
 MIN_TRADES_FOR_RANKING = 10
 
 IN_SAMPLE_START = "2023-09-19"
+OOS_START = "2018-09-20"
 OOS_END = pd.Timestamp(IN_SAMPLE_START) - pd.Timedelta(days=1)
 QQQ_IN_SAMPLE = {"total_return": 0.9358, "cagr": 0.2481, "max_dd": 0.2277, "sharpe": 1.19, "calmar": 1.09}
 QQQ_OOS = {"total_return": 1.0760, "cagr": 0.1580, "max_dd": 0.3512, "sharpe": 0.69, "calmar": 0.45}
@@ -139,7 +145,7 @@ def _fmt_row(holding_days: int, threshold: float, m: dict) -> str:
     )
 
 
-def _run_grid(us_prices: pd.DataFrame, events: pd.DataFrame, base_cfg, start_date, end_date) -> pd.DataFrame:
+def _run_grid(us_prices: pd.DataFrame, events: pd.DataFrame, base_cfg, start_date, end_date, membership) -> pd.DataFrame:
     rows = []
     for holding_days in HOLDING_DAYS_GRID:
         for threshold in SURPRISE_THRESHOLD_GRID:
@@ -149,7 +155,7 @@ def _run_grid(us_prices: pd.DataFrame, events: pd.DataFrame, base_cfg, start_dat
             )
             result = run_event_drift_backtest(
                 us_prices, events, base_cfg, drift_cfg,
-                start_date=start_date, end_date=end_date, cost_module=us_costs,
+                start_date=start_date, end_date=end_date, cost_module=us_costs, membership=membership,
             )
             m = metrics_from_result(result, base_cfg.initial_capital, prices=us_prices)
             row = {"holding_days": holding_days, "threshold": threshold}
@@ -194,15 +200,6 @@ def main() -> None:
         )
         sys.exit(1)
 
-    n_rows_before = len(us_prices)
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}，不解決被剔除股票完全消失那一半，"
-        "見 tw_quant/us_universe.py）\n"
-    )
-
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
     n_stocks = us_prices["stock_id"].nunique()
     n_no_industry = us_prices.drop_duplicates("stock_id")["industry"].eq("").sum()
@@ -227,10 +224,10 @@ def main() -> None:
 
     for variant_label, events in (("沒有族群篩選（對照組）", events_all), ("有族群篩選（前3強產業）", events_sector)):
         print(f"\n########## {variant_label} ##########")
-        df_in = _run_grid(us_prices, events, base_cfg, IN_SAMPLE_START, None)
+        df_in = _run_grid(us_prices, events, base_cfg, IN_SAMPLE_START, None, membership)
         _print_period(f"{variant_label} - 樣本內（2023-09-19 ~ 資料庫最新日期）", df_in, QQQ_IN_SAMPLE)
 
-        df_oos = _run_grid(us_prices, events, base_cfg, None, OOS_END)
+        df_oos = _run_grid(us_prices, events, base_cfg, OOS_START, OOS_END, membership)
         _print_period(f"{variant_label} - 樣本外（2018-09-20 ~ 2023-09-18，公允的比較基準）", df_oos, QQQ_OOS)
 
     print(

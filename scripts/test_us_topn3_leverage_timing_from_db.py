@@ -26,6 +26,12 @@ us_prices（不切片），只用 start_date/end_date 限制交易日期；槓�
 時機的波動度估計用 shift(1)，T 日的槓桿只會用到 T-1 為止已知的
 報酬率（見 tw_quant/leverage.py 的 vol_target_leverage_series）。
 
+2026-09-21 架構修正：改用完整未過濾的 us_prices + membership 參數，
+取代先前先用 filter_prices_by_index_membership 預過濾再傳進引擎的舊
+寫法（誤傷 MRVL 等 14 檔股票，詳見 tw_quant/us_universe.py 檔頭）；
+「樣本外」窗口也改成明確傳 OOS_START，不再依賴 start_date=None 的隱含
+語意（資料庫擴充到 2006 年後，None 會混入 2008 危機期間）。
+
 用法：
     python scripts/test_us_topn3_leverage_timing_from_db.py
 """
@@ -44,7 +50,6 @@ from tw_quant.factor_backtest import FactorConfig, run_factor_backtest
 from tw_quant.data_snapshot import load_us_index_membership_snapshot, load_us_prices_snapshot
 from tw_quant.leverage import LeverageConfig, metrics_from_equity_curve, simulate_leveraged_equity, vol_target_leverage_series
 from tw_quant.us_config import build_us_config
-from tw_quant.us_universe import filter_prices_by_index_membership
 
 MOM_WINDOW = 126
 REBALANCE_FREQ_DAYS = 21
@@ -59,6 +64,7 @@ LEV_CFG = LeverageConfig(
 IN_SAMPLE_START = "2023-09-19"
 QQQ_IN_SAMPLE = {"total_return": 0.9358, "cagr": 0.2481, "max_dd": 0.2277, "sharpe": 1.19, "calmar": 1.09}
 QQQ_OOS = {"total_return": 1.0760, "cagr": 0.1580, "max_dd": 0.3512, "sharpe": 0.69, "calmar": 0.45}
+OOS_START = "2018-09-20"
 OOS_END = pd.Timestamp(IN_SAMPLE_START) - pd.Timedelta(days=1)
 
 HEADER = (
@@ -78,11 +84,14 @@ def _fmt_row(label: str, m: dict, n_calls: int | str, min_ratio: float | str, en
     )
 
 
-def _print_period(label: str, us_prices, base_cfg, start_date, end_date, qqq_bench: dict) -> None:
+def _print_period(label: str, us_prices, base_cfg, start_date, end_date, qqq_bench: dict, membership) -> None:
     print(f"\n=== {label} ===")
 
     factor_cfg = FactorConfig(momentum_window=MOM_WINDOW, rebalance_freq_days=REBALANCE_FREQ_DAYS, top_n=TOP_N, ascending=False)
-    result = run_factor_backtest(us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, cost_module=us_costs)
+    result = run_factor_backtest(
+        us_prices, base_cfg, factor_cfg, start_date=start_date, end_date=end_date, cost_module=us_costs,
+        membership=membership,
+    )
     eq = result.equity_curve["equity"].reset_index(drop=True)
     dates = pd.Series(result.equity_curve.index)
     daily_returns = eq.pct_change().fillna(0.0)
@@ -133,15 +142,6 @@ def main() -> None:
         print("快照裡沒有任何美股價量資料（data/us_prices_snapshot.parquet 是空的）。", file=sys.stderr)
         sys.exit(1)
 
-    n_rows_before = len(us_prices)
-    us_prices = filter_prices_by_index_membership(us_prices, membership)
-    n_rows_dropped = n_rows_before - len(us_prices)
-    print(
-        f"存活者偏差部分修正：依指數加入日期過濾後，丟掉 {n_rows_dropped} / {n_rows_before} 列"
-        f"（{n_rows_dropped / n_rows_before:.1%}，不解決被剔除股票完全消失那一半，"
-        "見 tw_quant/us_universe.py）\n"
-    )
-
     earliest, latest = us_prices["date"].min(), us_prices["date"].max()
     n_stocks = us_prices["stock_id"].nunique()
     print(f"讀到 {n_stocks} 檔美股的資料（{earliest.date()} ~ {latest.date()}）")
@@ -156,8 +156,8 @@ def main() -> None:
         "（投資組合層級簡化模擬，不是逐股保證金重現，見 tw_quant/leverage.py 開頭說明）"
     )
 
-    _print_period("樣本內（2023-09-19 ~ 資料庫最新日期）", us_prices, base_cfg, IN_SAMPLE_START, None, QQQ_IN_SAMPLE)
-    _print_period("樣本外（2018-09-20 ~ 2023-09-18，公允的比較基準）", us_prices, base_cfg, None, OOS_END, QQQ_OOS)
+    _print_period("樣本內（2023-09-19 ~ 資料庫最新日期）", us_prices, base_cfg, IN_SAMPLE_START, None, QQQ_IN_SAMPLE, membership)
+    _print_period("樣本外（2018-09-20 ~ 2023-09-18，公允的比較基準）", us_prices, base_cfg, OOS_START, OOS_END, QQQ_OOS, membership)
 
     print(
         "\n（誠實揭露：這裡的槓桿模擬是投資組合層級的簡化（複利日報酬率+扣利息+\n"
