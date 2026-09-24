@@ -67,6 +67,33 @@ def test_vwap_break_after_entry_triggers_early_exit():
     assert t["pnl_points"] < 0
 
 
+def test_open_reference_monotonic_uptrend_matches_vwap_reference():
+    prices = [100 + i * 0.2 for i in range(300)]
+    df = pd.DataFrame(_day_bars("2021-01-04", prices))
+    trades = backtest(df, TrendDayConfig(reference="open"))
+
+    assert len(trades) == 1
+    t = trades.iloc[0]
+    assert t["direction"] == "long"
+    assert t["exit_reason"] == "session_close"
+
+
+def test_open_reference_exit_uses_fixed_day_open_not_moving_vwap():
+    # 上漲後回落，開盤價（固定）比VWAP（跟著價格墊高）更晚被跌破，
+    # 兩種參考水準的出場點必須明顯不同，證明真的各自獨立運作
+    rise = [100 + i * 0.2 for i in range(150)]
+    fall = [130 - (i - 150) * 0.3 for i in range(150, 300)]
+    prices = rise + fall
+    df = pd.DataFrame(_day_bars("2021-01-04", prices))
+
+    open_trades = backtest(df, TrendDayConfig(reference="open"))
+    vwap_trades = backtest(df, TrendDayConfig(reference="vwap"))
+
+    assert open_trades.iloc[0]["exit_reason"] == "open_break"
+    assert vwap_trades.iloc[0]["exit_reason"] == "vwap_break"
+    assert open_trades.iloc[0]["exit_price"] < vwap_trades.iloc[0]["exit_price"]  # open版本停損比較晚觸發
+
+
 def test_relaxed_dominant_fraction_allows_one_early_noise_crossing():
     prices = [100 + i * 0.2 for i in range(300)]
     prices[5] = prices[5] - 2  # 早盤一根雜訊拉回，跌破當時還很貼近價格的VWAP

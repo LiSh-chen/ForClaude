@@ -30,12 +30,20 @@ ORB 的問題：只要價格「摸到」開盤區間邊界一次就進場，抓�
 
 簡化與已知限制：
 - 只做日盤（08:45-13:45），不含夜盤。
-- VWAP 停損用收盤價判斷+同根K棒收盤價成交，是簡化（沒有模擬停損單的
-  跳空/滑價機制，因為 VWAP 是連續變動的水準，不適合套用固定水準的
-  停損單模型）；正常滑價仍然扣在出場成交價上。
-- 「有沒有回頭穿越VWAP」用收盤價逐分鐘檢查，不用高低點（用高低點會
+- 參考水準（VWAP或開盤價）的停損用收盤價判斷+同根K棒收盤價成交，是簡化
+  （沒有模擬停損單的跳空/滑價機制）；正常滑價仍然扣在出場成交價上。
+- 「有沒有回頭穿越參考水準」用收盤價逐分鐘檢查，不用高低點（用高低點會
   太敏感，稍微碰一下就判定失效，不符合「趨勢日」通常允許小幅拉回但
   不破均價的現實）。
+
+VWAP vs open（reference參數）：
+VWAP 版本（reference="vwap"，預設、已經完整驗證過）在實務上有個麻煩：
+出場水準是「移動中的」，每分鐘都要重新累積運算，手動或用一般看盤軟體
+不容易即時追蹤，需要額外寫程式。open 版本改用「當天開盤價」當參考水準
+──整天固定不變，判斷「有沒有跨過」只要記住開盤價這一個數字，出場水準
+也能直接掛一張固定價位的真實停損單（不像 VWAP 停損需要每分鐘重新判斷、
+沒辦法真的掛在市場上）。這是用「可能稍微犧牲一點篩選品質」換「大幅
+降低實務執行門檻」，實際效果需要重新完整驗證，不能假設兩者等價。
 """
 
 from __future__ import annotations
@@ -55,9 +63,10 @@ class TrendDayConfig:
     min_move_points: float = 20.0
     session_end: time = time(13, 25)
     slippage_points: float = 1.0
-    min_dominant_side_fraction: float = 1.0  # 1.0=原始版本「決策時點前完全沒穿越過VWAP」
-    # <1.0＝放寬：允許決策時點前有一部分分鐘K棒收在VWAP反向側（雜訊型短暫拉回），
+    min_dominant_side_fraction: float = 1.0  # 1.0=原始版本「決策時點前完全沒穿越過參考水準」
+    # <1.0＝放寬：允許決策時點前有一部分分鐘K棒收在參考水準反向側（雜訊型短暫拉回），
     # 只要「多數方向」那一側的比例達到這個門檻就算趨勢日候選，方向＝多數方向。
+    reference: str = "vwap"  # "vwap"（預設，原始版本）或 "open"（見檔頭「vwap vs open」說明）
 
 
 def _day_session_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -71,13 +80,18 @@ def backtest(df: pd.DataFrame, cfg: TrendDayConfig | None = None) -> pd.DataFram
     cfg = cfg or TrendDayConfig()
     day_df = _day_session_frame(df)
 
+    exit_reason_break = "vwap_break" if cfg.reference == "vwap" else "open_break"
+
     trades = []
     for trading_date, g in day_df.groupby("trading_date"):
         g = g.sort_values("datetime").reset_index(drop=True)
-        typical_price = (g["high"] + g["low"] + g["close"]) / 3
-        cum_pv = (typical_price * g["volume"]).cumsum()
-        cum_v = g["volume"].cumsum().replace(0, np.nan)
-        g["vwap"] = cum_pv / cum_v
+        if cfg.reference == "vwap":
+            typical_price = (g["high"] + g["low"] + g["close"]) / 3
+            cum_pv = (typical_price * g["volume"]).cumsum()
+            cum_v = g["volume"].cumsum().replace(0, np.nan)
+            g["ref_price"] = cum_pv / cum_v
+        else:
+            g["ref_price"] = g["open"].iloc[0]  # 整天固定＝開盤價，不需要逐分鐘重算
 
         t = g["datetime"].dt.time
         decision_mask = t <= cfg.decision_time
@@ -88,7 +102,7 @@ def backtest(df: pd.DataFrame, cfg: TrendDayConfig | None = None) -> pd.DataFram
             continue  # 判斷時點之後沒有下一根K棒可以進場，跳過
 
         pre = g.loc[: decision_idx]
-        side = np.sign(pre["close"] - pre["vwap"])
+        side = np.sign(pre["close"] - pre["ref_price"])
         side = side.replace(0, np.nan).dropna()
         if side.empty:
             continue
@@ -116,10 +130,10 @@ def backtest(df: pd.DataFrame, cfg: TrendDayConfig | None = None) -> pd.DataFram
             r = g.iloc[j]
             if t.iloc[j] >= cfg.session_end:
                 break
-            broke = (r["close"] < r["vwap"]) if direction == "long" else (r["close"] > r["vwap"])
+            broke = (r["close"] < r["ref_price"]) if direction == "long" else (r["close"] > r["ref_price"])
             if broke:
                 exit_price = r["close"] + (-cfg.slippage_points if direction == "long" else cfg.slippage_points)
-                exit_dt, exit_reason = r["datetime"], "vwap_break"
+                exit_dt, exit_reason = r["datetime"], exit_reason_break
                 break
 
         if exit_price is None:
