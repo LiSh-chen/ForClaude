@@ -67,6 +67,19 @@ def test_vwap_break_after_entry_triggers_early_exit():
     assert t["pnl_points"] < 0
 
 
+def test_relaxed_dominant_fraction_allows_one_early_noise_crossing():
+    prices = [100 + i * 0.2 for i in range(300)]
+    prices[5] = prices[5] - 2  # 早盤一根雜訊拉回，跌破當時還很貼近價格的VWAP
+    df = pd.DataFrame(_day_bars("2021-01-04", prices))
+
+    strict = backtest(df, TrendDayConfig())
+    relaxed = backtest(df, TrendDayConfig(min_dominant_side_fraction=0.99))
+
+    assert strict.empty
+    assert len(relaxed) == 1
+    assert relaxed.iloc[0]["direction"] == "long"
+
+
 def test_no_trade_when_no_bar_after_decision_time():
     # 只到decision_time(11:00)為止就沒資料了，沒有下一根K棒可以進場
     prices = [100 + i * 0.2 for i in range(136)]  # 08:45 + 135分鐘 = 11:00 是最後一根

@@ -55,6 +55,9 @@ class TrendDayConfig:
     min_move_points: float = 20.0
     session_end: time = time(13, 25)
     slippage_points: float = 1.0
+    min_dominant_side_fraction: float = 1.0  # 1.0=原始版本「決策時點前完全沒穿越過VWAP」
+    # <1.0＝放寬：允許決策時點前有一部分分鐘K棒收在VWAP反向側（雜訊型短暫拉回），
+    # 只要「多數方向」那一側的比例達到這個門檻就算趨勢日候選，方向＝多數方向。
 
 
 def _day_session_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -87,10 +90,16 @@ def backtest(df: pd.DataFrame, cfg: TrendDayConfig | None = None) -> pd.DataFram
         pre = g.loc[: decision_idx]
         side = np.sign(pre["close"] - pre["vwap"])
         side = side.replace(0, np.nan).dropna()
-        if side.empty or (side.iloc[0] != side).any():
-            continue  # 判斷期間內曾經穿越過VWAP（方向不一致），不是趨勢日候選
+        if side.empty:
+            continue
 
-        direction_sign = side.iloc[0]
+        counts = side.value_counts()
+        dominant_sign = counts.idxmax()
+        dominant_fraction = counts.max() / len(side)
+        if dominant_fraction < cfg.min_dominant_side_fraction:
+            continue  # 反向側的比例超過容許範圍，不是趨勢日候選
+
+        direction_sign = dominant_sign
         day_open = g["open"].iloc[0]
         decision_close = g["close"].iloc[decision_idx]
         move = (decision_close - day_open) * direction_sign
