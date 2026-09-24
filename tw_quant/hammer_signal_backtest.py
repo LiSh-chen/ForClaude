@@ -85,6 +85,30 @@ def build_base_arrays(df: pd.DataFrame) -> dict:
     )
 
 
+def build_htf_trend(df: pd.DataFrame, freq: str = "60min", sma_window: int = 20) -> np.ndarray:
+    """用更高時間週期（預設 60 分鐘）K棒收盤 vs SMA(sma_window) 判斷多空趨勢，
+    回填成跟 df 等長的陣列：1=多頭（收盤>SMA）、-1=空頭（收盤<SMA）、0=無資料/盤整。
+
+    嚴格避免未來函數：某根高週期K棒收在時刻 T，它的趨勢值只給時刻 > T 的 1 分鐘
+    K棒使用（`merge_asof(..., allow_exact_matches=False)`）——不會讓同一根高週期
+    K棒還沒收盤就被拿來篩選訊號。
+    """
+    d = df.sort_values("datetime").reset_index(drop=True)
+    htf_close = d.set_index("datetime")["close"].resample(freq, label="right", closed="left").last().dropna()
+    htf_sma = htf_close.rolling(sma_window).mean()
+
+    htf_trend = pd.Series(0, index=htf_close.index, dtype=int)
+    htf_trend[htf_close > htf_sma] = 1
+    htf_trend[htf_close < htf_sma] = -1
+    htf_trend = htf_trend[htf_sma.notna()]
+
+    merged = pd.merge_asof(
+        d[["datetime"]], htf_trend.rename("htf_trend").reset_index(),
+        on="datetime", direction="backward", allow_exact_matches=False,
+    )
+    return merged["htf_trend"].fillna(0).to_numpy(dtype=int)
+
+
 def simulate(
     arrays: dict,
     ratio_threshold: float,
@@ -93,8 +117,13 @@ def simulate(
     sl_buffer: float = 5.0,
     max_risk_points: float = 140.0,
     max_hold_minutes: int = 60,
+    htf_trend: np.ndarray | None = None,
+    trend_mode: str = "none",
 ) -> pd.DataFrame:
+    """trend_mode: 'none'（不過濾，預設）/ 'with'（順higher-TF趨勢：做多只在高週期
+    多頭、做空只在高週期空頭）/ 'against'（逆higher-TF趨勢，跟 'with' 相反）。"""
     assert direction in ("long", "short")
+    assert trend_mode in ("none", "with", "against")
     n = arrays["n"]
     high, low, close = arrays["high"], arrays["low"], arrays["close"]
     block_id, next_block = arrays["block_id"], arrays["next_block"]
@@ -102,6 +131,17 @@ def simulate(
     body, ratio = arrays["body"], arrays["ratio"]
 
     is_candidate = (body > 0) & (ratio >= ratio_threshold) & next_bullish & (next_block == block_id)
+
+    if trend_mode != "none":
+        if htf_trend is None:
+            raise ValueError("trend_mode != 'none' 需要提供 htf_trend")
+        long_wants_up = trend_mode == "with"
+        if direction == "long":
+            wanted = 1 if long_wants_up else -1
+        else:
+            wanted = -1 if long_wants_up else 1
+        is_candidate = is_candidate & (htf_trend == wanted)
+
     cand_idx = np.flatnonzero(is_candidate)
 
     trades = []

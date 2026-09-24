@@ -19,7 +19,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tw_quant.hammer_signal_backtest import (  # noqa: E402
-    TradeCost, apply_costs, build_base_arrays, simulate,
+    TradeCost, apply_costs, build_base_arrays, build_htf_trend, simulate,
 )
 
 FLAT = (17000.0, 17000.0, 17000.0, 17000.0)  # open, high, low, close（body=0，不會被當訊號）
@@ -163,6 +163,45 @@ def test_one_trade_at_a_time_blocks_overlapping_signal():
     trades = simulate(arrays, ratio_threshold=0.5, r_multiple=2.0, direction="long", max_hold_minutes=20)
 
     assert len(trades) == 1  # 第二個訊號被場內部位擋掉
+
+
+def test_build_htf_trend_has_no_lookahead():
+    """5 分鐘窗口、SMA(2) 手算驗證：一根 1 分鐘K棒絕對不能用到「跟自己同一時刻
+    才剛收盤」的高週期K棒——這根K棒本身必須落在下一個高週期窗口才看得到它。"""
+    times = pd.date_range("2021-06-01 00:00:00", periods=20, freq="1min")
+    closes = [101 + i for i in range(20)]
+    df = pd.DataFrame({"datetime": times, "open": closes, "high": closes, "low": closes, "close": closes})
+
+    htf = build_htf_trend(df, freq="5min", sma_window=2)
+
+    # 前 11 根（00:00~00:10）都还没有可用的高週期趨勢值（不夠 2 根 5 分鐘K棒算 SMA，
+    # 且 00:10 這根本身不能拿來用在 00:10 自己身上）
+    assert (htf[:11] == 0).all()
+    # 00:11 起，00:10 那根 5 分鐘K棒（收盤 111，SMA(106,111)=108.5）已經收盤可用 -> 多頭
+    assert (htf[11:] == 1).all()
+
+
+def test_simulate_trend_filter_with_and_against():
+    specs = [FLAT] * 8
+    specs[0] = (17000, 17001, 16985, 16999)
+    specs[1] = (16999, 17000, 16998, 17000)
+    specs[2] = (17010, 17045, 17005, 17040)  # 觸及多單停利
+
+    df = _bars(specs)
+    arrays = build_base_arrays(df)
+
+    # 訊號K棒（index 0）當下高週期趨勢設為「多頭(1)」
+    htf_up = pd.Series(1, index=range(len(specs))).to_numpy()
+
+    # long + with(順勢，多單只在高週期多頭進場) -> 應該成交
+    t_with = simulate(arrays, ratio_threshold=0.5, r_multiple=2.0, direction="long",
+                       htf_trend=htf_up, trend_mode="with")
+    assert len(t_with) == 1
+
+    # long + against(逆勢，多單只在高週期空頭進場) -> 高週期是多頭，應該被過濾掉
+    t_against = simulate(arrays, ratio_threshold=0.5, r_multiple=2.0, direction="long",
+                          htf_trend=htf_up, trend_mode="against")
+    assert t_against.empty
 
 
 def test_apply_costs_tax_and_net():
