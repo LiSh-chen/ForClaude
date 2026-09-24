@@ -42,6 +42,20 @@
 - 支撐/壓力只用「N日高低點」定義，沒有做更細緻的「多次測試才算有效」
   分群（實務上支撐壓力通常要被測試過才算數，這裡簡化成單純的N日極值），
   這是已知的簡化，如果這個方向測出真實邊際，可以再加強水準的定義方式。
+
+direction_mode 參數（順勢/逆勢共用同一套參數，方便直接比較）：
+- "fade"（預設，上面描述的原始版本，逆勢）：碰到支撐做多賭反彈、碰到
+  壓力做空賭拉回，限價單進場+停利、停損單出場。
+- "breakout"（順勢，鏡射版本）：碰到壓力視為突破做多、碰到支撐視為
+  跌破做空，改用停損單進場（_fill_price同一套跳空/滑價邏輯，不是限價，
+  因為順勢要追價才追得到），沒有固定停利目標（沒有「對面邊界」這種
+  概念——順勢是賭趨勢延伸，不是賭回到區間對面，所以只靠 stop_atr_mult
+  倍ATR的初始停損或 max_hold_days 到期強制出場），range_pct/trend_slope
+  這兩個濾網跟逆勢版本共用同一組參數跟語意（區間要夠寬、不能已經處於
+  單邊趨勢中）——這是刻意的設計，方便用完全一樣的參數網格同時測試
+  順勢跟逆勢兩個方向，如果其中一個方向測不出邊際，再考慮個別調整濾網
+  語意（例如順勢版本改成「只在已經有趨勢時才追」而不是「排除已經有
+  趨勢的情況」）。
 """
 
 from __future__ import annotations
@@ -66,6 +80,7 @@ class SupportResistanceFadeConfig:
     atr_window: int = 14
     max_hold_days: int = 20
     slippage_points: float = 1.0
+    direction_mode: str = "fade"  # "fade"（逆勢，預設，原始版本）或 "breakout"（順勢，見檔頭說明）
 
 
 def compute_indicators(daily: pd.DataFrame, cfg: SupportResistanceFadeConfig) -> pd.DataFrame:
@@ -109,19 +124,31 @@ def backtest(df: pd.DataFrame, cfg: SupportResistanceFadeConfig | None = None) -
 
         if row["range_pct"] < cfg.min_range_pct or abs(row["trend_slope_pct"]) > cfg.trend_slope_threshold_pct:
             i += 1
-            continue  # 區間太窄或處於單邊趨勢，不逆勢進場
+            continue  # 區間太窄或處於單邊趨勢，不進場（順勢/逆勢共用同一個濾網，見檔頭 direction_mode 說明）
 
         direction = None
-        if row["low"] <= row["support"]:
-            direction = "long"
-            entry_price = _limit_fill(row["support"], row["open"], "buy_limit")
-            target = row["resistance"]
-            stop = entry_price - cfg.stop_atr_mult * row["atr"]
-        elif row["high"] >= row["resistance"]:
-            direction = "short"
-            entry_price = _limit_fill(row["resistance"], row["open"], "sell_limit")
-            target = row["support"]
-            stop = entry_price + cfg.stop_atr_mult * row["atr"]
+        if cfg.direction_mode == "fade":
+            if row["low"] <= row["support"]:
+                direction = "long"
+                entry_price = _limit_fill(row["support"], row["open"], "buy_limit")
+                target = row["resistance"]
+                stop = entry_price - cfg.stop_atr_mult * row["atr"]
+            elif row["high"] >= row["resistance"]:
+                direction = "short"
+                entry_price = _limit_fill(row["resistance"], row["open"], "sell_limit")
+                target = row["support"]
+                stop = entry_price + cfg.stop_atr_mult * row["atr"]
+        else:  # "breakout"：方向鏡射（碰到壓力=突破=做多，碰到支撐=跌破=做空），停損單進場，沒有固定停利目標
+            if row["high"] >= row["resistance"]:
+                direction = "long"
+                entry_price, _ = _fill_price(row["resistance"], row["open"], row["high"], row["low"], "buy_stop", cfg.slippage_points)
+                target = None
+                stop = entry_price - cfg.stop_atr_mult * row["atr"]
+            elif row["low"] <= row["support"]:
+                direction = "short"
+                entry_price, _ = _fill_price(row["support"], row["open"], row["high"], row["low"], "sell_stop", cfg.slippage_points)
+                target = None
+                stop = entry_price + cfg.stop_atr_mult * row["atr"]
 
         if direction is None:
             i += 1
@@ -135,7 +162,7 @@ def backtest(df: pd.DataFrame, cfg: SupportResistanceFadeConfig | None = None) -
             r = daily.iloc[j]
             if direction == "long":
                 stop_hit = r["low"] <= stop
-                target_hit = r["high"] >= target
+                target_hit = target is not None and r["high"] >= target
                 if stop_hit:  # 同一天兩者都可能觸及時，保守假設停損先發生
                     exit_price, exit_reason = _fill_price(stop, r["open"], r["high"], r["low"], "sell_stop", cfg.slippage_points)
                     exit_date = r["date"]
@@ -147,7 +174,7 @@ def backtest(df: pd.DataFrame, cfg: SupportResistanceFadeConfig | None = None) -
                     break
             else:
                 stop_hit = r["high"] >= stop
-                target_hit = r["low"] <= target
+                target_hit = target is not None and r["low"] <= target
                 if stop_hit:
                     exit_price, exit_reason = _fill_price(stop, r["open"], r["high"], r["low"], "buy_stop", cfg.slippage_points)
                     exit_date = r["date"]

@@ -118,6 +118,58 @@ def test_trend_filter_blocks_fade_during_strong_trend():
     assert trades.empty
 
 
+def test_breakout_mode_long_entry_via_stop_order_rides_to_max_hold():
+    rows = _quiet_rows(100, 20)
+    rows.append(dict(open=100, high=106, low=100, close=104, volume=1000))  # 突破壓力做多
+    rows += _quiet_rows(110, 10)  # 站穩高檔，不跌破停損
+    daily = _daily(rows)
+    cfg = SupportResistanceFadeConfig(
+        channel_window=5, min_range_pct=1.0, trend_ma_window=8, trend_lookback=3,
+        trend_slope_threshold_pct=50, stop_atr_mult=1.0, atr_window=5, max_hold_days=5,
+        slippage_points=1.0, direction_mode="breakout",
+    )
+    trades = backtest(_bars_from_daily(daily), cfg)
+
+    assert len(trades) == 1
+    t = trades.iloc[0]
+    assert t["direction"] == "long"
+    assert t["exit_reason"] == "max_hold"
+    assert t["pnl_points"] > 0
+
+
+def test_breakout_mode_stop_loss_on_false_breakout():
+    rows = _quiet_rows(100, 20)
+    rows.append(dict(open=100, high=106, low=100, close=104, volume=1000))  # 突破壓力做多
+    rows.append(dict(open=103, high=104, low=95, close=96, volume=1000))  # 假突破急殺破停損
+    daily = _daily(rows)
+    cfg = SupportResistanceFadeConfig(
+        channel_window=5, min_range_pct=1.0, trend_ma_window=8, trend_lookback=3,
+        trend_slope_threshold_pct=50, stop_atr_mult=1.0, atr_window=5, max_hold_days=5,
+        slippage_points=1.0, direction_mode="breakout",
+    )
+    trades = backtest(_bars_from_daily(daily), cfg)
+
+    assert len(trades) == 1
+    t = trades.iloc[0]
+    assert t["exit_reason"] in ("gap_through", "normal_slippage")
+    assert t["pnl_points"] < 0
+
+
+def test_breakout_mode_entry_gap_through_uses_open_price():
+    rows = _quiet_rows(100, 20)
+    rows.append(dict(open=108, high=110, low=107, close=109, volume=1000))  # 開盤即跳空穿越壓力
+    daily = _daily(rows)
+    cfg = SupportResistanceFadeConfig(
+        channel_window=5, min_range_pct=1.0, trend_ma_window=8, trend_lookback=3,
+        trend_slope_threshold_pct=50, stop_atr_mult=1.0, atr_window=5, max_hold_days=5,
+        slippage_points=1.0, direction_mode="breakout",
+    )
+    trades = backtest(_bars_from_daily(daily), cfg)
+
+    assert len(trades) == 1
+    assert trades.iloc[0]["entry_price"] == 108.0  # 跳空穿越，用開盤價成交
+
+
 def test_max_hold_fallback_when_neither_target_nor_stop_hit():
     rows = _quiet_rows(100, 20)
     rows.append(dict(open=100, high=100, low=94, close=97, volume=1000))  # 進場
