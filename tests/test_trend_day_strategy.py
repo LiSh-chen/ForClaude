@@ -77,6 +77,19 @@ def _two_day_bars(prices_day2: list[float]) -> pd.DataFrame:
     return pd.DataFrame(day1 + day2)
 
 
+def test_min_move_pct_scales_with_price_level():
+    # 開盤價1000，決策時點漲幅約13.5點（1.35%）：
+    # 絕對點數門檻20點不會通過，相對百分比門檻1%會通過
+    prices = [1000 + i * 0.1 for i in range(300)]
+    df = pd.DataFrame(_day_bars("2021-01-04", prices))
+
+    by_points = backtest(df, TrendDayConfig(min_move_points=20))
+    by_pct = backtest(df, TrendDayConfig(min_move_pct=0.01))
+
+    assert by_points.empty
+    assert len(by_pct) == 1
+
+
 def test_trailing_atr_rides_to_close_on_clean_uptrend():
     prices = [100 + i * 0.2 for i in range(300)]
     df = _two_day_bars(prices)

@@ -54,6 +54,19 @@ VWAP 版本（reference="vwap"，預設、已經完整驗證過）在實務上�
 不是「VWAP」這個特定指標本身，是它提供的「隨價格動態調整、進場後仍會
 頻繁重新評估」這個機制。
 
+另一個一直沒控制的變數（重要）：TXF 價格水準 23 年間漲了約 3.3 倍
+（2001年均價約4900點，2023年約16400點）。min_move_points 這個進場
+幅度門檻整段會話都是用「絕對點數」設定（預設20點），代表同一個門檻在
+2001年約當0.4%的價格波動，2023年卻只剩約0.12%——濾網隨著指數點位
+上升變得越來越寬鬆，越到後面越容易放行雜訊訊號。這很可能是這次會話
+反覆看到「早期強、近十年弱」型態的部分成因（不只這個策略，前面測過的
+其他好幾個策略都用了類似的絕對點數門檻）。
+
+min_move_pct 參數（用來控制這個變數）：設定後會取代 min_move_points，
+改用「決策時點累積幅度 / 當天開盤價」的百分比當門檻，隨價格水準自動
+調整，理論上能讓濾網在 23 年間維持一致的相對嚴格程度，不會隨指數上漲
+變得越來越寬鬆。預設 None（維持原本用絕對點數的行為不變）。
+
 exit_mode 參數（獨立於 reference，用來測試上面這個推論）：
 - "reference_break"（預設，原始版本）：出場水準＝進場濾網用的同一個
   參考水準（VWAP或開盤價），持續判斷有沒有穿越。
@@ -84,6 +97,7 @@ POINT_VALUE = 50.0
 class TrendDayConfig:
     decision_time: time = time(11, 0)
     min_move_points: float = 20.0
+    min_move_pct: float | None = None  # 設定後取代 min_move_points，見檔頭說明
     session_end: time = time(13, 25)
     slippage_points: float = 1.0
     min_dominant_side_fraction: float = 1.0  # 1.0=原始版本「決策時點前完全沒穿越過參考水準」
@@ -152,7 +166,8 @@ def backtest(df: pd.DataFrame, cfg: TrendDayConfig | None = None) -> pd.DataFram
         day_open = g["open"].iloc[0]
         decision_close = g["close"].iloc[decision_idx]
         move = (decision_close - day_open) * direction_sign
-        if move < cfg.min_move_points:
+        move_threshold = cfg.min_move_pct * day_open if cfg.min_move_pct is not None else cfg.min_move_points
+        if move < move_threshold:
             continue
 
         if cfg.exit_mode == "trailing_atr":
