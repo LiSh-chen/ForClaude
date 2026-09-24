@@ -14,3 +14,8 @@ data/*.db-shm
 
 # 手動產生的暫存匯出檔仍然忽略
 *.tmp.csv
+
+# scripts/backtest_hammer_ratio_rr.py 每次都會重算的逐筆交易明細（48 組參數
+# 組合，共上百 MB），只留可重現的摘要 data/hammer_ratio_rr_summary.parquet，
+# 明細不進版控
+data/hammer_ratio_rr_trades/
