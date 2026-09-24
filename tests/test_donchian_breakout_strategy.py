@@ -8,7 +8,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tw_quant.donchian_breakout_strategy import (  # noqa: E402
-    DonchianConfig, _atr, _fill_price, backtest, compute_indicators,
+    DonchianConfig, _atr, _fill_price, _passes_filters, backtest, compute_indicators,
 )
 from tw_quant.technical_indicators import build_daily_bars  # noqa: E402
 
@@ -94,6 +94,38 @@ def _bars_from_daily(daily: pd.DataFrame) -> pd.DataFrame:
         ts = pd.Timestamp(r["date"]).replace(hour=8, minute=45)
         rows.append(dict(datetime=ts, open=r["open"], high=r["high"], low=r["low"], close=r["close"], volume=r["volume"]))
     return pd.DataFrame(rows)
+
+
+def test_trend_filter_blocks_counter_trend_breakout():
+    cfg = DonchianConfig(trend_filter=True)
+    uptrend = pd.Series(dict(close_prev=110, trend_ma_prev=100))
+    downtrend = pd.Series(dict(close_prev=90, trend_ma_prev=100))
+    assert _passes_filters(uptrend, "long", cfg) is True
+    assert _passes_filters(downtrend, "long", cfg) is False
+    assert _passes_filters(downtrend, "short", cfg) is True
+    assert _passes_filters(uptrend, "short", cfg) is False
+
+
+def test_volume_filter_blocks_low_conviction_breakout():
+    cfg = DonchianConfig(volume_filter=True, volume_min_ratio=1.2)
+    low_volume = pd.Series(dict(volume=900, volume_ma_prev=800))
+    high_volume = pd.Series(dict(volume=1000, volume_ma_prev=800))
+    assert _passes_filters(low_volume, "long", cfg) is False
+    assert _passes_filters(high_volume, "long", cfg) is True
+
+
+def test_squeeze_filter_blocks_breakout_when_volatility_already_expanded():
+    cfg = DonchianConfig(volatility_squeeze_filter=True)
+    squeeze = pd.Series(dict(atr_ratio=0.01, atr_ratio_threshold_prev=0.02))
+    expanded = pd.Series(dict(atr_ratio=0.03, atr_ratio_threshold_prev=0.02))
+    assert _passes_filters(squeeze, "long", cfg) is True
+    assert _passes_filters(expanded, "long", cfg) is False
+
+
+def test_filters_default_off_do_not_change_existing_behavior():
+    cfg = DonchianConfig()
+    row = pd.Series(dict(close_prev=90, trend_ma_prev=100, volume=1, volume_ma_prev=1000, atr_ratio=99, atr_ratio_threshold_prev=0.01))
+    assert _passes_filters(row, "long", cfg) is True
 
 
 def test_max_hold_fallback_when_stop_never_hit():

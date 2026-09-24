@@ -33,6 +33,19 @@
   1 分鐘資料精確算「當天幾點觸及」——對日線持倉數天的策略，觸及當天用
   收盤附近價位近似即可，不影響策略本質（跟日內策略不同，日內策略的進出場
   時刻本身就是訊號的一部分，這裡不是）。
+
+進階濾網（三個都預設關閉 = OFF，開啟後才會影響訊號，用來測試能不能把
+突破的「勝率」拉高，過濾掉假突破——本次會話已經測過壓力支撐逆勢操作是
+顯著負報酬，這裡反過來想：既然「破了比撐住的機率更高」，那能不能只挑
+「比較可能真的破」的那些突破，把品質較差的訊號濾掉）：
+- trend_filter：只在「大方向本來就一致」時才進場——多單要求昨收 > 長天期
+  均線（trend_ma_window），空單要求昨收 < 均線，避免在更大格局的逆勢中
+  硬做突破（例如長期空頭格局裡去追一個短期反彈的向上突破）。
+- volume_filter：突破當天成交量要 >= volume_min_ratio 倍的前 N 日均量
+  （不含當天，shift(1) 算），量能不夠的突破視為假突破機率較高，直接跳過。
+- volatility_squeeze_filter：突破前 ATR/收盤價 的比值要低於它自己過去
+  squeeze_lookback 天的中位數（代表盤整壓縮、波動率偏低），典型的「盤整
+  蓄積後才噴出」邏輯，濾掉在波動率已經很高時才追價的突破。
 """
 
 from __future__ import annotations
@@ -54,6 +67,16 @@ class DonchianConfig:
     max_hold_days: int = 60
     slippage_points: float = 1.0  # 正常滑價（非跳空情況下，單邊）
 
+    # 進階濾網，預設全部關閉（見檔頭說明）
+    trend_filter: bool = False
+    trend_ma_window: int = 100
+    volume_filter: bool = False
+    volume_ma_window: int = 20
+    volume_min_ratio: float = 1.2
+    volatility_squeeze_filter: bool = False
+    squeeze_lookback: int = 60
+    squeeze_percentile: float = 0.5
+
 
 def _atr(daily: pd.DataFrame, window: int) -> pd.Series:
     prev_close = daily["close"].shift(1)
@@ -73,7 +96,43 @@ def compute_indicators(daily: pd.DataFrame, cfg: DonchianConfig) -> pd.DataFrame
     d["lower_entry"] = d["low"].shift(1).rolling(cfg.entry_window).min()
     d["upper_exit_ref"] = d["high"].shift(1).rolling(cfg.exit_window).max()
     d["lower_exit_ref"] = d["low"].shift(1).rolling(cfg.exit_window).min()
+
+    # 昨收 vs 長天期均線（用昨天為止的資料判斷大方向，不含當天）
+    d["trend_ma_prev"] = d["close"].shift(1).rolling(cfg.trend_ma_window).mean()
+    d["close_prev"] = d["close"].shift(1)
+
+    # 突破當天量能 vs 前 N 日均量（不含當天）
+    d["volume_ma_prev"] = d["volume"].shift(1).rolling(cfg.volume_ma_window).mean()
+
+    # 波動率壓縮：ATR/收盤價 的比值，跟它自己過去 squeeze_lookback 天的
+    # squeeze_percentile 分位數比較（都只用「昨天為止」的歷史分布，今天的
+    # ATR 本身沒有問題，因為 ATR 的 TR 分量已經只跟前一天收盤比較，不含
+    # 未來；分位數本身也是 shift(1) 算，不含今天）
+    atr_ratio = d["atr"] / d["close"]
+    d["atr_ratio"] = atr_ratio
+    d["atr_ratio_threshold_prev"] = atr_ratio.shift(1).rolling(cfg.squeeze_lookback).quantile(cfg.squeeze_percentile)
     return d
+
+
+def _passes_filters(row: pd.Series, direction: str, cfg: DonchianConfig) -> bool:
+    if cfg.trend_filter:
+        if pd.isna(row["trend_ma_prev"]):
+            return False
+        if direction == "long" and not (row["close_prev"] > row["trend_ma_prev"]):
+            return False
+        if direction == "short" and not (row["close_prev"] < row["trend_ma_prev"]):
+            return False
+    if cfg.volume_filter:
+        if pd.isna(row["volume_ma_prev"]) or row["volume_ma_prev"] <= 0:
+            return False
+        if row["volume"] < cfg.volume_min_ratio * row["volume_ma_prev"]:
+            return False
+    if cfg.volatility_squeeze_filter:
+        if pd.isna(row["atr_ratio_threshold_prev"]):
+            return False
+        if row["atr_ratio"] >= row["atr_ratio_threshold_prev"]:
+            return False
+    return True
 
 
 def _fill_price(level: float, day_open: float, day_high: float, day_low: float,
@@ -118,6 +177,10 @@ def backtest(df: pd.DataFrame, cfg: DonchianConfig | None = None) -> pd.DataFram
             entry_level = row["lower_entry"]
 
         if direction is None:
+            i += 1
+            continue
+
+        if not _passes_filters(row, direction, cfg):
             i += 1
             continue
 
