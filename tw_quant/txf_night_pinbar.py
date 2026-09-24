@@ -40,6 +40,7 @@ class StrategyConfig:
     entry_end: time = time(23, 30)  # exclusive
     force_close: time = FORCE_CLOSE_TIME
     point_value: float = POINT_VALUE
+    range_r_multiple: float = 2.0  # 策略一固定風報比（TP = entry + risk * range_r_multiple）
 
 
 def _night_session_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -94,7 +95,7 @@ def _simulate_range_strategy(bars: pd.DataFrame, cfg: StrategyConfig) -> list[di
             i += 1
             continue
 
-        tp = entry_price + 2 * risk
+        tp = entry_price + cfg.range_r_multiple * risk
         exit_price = exit_reason = exit_dt = None
         exit_idx = None
         for j in range(i + 1, n):

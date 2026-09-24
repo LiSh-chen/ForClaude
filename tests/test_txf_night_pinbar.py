@@ -67,6 +67,25 @@ def test_range_strategy_hits_take_profit():
     assert t["pnl_points"] == 38
 
 
+def test_range_strategy_r_multiple_is_configurable():
+    """range_r_multiple 改成 1:3 時，TP 應該跟著變，不是寫死 1:2。"""
+    cfg = StrategyConfig(swing_lookback=5, range_r_multiple=3.0)
+    overrides = {}
+    overrides["21:40"] = {"open": 17000, "high": 17001, "low": 16985, "close": 16999}
+    overrides["21:41"] = {"open": 16999, "high": 17000, "low": 16998, "close": 17000}
+    overrides["21:45"] = {"open": 17010, "high": 17057, "low": 17008, "close": 17055}
+
+    df = _session_bars("2021-06-01", overrides)
+    trades = backtest(df, cfg)
+
+    t = trades[trades["strategy"] == "range_hammer"].iloc[0]
+    assert t["entry_price"] == 16999
+    assert t["sl"] == 16980
+    assert t["tp"] == 16999 + 3 * 19  # risk=19, r_multiple=3 -> tp=17056
+    assert t["exit_reason"] == "take_profit"
+    assert t["pnl_points"] == 57
+
+
 def test_range_strategy_skips_signal_when_risk_exceeds_max():
     cfg = StrategyConfig(swing_lookback=5)
     overrides = {}
