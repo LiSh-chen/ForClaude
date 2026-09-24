@@ -8,7 +8,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tw_quant.technical_indicators import (  # noqa: E402
-    add_indicators, build_daily_bars, daily_indicators, filter_trades_by_volume,
+    LAG1_COLUMNS, add_indicators, build_daily_bars, daily_indicators, filter_trades_by_volume,
 )
 
 
@@ -52,6 +52,16 @@ def test_rsi_bounds_and_uptrend_gives_high_rsi():
     assert rsi.iloc[-1] > 70  # 持續上漲應該接近超買
 
 
+def test_stochastic_and_williams_r_stay_within_bounds():
+    closes = {f"2021-06-{d:02d}": 17000 + (d % 5) * 30 - 60 for d in range(1, 30)}  # 上下震盪
+    df = _minute_bars_for_days(closes)
+    daily = add_indicators(build_daily_bars(df))
+    k = daily["stoch_k"].dropna()
+    willr = daily["willr14"].dropna()
+    assert (k >= 0).all() and (k <= 100).all()
+    assert (willr >= -100).all() and (willr <= 0).all()
+
+
 def test_filter_trades_by_volume_keeps_only_days_at_or_above_threshold():
     closes = {f"2021-06-{d:02d}": 17000.0 for d in range(1, 26)}
     df = _minute_bars_for_days(closes)
@@ -75,5 +85,5 @@ def test_daily_indicators_returns_date_and_lag1_columns_keyed_by_date():
     closes = {f"2021-06-{d:02d}": 17000 + d for d in range(1, 25)}
     df = _minute_bars_for_days(closes)
     out = daily_indicators(df)
-    assert set(out.columns) == {"date", "rsi14_lag1", "macd_hist_lag1", "bb_pctb_lag1", "vol_ratio_lag1"}
+    assert set(out.columns) == {"date", *LAG1_COLUMNS}
     assert isinstance(out["date"].iloc[0], type(pd.Timestamp("2021-01-01").date()))

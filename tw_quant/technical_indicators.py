@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import time
 
+import numpy as np
 import pandas as pd
 
 
@@ -46,24 +47,69 @@ def add_indicators(daily: pd.DataFrame) -> pd.DataFrame:
 
     d["vol_ratio"] = d["volume"] / d["volume"].rolling(20).mean()
 
-    for col in ["rsi14", "macd_hist", "bb_pctb", "vol_ratio"]:
+    # Stochastic KD(9,3,3)
+    low9 = d["low"].rolling(9).min()
+    high9 = d["high"].rolling(9).max()
+    rsv = (d["close"] - low9) / (high9 - low9) * 100
+    d["stoch_k"] = rsv.ewm(alpha=1 / 3, adjust=False).mean()
+    d["stoch_d"] = d["stoch_k"].ewm(alpha=1 / 3, adjust=False).mean()
+
+    # Williams %R(14)
+    low14 = d["low"].rolling(14).min()
+    high14 = d["high"].rolling(14).max()
+    d["willr14"] = (high14 - d["close"]) / (high14 - low14) * -100
+
+    # ATR(14)：真實區間的 14 日平均，衡量波動度水準（不是方向）
+    prev_close = d["close"].shift(1)
+    tr = pd.concat([
+        d["high"] - d["low"],
+        (d["high"] - prev_close).abs(),
+        (d["low"] - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    d["atr14"] = tr.ewm(alpha=1 / 14, adjust=False).mean()
+    d["atr_ratio"] = d["atr14"] / d["atr14"].rolling(60).mean()  # 相對近期波動水準
+
+    # CCI(20)
+    tp = (d["high"] + d["low"] + d["close"]) / 3
+    tp_sma = tp.rolling(20).mean()
+    tp_mad = tp.rolling(20).apply(lambda x: np.abs(x - x.mean()).mean(), raw=True)
+    d["cci20"] = (tp - tp_sma) / (0.015 * tp_mad)
+
+    for col in ["rsi14", "macd_hist", "bb_pctb", "vol_ratio", "stoch_k", "willr14", "atr_ratio", "cci20"]:
         d[f"{col}_lag1"] = d[col].shift(1)
 
     return d
 
 
+LAG1_COLUMNS = [
+    "rsi14_lag1", "macd_hist_lag1", "bb_pctb_lag1", "vol_ratio_lag1",
+    "stoch_k_lag1", "willr14_lag1", "atr_ratio_lag1", "cci20_lag1",
+]
+
+
 def daily_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """回傳 date + 四個 *_lag1 過濾器欄位（date 是 `datetime.date`，方便直接
-    跟 trades DataFrame 的 `trading_date` 合併）。"""
+    """回傳 date + `LAG1_COLUMNS` 過濾器欄位（date 是 `datetime.date`，方便
+    直接跟 trades DataFrame 的 `trading_date` 合併）。"""
     d = add_indicators(build_daily_bars(df))
     d["date"] = d["date"].dt.date
-    return d[["date", "rsi14_lag1", "macd_hist_lag1", "bb_pctb_lag1", "vol_ratio_lag1"]]
+    return d[["date"] + LAG1_COLUMNS]
 
 
 def filter_trades_by_volume(trades: pd.DataFrame, df: pd.DataFrame, threshold: float) -> pd.DataFrame:
     """只留下「昨日成交量比率 >= threshold」那些交易日的交易。`threshold` 應該
     是用樣本內資料算出來、外部傳進來的固定值，這個函式本身不重新計算分位數
     ——避免在樣本外資料上重算門檻，變相用到未來資訊。"""
+    return filter_trades_by_indicator(trades, df, "vol_ratio_lag1", threshold, "ge")
+
+
+def filter_trades_by_indicator(
+    trades: pd.DataFrame, df: pd.DataFrame, column: str, threshold: float, direction: str = "ge",
+) -> pd.DataFrame:
+    """通用版：只留下 `column`（`LAG1_COLUMNS` 之一）相對 `threshold` 方向
+    （'ge'=大於等於／'le'=小於等於）成立的交易日。`threshold` 一律是外部傳入
+    的固定值（通常用樣本內資料算出），這個函式本身不重新計算分位數。"""
+    assert direction in ("ge", "le")
     indicators = daily_indicators(df)
-    merged = trades.merge(indicators[["date", "vol_ratio_lag1"]], left_on="trading_date", right_on="date", how="left")
-    return merged[merged["vol_ratio_lag1"] >= threshold].drop(columns=["date", "vol_ratio_lag1"])
+    merged = trades.merge(indicators[["date", column]], left_on="trading_date", right_on="date", how="left")
+    mask = merged[column] >= threshold if direction == "ge" else merged[column] <= threshold
+    return merged[mask].drop(columns=["date", column])
