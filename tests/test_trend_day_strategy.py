@@ -67,6 +67,47 @@ def test_vwap_break_after_entry_triggers_early_exit():
     assert t["pnl_points"] < 0
 
 
+def _two_day_bars(prices_day2: list[float]) -> pd.DataFrame:
+    # day1 用比 _day_bars 更寬的高低點範圍，模擬合理量級的日線ATR
+    # （若沿用 _day_bars 的窄範圍，算出的ATR只有0.2點，遠小於1點滑價，
+    # 會讓移動停損在進場當下就被滑價本身觸發，是測試資料的問題不是策略邏輯）
+    ts1 = pd.date_range("2021-01-04 08:45", periods=300, freq="min")
+    day1 = [dict(datetime=tm, open=100, high=101, low=99, close=100, volume=100) for tm in ts1]
+    day2 = _day_bars("2021-01-05", prices_day2)
+    return pd.DataFrame(day1 + day2)
+
+
+def test_trailing_atr_rides_to_close_on_clean_uptrend():
+    prices = [100 + i * 0.2 for i in range(300)]
+    df = _two_day_bars(prices)
+    trades = backtest(df, TrendDayConfig(exit_mode="trailing_atr", atr_stop_mult=1.5))
+
+    assert len(trades) == 1
+    t = trades.iloc[0]
+    assert t["direction"] == "long"
+    assert t["exit_reason"] == "session_close"
+    assert t["pnl_points"] > 0
+
+
+def test_trailing_atr_exits_early_on_pullback_after_entry():
+    prices = [100 + i * 0.2 if i <= 150 else 130 - (i - 150) * 0.3 for i in range(300)]
+    df = _two_day_bars(prices)
+    trades = backtest(df, TrendDayConfig(exit_mode="trailing_atr", atr_stop_mult=1.5))
+
+    assert len(trades) == 1
+    t = trades.iloc[0]
+    assert t["exit_reason"] == "trailing_stop"
+    assert t["pnl_points"] < 0
+
+
+def test_trailing_atr_skipped_when_no_prior_day_atr():
+    # 只有一天資料，沒有前一天可以算ATR
+    prices = [100 + i * 0.2 for i in range(300)]
+    df = pd.DataFrame(_day_bars("2021-01-05", prices))
+    trades = backtest(df, TrendDayConfig(exit_mode="trailing_atr"))
+    assert trades.empty
+
+
 def test_open_reference_monotonic_uptrend_matches_vwap_reference():
     prices = [100 + i * 0.2 for i in range(300)]
     df = pd.DataFrame(_day_bars("2021-01-04", prices))

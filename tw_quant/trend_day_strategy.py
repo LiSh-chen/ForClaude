@@ -44,6 +44,27 @@ VWAP 版本（reference="vwap"，預設、已經完整驗證過）在實務上�
 也能直接掛一張固定價位的真實停損單（不像 VWAP 停損需要每分鐘重新判斷、
 沒辦法真的掛在市場上）。這是用「可能稍微犧牲一點篩選品質」換「大幅
 降低實務執行門檻」，實際效果需要重新完整驗證，不能假設兩者等價。
+
+已知結論更新（重要）：把 reference 換成 "open" 或改用固定 ATR 停損停利
+（見 momentum_checkpoint_strategy.py）都在完整驗證中明確失敗、OOS轉負。
+進一步拆解發現關鍵不在「進場濾網用什麼當參考」，而在「出場機制夠不夠
+積極」——VWAP版本進場後約25%的交易會提早被「趨勢失效」出場，固定水準
+版本（開盤價/ATR）幾乎99%以上都是硬抱到收盤才出場，等於移除了「趨勢
+真的走掉就提早停損、不要硬拗」這個核心風控動作。這指向：真正該保留的
+不是「VWAP」這個特定指標本身，是它提供的「隨價格動態調整、進場後仍會
+頻繁重新評估」這個機制。
+
+exit_mode 參數（獨立於 reference，用來測試上面這個推論）：
+- "reference_break"（預設，原始版本）：出場水準＝進場濾網用的同一個
+  參考水準（VWAP或開盤價），持續判斷有沒有穿越。
+- "trailing_atr"：改用「移動停損單」（多數券商下單軟體/API都有這個
+  現成的委託類型，掛一次就會自動跟著價格走，不需要自己逐分鐘運算）——
+  停損水準＝進場後至今最有利價位（多單看最高收盤、空單看最低收盤）
+  減/加 atr_stop_mult 倍的「前一天為止」日線ATR，只會往有利方向收緊，
+  不會鬆動。進場濾網（entry_reference）不變，只是把「持續盯盤判斷出場」
+  換成「掛一張會自動追蹤的停損單」，兩者理論上都能提供類似的「趨勢
+  走掉就提早出場」效果，但trailing_atr完全不需要交易人自己即時運算
+  任何東西。
 """
 
 from __future__ import annotations
@@ -53,6 +74,8 @@ from datetime import time
 
 import numpy as np
 import pandas as pd
+
+from tw_quant.donchian_breakout_strategy import _atr
 
 POINT_VALUE = 50.0
 
@@ -66,7 +89,10 @@ class TrendDayConfig:
     min_dominant_side_fraction: float = 1.0  # 1.0=原始版本「決策時點前完全沒穿越過參考水準」
     # <1.0＝放寬：允許決策時點前有一部分分鐘K棒收在參考水準反向側（雜訊型短暫拉回），
     # 只要「多數方向」那一側的比例達到這個門檻就算趨勢日候選，方向＝多數方向。
-    reference: str = "vwap"  # "vwap"（預設，原始版本）或 "open"（見檔頭「vwap vs open」說明）
+    reference: str = "vwap"  # 進場濾網用的參考水準："vwap"（預設）或 "open"
+    exit_mode: str = "reference_break"  # "reference_break"（預設）或 "trailing_atr"（見檔頭說明）
+    atr_window: int = 14
+    atr_stop_mult: float = 1.5
 
 
 def _day_session_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -76,11 +102,20 @@ def _day_session_frame(df: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
+def _prior_day_atr_map(df: pd.DataFrame, atr_window: int) -> dict:
+    from tw_quant.technical_indicators import build_daily_bars
+
+    daily = build_daily_bars(df)
+    daily["atr_prior"] = _atr(daily, atr_window).shift(1)
+    return dict(zip(daily["date"].dt.date, daily["atr_prior"]))
+
+
 def backtest(df: pd.DataFrame, cfg: TrendDayConfig | None = None) -> pd.DataFrame:
     cfg = cfg or TrendDayConfig()
     day_df = _day_session_frame(df)
 
     exit_reason_break = "vwap_break" if cfg.reference == "vwap" else "open_break"
+    atr_map = _prior_day_atr_map(df, cfg.atr_window) if cfg.exit_mode == "trailing_atr" else {}
 
     trades = []
     for trading_date, g in day_df.groupby("trading_date"):
@@ -120,21 +155,48 @@ def backtest(df: pd.DataFrame, cfg: TrendDayConfig | None = None) -> pd.DataFram
         if move < cfg.min_move_points:
             continue
 
+        if cfg.exit_mode == "trailing_atr":
+            atr_prior = atr_map.get(trading_date)
+            if atr_prior is None or pd.isna(atr_prior):
+                continue  # 沒有前一天ATR（例如資料第一天），跳過
+
         direction = "long" if direction_sign > 0 else "short"
         entry_bar = g.iloc[decision_idx + 1]
         entry_price = entry_bar["open"] + (cfg.slippage_points if direction == "long" else -cfg.slippage_points)
         entry_dt = entry_bar["datetime"]
 
         exit_price = exit_dt = exit_reason = None
-        for j in range(decision_idx + 1, len(g)):
-            r = g.iloc[j]
-            if t.iloc[j] >= cfg.session_end:
-                break
-            broke = (r["close"] < r["ref_price"]) if direction == "long" else (r["close"] > r["ref_price"])
-            if broke:
-                exit_price = r["close"] + (-cfg.slippage_points if direction == "long" else cfg.slippage_points)
-                exit_dt, exit_reason = r["datetime"], exit_reason_break
-                break
+        if cfg.exit_mode == "trailing_atr":
+            trail_distance = cfg.atr_stop_mult * atr_prior
+            extreme = entry_price
+            for j in range(decision_idx + 1, len(g)):
+                r = g.iloc[j]
+                if t.iloc[j] >= cfg.session_end:
+                    break
+                if direction == "long":
+                    extreme = max(extreme, r["close"])
+                    stop = extreme - trail_distance
+                    if r["close"] <= stop:
+                        exit_price = r["close"] - cfg.slippage_points
+                        exit_dt, exit_reason = r["datetime"], "trailing_stop"
+                        break
+                else:
+                    extreme = min(extreme, r["close"])
+                    stop = extreme + trail_distance
+                    if r["close"] >= stop:
+                        exit_price = r["close"] + cfg.slippage_points
+                        exit_dt, exit_reason = r["datetime"], "trailing_stop"
+                        break
+        else:
+            for j in range(decision_idx + 1, len(g)):
+                r = g.iloc[j]
+                if t.iloc[j] >= cfg.session_end:
+                    break
+                broke = (r["close"] < r["ref_price"]) if direction == "long" else (r["close"] > r["ref_price"])
+                if broke:
+                    exit_price = r["close"] + (-cfg.slippage_points if direction == "long" else cfg.slippage_points)
+                    exit_dt, exit_reason = r["datetime"], exit_reason_break
+                    break
 
         if exit_price is None:
             close_mask = t >= cfg.session_end
