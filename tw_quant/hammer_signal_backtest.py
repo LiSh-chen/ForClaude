@@ -43,10 +43,12 @@ class TradeCost:
     commission_round_trip: float  # 每筆來回固定手續費（元）
     tax_rate_per_side: float = TAX_RATE_PER_SIDE
     point_value: float = POINT_VALUE
+    slippage_points_round_trip: float = 0.0  # 進場+出場合計的滑價點數（0=沿用舊行為，假設完全用K棒開盤價成交）
 
     def total_cost(self, entry_price: np.ndarray, exit_price: np.ndarray) -> np.ndarray:
         tax = self.tax_rate_per_side * self.point_value * (np.abs(entry_price) + np.abs(exit_price))
-        return tax + self.commission_round_trip
+        slippage = self.slippage_points_round_trip * self.point_value
+        return tax + self.commission_round_trip + slippage
 
 
 COST_SCENARIOS = [

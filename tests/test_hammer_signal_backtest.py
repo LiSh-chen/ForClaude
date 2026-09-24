@@ -216,3 +216,15 @@ def test_apply_costs_tax_and_net():
     assert priced.loc[0, "gross_twd"] == 40.0 * 50.0
     assert abs(priced.loc[0, "cost_twd"] - (expected_tax_0 + 60.0)) < 1e-9
     assert abs(priced.loc[0, "net_twd"] - (2000.0 - expected_tax_0 - 60.0)) < 1e-9
+
+
+def test_apply_costs_includes_slippage_when_set():
+    trades = pd.DataFrame([{"entry_price": 17000.0, "exit_price": 17040.0, "pnl_points": 40.0}])
+    no_slip = TradeCost("無滑價", commission_round_trip=60.0, point_value=50.0)
+    with_slip = TradeCost("2點滑價", commission_round_trip=60.0, point_value=50.0, slippage_points_round_trip=2.0)
+
+    priced_no_slip = apply_costs(trades, no_slip)
+    priced_with_slip = apply_costs(trades, with_slip)
+
+    assert priced_with_slip.loc[0, "cost_twd"] - priced_no_slip.loc[0, "cost_twd"] == 2.0 * 50.0
+    assert priced_no_slip.loc[0, "net_twd"] - priced_with_slip.loc[0, "net_twd"] == 100.0
