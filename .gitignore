@@ -23,3 +23,7 @@ data/*.db-shm
 # 策略實驗室artifact發布用的匯出檔，可用該腳本隨時重新產生，不進版控）
 scripts/_strategy_lab_export/
 data/hammer_ratio_rr_trades/
+
+# tests/engine_parity/parity_dump.py 的輸出：Python策略原始交易紀錄，只是
+# engine.js（JS回測引擎）對拍測試用的中繼檔，可隨時重新產生，不進版控
+tests/engine_parity/parity_out/

@@ -1,10 +1,22 @@
 """策略實驗室統一匯出：跑 tw_quant/strategy_lab.py 註冊的策略（任意組合、
 任意濾網），輸出格式跟三腿策略歷史交易紀錄最終版相容（日K總覽data.json +
-逐年1分K+交易紀錄 years/*.json），供 strategy_lab_chart/index.html 顯示。
+逐年1分K+交易紀錄 years/*），供 strategy_lab_chart/index.html 顯示。
 
-**改參數的方法**：改下面 ACTIVE 這個列表——每個項目是
-(strategy_id, cfg覆寫或None, 濾網鏈)，改完重新執行這支腳本，
-前端頁面重新整理就會看到新結果。不是網頁端即時運算。
+**這是「初始資料」匯出，不是參數的唯一調整入口**：前端頁面本身內建了用
+JavaScript重新實作的回測引擎（strategy_lab_chart/engine.js，跟這支腳本
+呼叫的Python策略模組做過逐筆對拍驗證），使用者可以直接在網頁上調整每個
+策略的參數即時重跑，不需要改這支腳本。這支腳本主要負責把「目前註冊的
+預設參數」批次跑一次，產生頁面首次載入時的初始畫面，以及提供engine.js
+需要的原始1分K/日K資料（含volume、含夜盤區段）。如果要新增/移除註冊的
+策略或改變預設組合，才需要改下面 ACTIVE 列表重新執行。
+
+輸出格式：
+- data.json / meta.json：日K總覽 + 策略中繼資料（跟之前一樣）。
+- years/{year}.json：該年度交易紀錄（進出場時間價位損益），只給「1分K單月
+  交易明細」的標記用，不再含K棒本身。
+- years/{year}_day.bin / years/{year}_night.bin：該年度日盤(08:45-13:45)/
+  夜盤熱區(21:00-23:45)1分K（含volume），緊湊二進位格式取代JSON陣列（見
+  write_minute_bin() 說明），前端K線圖跟JS回測引擎共用同一份資料。
 
 用法：
     python scripts/export_strategy_lab.py
@@ -107,7 +119,7 @@ def main() -> None:
     for _, row in daily.iterrows():
         d = row["date"]
         rec = {"t": d.strftime("%Y-%m-%d"), "o": int(row["open"]), "h": int(row["high"]),
-               "l": int(row["low"]), "c": int(row["close"])}
+               "l": int(row["low"]), "c": int(row["close"]), "v": int(row["volume"])}
         day_total = 0.0
         for sid in all_trades:
             val = daily_by_sid[sid].get(d, 0.0)
@@ -124,8 +136,19 @@ def main() -> None:
     print(f"data.json: {len(records)} 筆日資料")
 
     with open(OUT_DIR / "meta.json", "w", encoding="utf-8") as f:
-        json.dump({"strategies": meta, "cost_label": LOW_COST.label,
-                    "order": [sid for sid, _, _ in ACTIVE]}, f, ensure_ascii=False, indent=2)
+        json.dump({
+            "strategies": meta, "cost_label": LOW_COST.label,
+            "order": [sid for sid, _, _ in ACTIVE],
+            # 給前端JS回測引擎用的固定常數：re腿的量能濾網門檻是用IS(2001-2020)
+            # 資料算出來的三分位數，前端不能重新計算（會用到OOS資料，變相看未來），
+            # 一定要用這個匯出時鎖定的固定值。
+            "re_volume_filter_threshold": round(float(vol_threshold), 6),
+            "cost_scenarios": [
+                {"label": c.label, "commission_round_trip": c.commission_round_trip,
+                 "tax_rate_per_side": c.tax_rate_per_side, "point_value": c.point_value}
+                for c in COST_SCENARIOS
+            ],
+        }, f, ensure_ascii=False, indent=2)
     print("meta.json 已寫入")
 
     print("\n" + "=" * 70)
@@ -138,6 +161,13 @@ def main() -> None:
     day_session["moy"] = day_session["datetime"].dt.hour * 60 + day_session["datetime"].dt.minute
     day_session["year"] = day_session["datetime"].dt.year
 
+    # 夜盤流動性熱區（21:00-23:45，night策略需要）；這個時間窗不跨零點，
+    # 交易日直接用K棒自己的日曆日期分組，跟 night_liquid_window_trend_strategy.py 一致
+    night_session = df[(t >= time(21, 0)) & (t <= time(23, 45))].copy()
+    night_session["date_str"] = night_session["datetime"].dt.strftime("%Y-%m-%d")
+    night_session["moy"] = night_session["datetime"].dt.hour * 60 + night_session["datetime"].dt.minute
+    night_session["year"] = night_session["datetime"].dt.year
+
     all_trades_combined = combine(list(all_trades.values()))
     # 用「進場年份 或 出場年份」把交易複製進相關年度檔案，讓跨年度持有的交易
     # 在對應的月份都能正確顯示進/出場標記
@@ -148,12 +178,33 @@ def main() -> None:
         for _, r in trades.iterrows():
             net_map[(sid, r["entry_date"], r["exit_date"])] = round(float(r["net_twd"]), 1)
 
+    night_by_year = {y: g for y, g in night_session.groupby("year")}
+
+    def write_minute_bin(path, session_df):
+        """把一年份的1分K（含volume）打包成緊湊二進位格式，取代JSON陣列——
+        JSON把每個整數編碼成文字（每個數字約5~9 bytes含逗號/括號），二進位
+        固定4 bytes/數字，23年份加總下來省將近一半體積，也讓前端在「全歷史
+        即時重算」時抓取全部年份的1分K快很多（不用JSON.parse幾百萬個數字）。
+        格式（little-endian int32，瀏覽器原生Int32Array預設讀法就是這個）：
+        [numDays, (dateYYYYMMDD, barCount, [moy,o,h,l,c,v]*barCount)*numDays]
+        """
+        import numpy as np
+        header = [len(session_df.groupby("date_str")) if not session_df.empty else 0]
+        blocks = [np.array(header, dtype="<i4")]
+        if not session_df.empty:
+            for d, dg in session_df.groupby("date_str"):
+                dg = dg.sort_values("datetime")
+                date_int = int(d.replace("-", ""))
+                bars = dg[["moy", "open", "high", "low", "close", "volume"]].values.astype("<i4")
+                blocks.append(np.array([date_int, len(dg)], dtype="<i4"))
+                blocks.append(bars.reshape(-1))
+        flat = np.concatenate(blocks) if len(blocks) > 1 else blocks[0]
+        flat.astype("<i4").tofile(path)
+
     for year, g in day_session.groupby("year"):
-        days_out = []
-        for d, dg in g.groupby("date_str"):
-            dg = dg.sort_values("datetime")
-            bars = dg[["moy", "open", "high", "low", "close"]].values.astype(int).tolist()
-            days_out.append({"d": d, "bars": bars})
+        write_minute_bin(YEARS_DIR / f"{year}_day.bin", g)
+        ng = night_by_year.get(year)
+        write_minute_bin(YEARS_DIR / f"{year}_night.bin", ng if ng is not None else g.iloc[0:0])
 
         yr_trades = all_trades_combined[(all_trades_combined["entry_year"] == year) |
                                           (all_trades_combined["exit_year"] == year)]
@@ -168,10 +219,13 @@ def main() -> None:
                 "n": net, "approx": bool(r["approx_time"]),
             })
 
-        payload = {"days": days_out, "trades": trades_out}
+        payload = {"trades": trades_out}
         with open(YEARS_DIR / f"{year}.json", "w", encoding="utf-8") as f:
             json.dump(payload, f, separators=(",", ":"))
-        print(f"  {year}: {len(days_out)} 交易日, {len(trades_out)} 筆交易(含跨年複製)")
+        n_day = len(g.groupby("date_str")) if not g.empty else 0
+        n_night = len(ng.groupby("date_str")) if ng is not None else 0
+        print(f"  {year}: {n_day} 交易日(bin,含量能), {n_night} 夜盤交易日(bin), "
+              f"{len(trades_out)} 筆交易(含跨年複製)")
 
     print("\n完成，輸出於", OUT_DIR)
 
