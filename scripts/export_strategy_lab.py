@@ -17,6 +17,9 @@ JavaScript重新實作的回測引擎（strategy_lab_chart/engine.js，跟這支
 - years/{year}_day.bin / years/{year}_night.bin：該年度日盤(08:45-13:45)/
   夜盤熱區(21:00-23:45)1分K（含volume），緊湊二進位格式取代JSON陣列（見
   write_minute_bin() 說明），前端K線圖跟JS回測引擎共用同一份資料。
+- trades_index.json：{策略id: [[進場日,進場時間,出場日,出場時間], ...]}，
+  只給前端算「併發口數/保證金需求」用（多個策略同時掛倉需要多少保證金），
+  含時間才能正確判斷同一天觸發的不同交易時段有沒有真的重疊，不含價位損益。
 
 用法：
     python scripts/export_strategy_lab.py
@@ -96,6 +99,20 @@ def main() -> None:
                           sum_net=round(float(trades["net_twd"].sum()), 1) if len(trades) else 0.0)
         print(f"  {sid:12s} {reg[sid].label:12s} verdict={reg[sid].verdict:10s} "
               f"n={len(trades):5d}  net_sum={meta[sid]['sum_net']:>12,.0f}")
+
+    print("\n" + "=" * 70)
+    print("1b) 建立 trades_index.json（每個策略的進/出場日期，供前端算併發口數/保證金用）")
+    print("=" * 70)
+    # 存進出場時間(不只日期)，讓前端可以用精確的時間區間做掃描線演算法算併發
+    # 口數——三腿策略同一天三腿都會觸發，但彼此時段依序不重疊(08:45-09:00/
+    # 12:00-12:30/12:30-13:00)，只比較日期會誤判成同時併發3口。
+    trades_index = {}
+    for sid, trades in all_trades.items():
+        trades_index[sid] = [[r["entry_date"], r["entry_time"], r["exit_date"], r["exit_time"]]
+                              for _, r in trades.iterrows()]
+    with open(OUT_DIR / "trades_index.json", "w", encoding="utf-8") as f:
+        json.dump(trades_index, f, separators=(",", ":"))
+    print(f"trades_index.json 已寫入，共 {sum(len(v) for v in trades_index.values())} 筆交易的進出場日期")
 
     print("\n" + "=" * 70)
     print("2) 建立日K總覽 data.json")
