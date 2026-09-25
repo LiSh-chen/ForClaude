@@ -170,6 +170,45 @@ def test_breakout_mode_entry_gap_through_uses_open_price():
     assert trades.iloc[0]["entry_price"] == 108.0  # 跳空穿越，用開盤價成交
 
 
+def test_breakout_mode_target_r_multiple_exits_at_computed_target():
+    rows = _quiet_rows(100, 20)
+    rows.append(dict(open=100, high=106, low=100, close=104, volume=1000))  # 突破壓力做多，進場106+1滑價=107
+    rows.append(dict(open=107, high=200, low=107, close=150, volume=1000))  # 隔天噴出，遠遠超過停利目標
+    daily = _daily(rows)
+    cfg = SupportResistanceFadeConfig(
+        channel_window=5, min_range_pct=1.0, trend_ma_window=8, trend_lookback=3,
+        trend_slope_threshold_pct=50, stop_atr_mult=1.0, atr_window=5, max_hold_days=5,
+        slippage_points=1.0, direction_mode="breakout", target_r_multiple=2.0,
+    )
+    trades = backtest(_bars_from_daily(daily), cfg)
+
+    assert len(trades) == 1
+    t = trades.iloc[0]
+    assert t["exit_reason"] == "target"
+    # target = entry + target_r_multiple*risk，遠低於隔天noise high=200，用限價出場（沒有滑價），
+    # 確認真的是用target_r_multiple算出來的目標提早出場，不是抱到收盤/max_hold
+    assert t["exit_price"] < 150  # 遠低於當天最高，確認是限價停利成交、不是收盤價
+    assert t["pnl_points"] > 0
+
+
+def test_breakout_mode_target_r_multiple_none_keeps_original_behavior():
+    # target_r_multiple=None（預設）時，行為要跟舊版一致：完全沒有停利，
+    # 即使噴出很多也繼續抱著到max_hold_days
+    rows = _quiet_rows(100, 20)
+    rows.append(dict(open=100, high=106, low=100, close=104, volume=1000))
+    rows.append(dict(open=107, high=200, low=107, close=150, volume=1000))
+    rows += _quiet_rows(150, 10)
+    daily = _daily(rows)
+    cfg = SupportResistanceFadeConfig(
+        channel_window=5, min_range_pct=1.0, trend_ma_window=8, trend_lookback=3,
+        trend_slope_threshold_pct=50, stop_atr_mult=1.0, atr_window=5, max_hold_days=5,
+        slippage_points=1.0, direction_mode="breakout", target_r_multiple=None,
+    )
+    trades = backtest(_bars_from_daily(daily), cfg)
+    assert len(trades) == 1
+    assert trades.iloc[0]["exit_reason"] == "max_hold"
+
+
 def test_max_hold_fallback_when_neither_target_nor_stop_hit():
     rows = _quiet_rows(100, 20)
     rows.append(dict(open=100, high=100, low=94, close=97, volume=1000))  # 進場

@@ -81,6 +81,9 @@ class SupportResistanceFadeConfig:
     max_hold_days: int = 20
     slippage_points: float = 1.0
     direction_mode: str = "fade"  # "fade"（逆勢，預設，原始版本）或 "breakout"（順勢，見檔頭說明）
+    target_r_multiple: float | None = None  # 只對breakout模式有意義：停利＝target_r_multiple倍初始風險
+    # （進場價到停損的距離），None＝原始版本，沒有固定停利、抱到停損或max_hold_days。
+    # fade模式一律用對面通道邊界當停利，不受這個參數影響（見檔頭「停利」段落）。
 
 
 def compute_indicators(daily: pd.DataFrame, cfg: SupportResistanceFadeConfig) -> pd.DataFrame:
@@ -138,17 +141,18 @@ def backtest(df: pd.DataFrame, cfg: SupportResistanceFadeConfig | None = None) -
                 entry_price = _limit_fill(row["resistance"], row["open"], "sell_limit")
                 target = row["support"]
                 stop = entry_price + cfg.stop_atr_mult * row["atr"]
-        else:  # "breakout"：方向鏡射（碰到壓力=突破=做多，碰到支撐=跌破=做空），停損單進場，沒有固定停利目標
+        else:  # "breakout"：方向鏡射（碰到壓力=突破=做多，碰到支撐=跌破=做空），停損單進場，
+            # 停利目標由 target_r_multiple 決定（None=原始版本，沒有固定停利，抱到停損/max_hold_days）
             if row["high"] >= row["resistance"]:
                 direction = "long"
                 entry_price, _ = _fill_price(row["resistance"], row["open"], row["high"], row["low"], "buy_stop", cfg.slippage_points)
-                target = None
                 stop = entry_price - cfg.stop_atr_mult * row["atr"]
+                target = entry_price + cfg.target_r_multiple * (entry_price - stop) if cfg.target_r_multiple is not None else None
             elif row["low"] <= row["support"]:
                 direction = "short"
                 entry_price, _ = _fill_price(row["support"], row["open"], row["high"], row["low"], "sell_stop", cfg.slippage_points)
-                target = None
                 stop = entry_price + cfg.stop_atr_mult * row["atr"]
+                target = entry_price - cfg.target_r_multiple * (stop - entry_price) if cfg.target_r_multiple is not None else None
 
         if direction is None:
             i += 1
