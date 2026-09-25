@@ -18,4 +18,8 @@ data/*.db-shm
 # scripts/backtest_hammer_ratio_rr.py 每次都會重算的逐筆交易明細（48 組參數
 # 組合，共上百 MB），只留可重現的摘要 data/hammer_ratio_rr_summary.parquet，
 # 明細不進版控
+
+# scripts/export_strategy_lab.py 的輸出（~50MB，逐年1分K+交易紀錄，只是給
+# 策略實驗室artifact發布用的匯出檔，可用該腳本隨時重新產生，不進版控）
+scripts/_strategy_lab_export/
 data/hammer_ratio_rr_trades/
