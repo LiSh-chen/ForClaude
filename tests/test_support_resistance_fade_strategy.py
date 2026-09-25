@@ -209,6 +209,33 @@ def test_breakout_mode_target_r_multiple_none_keeps_original_behavior():
     assert trades.iloc[0]["exit_reason"] == "max_hold"
 
 
+def test_level_quantile_default_matches_original_max_min_behavior():
+    rows = _quiet_rows(100, 30)
+    rows[25] = dict(open=100, high=150, low=50, close=100, volume=1000)  # 極端尖峰
+    daily = _daily(rows)
+    ind_default = compute_indicators(daily, _TEST_CFG)  # level_quantile預設1.0
+    assert ind_default.loc[26, "resistance"] == daily["high"].shift(1).rolling(5).max().iloc[26]
+    assert ind_default.loc[26, "support"] == daily["low"].shift(1).rolling(5).min().iloc[26]
+
+
+def test_level_quantile_below_one_excludes_single_spike():
+    rows = _quiet_rows(100, 30)
+    rows[25] = dict(open=100, high=150, low=50, close=100, volume=1000)  # 極端尖峰，channel_window=5天內只出現一次
+    daily = _daily(rows)
+    cfg = SupportResistanceFadeConfig(
+        channel_window=5, min_range_pct=1.0, trend_ma_window=8, trend_lookback=3,
+        trend_slope_threshold_pct=50, stop_atr_mult=1.0, atr_window=5, max_hold_days=5,
+        level_quantile=0.8,  # 5天視窗取80百分位，單一尖峰不該再決定水準
+    )
+    ind = compute_indicators(daily, cfg)
+    # 分位數版本的壓力應該遠低於純粹取最高點(150)，因為80百分位排除了那根尖峰K棒
+    assert ind.loc[26, "resistance"] < 150
+    assert ind.loc[26, "resistance"] < daily["high"].shift(1).rolling(5).max().iloc[26]
+    # 支撐同理應該高於純粹取最低點(50)
+    assert ind.loc[26, "support"] > 50
+    assert ind.loc[26, "support"] > daily["low"].shift(1).rolling(5).min().iloc[26]
+
+
 def test_max_hold_fallback_when_neither_target_nor_stop_hit():
     rows = _quiet_rows(100, 20)
     rows.append(dict(open=100, high=100, low=94, close=97, volume=1000))  # 進場

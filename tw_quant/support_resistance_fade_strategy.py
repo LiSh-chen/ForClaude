@@ -84,13 +84,19 @@ class SupportResistanceFadeConfig:
     target_r_multiple: float | None = None  # 只對breakout模式有意義：停利＝target_r_multiple倍初始風險
     # （進場價到停損的距離），None＝原始版本，沒有固定停利、抱到停損或max_hold_days。
     # fade模式一律用對面通道邊界當停利，不受這個參數影響（見檔頭「停利」段落）。
+    level_quantile: float = 1.0  # 支撐/壓力水準用N日高低點的哪個分位數定義。1.0＝原始版本
+    # （純粹N日最高點當壓力、最低點當支撐）；<1.0時改用分位數（例如0.9＝N日內高點的
+    # 90百分位當壓力、低點的10百分位當支撐），把單一根K棒的極端尖峰排除在水準之外，
+    # 回應檔頭「已知限制」提到的「支撐壓力只用單純N日極值，沒有做更細緻的有效性分群」
+    # ——這是量化這個顧慮的一種簡化做法，不是「多次測試才算有效」的完整實作（那需要
+    # 額外偵測觸碰次數跟容忍帶，這裡先用分位數換一個近似效果）。
 
 
 def compute_indicators(daily: pd.DataFrame, cfg: SupportResistanceFadeConfig) -> pd.DataFrame:
     d = daily.sort_values("date").reset_index(drop=True).copy()
     d["atr"] = _atr(d, cfg.atr_window)
-    d["resistance"] = d["high"].shift(1).rolling(cfg.channel_window).max()
-    d["support"] = d["low"].shift(1).rolling(cfg.channel_window).min()
+    d["resistance"] = d["high"].shift(1).rolling(cfg.channel_window).quantile(cfg.level_quantile)
+    d["support"] = d["low"].shift(1).rolling(cfg.channel_window).quantile(1 - cfg.level_quantile)
     d["range_pct"] = (d["resistance"] - d["support"]) / d["close"].shift(1) * 100
     # 跟支撐/壓力一樣不含當天：用「昨天為止」判斷是不是處於強烈趨勢格局，
     # 不然反轉當天自己的急跌/急漲會拉低當天算出來的斜率，反而削弱濾網在
