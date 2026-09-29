@@ -37,7 +37,10 @@ def load_all_raw() -> pd.DataFrame:
         raise FileNotFoundError(f"找不到原始檔案，先跑 fetch_taifex_tx_raw.py：{RAW_DIR}")
     frames = []
     for fp in files:
-        df = pd.read_csv(fp, dtype=str)
+        # 原始CSV每筆資料列尾端多一個空欄位(20欄)，比表頭(19欄)多1，
+        # pandas預設會誤判成「第一欄是未命名的index」導致全部欄位錯位，
+        # 用 index_col=False 強制不要這樣做。
+        df = pd.read_csv(fp, dtype=str, index_col=False)
         frames.append(df)
     all_df = pd.concat(frames, ignore_index=True)
     all_df.columns = [c.strip() for c in all_df.columns]
@@ -65,6 +68,11 @@ def clean(all_df: pd.DataFrame) -> pd.DataFrame:
     d["settlement"] = to_num("結算價")
     d["volume"] = to_num("成交量")
     d["open_interest"] = to_num("未沖銷契約數")
+    # 契約到期當天，TAIFEX對「即將到期」那個契約的結算價欄位回傳literal 0
+    # （不是缺值符號"-"），推測是因為當天正式結算價要等隔天開盤才確定，
+    # 這裡誤判會讓fillna()失效（0不是NaN，不會被填補）。TX指數期貨價格
+    # 不可能接近0，所以把0當缺值處理，退回用收盤價。
+    d["settlement"] = d["settlement"].replace(0, pd.NA)
     d["price"] = d["settlement"].fillna(d["close"])
 
     d = d[d["price"].notna() & (d["volume"].fillna(0) > 0)]
