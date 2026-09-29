@@ -17,7 +17,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = REPO_ROOT / "data" / "raw" / "twse_taiex"
 ENDPOINT = "https://www.twse.com.tw/rwd/en/afterTrading/FMTQIK"
-SLEEP_SECONDS = 1.5
+SLEEP_SECONDS = 3.0
 MAX_RETRIES = 3
 
 
