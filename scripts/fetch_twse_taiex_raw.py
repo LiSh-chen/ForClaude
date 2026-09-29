@@ -17,8 +17,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = REPO_ROOT / "data" / "raw" / "twse_taiex"
 ENDPOINT = "https://www.twse.com.tw/rwd/en/afterTrading/FMTQIK"
-SLEEP_SECONDS = 3.0
-MAX_RETRIES = 3
+SLEEP_SECONDS = 6.0
+MAX_RETRIES = 2
 
 
 def month_range(start_ym: str, end_ym: str) -> list[str]:
@@ -68,6 +68,7 @@ def main() -> None:
     print(f"共 {len(months)} 個月，從 {start_ym} 到 {end_ym}")
 
     ok, failed, skipped, no_data = 0, [], 0, []
+    consecutive_failures = 0
     for i, ym in enumerate(months, 1):
         out_path = OUT_DIR / f"TAIEX_{ym}.json"
         if out_path.exists() and out_path.stat().st_size > 50:
@@ -76,8 +77,14 @@ def main() -> None:
         data = fetch_month(ym)
         if data is None:
             failed.append(ym)
+            consecutive_failures += 1
             print(f"[{i}/{len(months)}] {ym}: 失敗")
+            if consecutive_failures >= 3:
+                print("連續3次失敗，研判又被伺服器端速率限制擋下，提早停止避免延長封鎖時間，"
+                      "剩餘月份留到下次冷卻後再跑。")
+                break
             continue
+        consecutive_failures = 0
         if data.get("stat") != "OK":
             no_data.append(ym)
             print(f"[{i}/{len(months)}] {ym}: stat={data.get('stat')}（可能該月無交易日資料，如未來月份）")
