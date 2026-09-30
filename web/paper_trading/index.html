@@ -180,8 +180,9 @@
   <div class="rules-card">
     這套追蹤系統只記錄「如果從系統啟用那天開始、完全照規則機械化執行，會發生什麼」，不涉及真實下單，也不構成投資建議。
     <ul>
-      <li>只追蹤兩個資料源能每天更新的日頻策略；三腳組合（開盤上衝/午盤放空/盤中翻多）需要當天1分K資料，目前沒有可用的每日更新來源，不在追蹤範圍內。</li>
-      <li>若系統啟用當天策略剛好已經處於「進行中的部位」，會以當天價格記錄為模擬進場（不回溯用策略邏輯上更早的真實進場價），確保績效只反映「從今天跟著做」會發生的損益。</li>
+      <li>跨日型策略（低波動做多、近月/遠月價差）若系統啟用當天剛好已經處於「進行中的部位」，會以當天價格記錄為模擬進場（不回溯用策略邏輯上更早的真實進場價），確保績效只反映「從今天跟著做」會發生的損益。</li>
+      <li>三腳組合（開盤上衝/午盤放空/盤中翻多）當日進場當日出場，只在「前一交易日收盤已確定」的高波動體制成立時才進場——用的是「可實際執行」的規則，跟策略手冊/策略實驗室的歷史回測為了複現原始驗證數字而保留的「同日」體制版本不完全一樣（數字可能有微小落差），這裡的版本才是真正可以照著做的。</li>
+      <li>三腳的當天1分K資料只保留最近30個交易日（TAIFEX官方逐筆成交資料的服務窗口限制），不影響每日追蹤，但無法回溯補算窗口以外的日子。</li>
       <li>損益以1口小型台指期（點值50元）計算，未計入手續費與交易稅；卡片上的「歷史回測」數字是過去23年的資料結果，跟這套系統從啟用日起算的前瞻績效是兩件事，不能相加或比較。</li>
     </ul>
   </div>
@@ -226,22 +227,45 @@
     }).join("");
 
     var gridEl = document.getElementById("strategy-grid");
-    gridEl.innerHTML = Object.keys(data.strategies).map(function (sid) {
+    var sidsSorted = Object.keys(data.strategies).sort(function (a, b) {
+      var ka = data.strategies[a].kind, kb = data.strategies[b].kind;
+      return ka === kb ? 0 : (ka === "swing" ? -1 : 1);
+    });
+    gridEl.innerHTML = sidsSorted.map(function (sid) {
       var s = data.strategies[sid];
-      var pillClass = s.status === "flat" ? "flat" : (s.direction === "long" ? "long" : "short");
-      var pillText = s.status === "flat" ? "空手" : (s.direction === "long" ? "持有多單" : "持有空單");
       var rows = "";
-      if (s.status === "open") {
-        var upnl = s.unrealized_pnl_points;
-        var upnlTwd = upnl !== null && upnl !== undefined ? upnl * 50 : null;
-        rows += '<div class="kv-row"><span class="k">模擬進場日</span><span class="v mono">' + (s.sim_entry_date || "—") + '</span></div>';
-        rows += '<div class="kv-row"><span class="k">模擬進場價</span><span class="v mono">' + fmtPlain(s.sim_entry_price) + '</span></div>';
-        rows += '<div class="kv-row"><span class="k">浮動損益</span><span class="v mono ' + (upnlTwd > 0 ? "pos" : upnlTwd < 0 ? "neg" : "") + '">' + fmtSigned(upnlTwd) + ' TWD</span></div>';
+      var pillClass, pillText;
+
+      if (s.kind === "swing") {
+        pillClass = s.status === "flat" ? "flat" : (s.direction === "long" ? "long" : "short");
+        pillText = s.status === "flat" ? "空手" : (s.direction === "long" ? "持有多單" : "持有空單");
+        if (s.status === "open") {
+          var upnl = s.unrealized_pnl_points;
+          var upnlTwd = upnl !== null && upnl !== undefined ? upnl * 50 : null;
+          rows += '<div class="kv-row"><span class="k">模擬進場日</span><span class="v mono">' + (s.sim_entry_date || "—") + '</span></div>';
+          rows += '<div class="kv-row"><span class="k">模擬進場價</span><span class="v mono">' + fmtPlain(s.sim_entry_price) + '</span></div>';
+          rows += '<div class="kv-row"><span class="k">浮動損益</span><span class="v mono ' + (upnlTwd > 0 ? "pos" : upnlTwd < 0 ? "neg" : "") + '">' + fmtSigned(upnlTwd) + ' TWD</span></div>';
+        } else {
+          rows += '<div class="kv-row"><span class="k">狀態</span><span class="v">等待下一個進場訊號</span></div>';
+          if (s.last_realized_pnl_points !== null && s.last_realized_pnl_points !== undefined) {
+            var lastTwd = s.last_realized_pnl_points * 50;
+            rows += '<div class="kv-row"><span class="k">最近一筆已實現損益</span><span class="v mono ' + (lastTwd > 0 ? "pos" : lastTwd < 0 ? "neg" : "") + '">' + fmtSigned(lastTwd) + ' TWD</span></div>';
+          }
+        }
       } else {
-        rows += '<div class="kv-row"><span class="k">狀態</span><span class="v">等待下一個進場訊號</span></div>';
-        if (s.last_realized_pnl_points !== null && s.last_realized_pnl_points !== undefined) {
-          var lastTwd = s.last_realized_pnl_points * 50;
-          rows += '<div class="kv-row"><span class="k">最近一筆已實現損益</span><span class="v mono ' + (lastTwd > 0 ? "pos" : lastTwd < 0 ? "neg" : "") + '">' + fmtSigned(lastTwd) + ' TWD</span></div>';
+        // intraday：當天進場當天出場，沒有「持倉」狀態，只有「今天有沒有交易」
+        var tradedToday = s.last_trade_date === s.as_of;
+        pillClass = tradedToday ? "long" : "flat";
+        pillText = tradedToday ? "今天已觸發" : "今天未進場";
+        if (tradedToday && s.last_realized_pnl_points !== null && s.last_realized_pnl_points !== undefined) {
+          var todayTwd = s.last_realized_pnl_points * 50;
+          rows += '<div class="kv-row"><span class="k">今天損益</span><span class="v mono ' + (todayTwd > 0 ? "pos" : todayTwd < 0 ? "neg" : "") + '">' + fmtSigned(todayTwd) + ' TWD</span></div>';
+        } else {
+          rows += '<div class="kv-row"><span class="k">狀態</span><span class="v">' + (s.note || "等待下一個交易日") + '</span></div>';
+        }
+        if (!tradedToday && s.last_trade_date) {
+          var lastTwd2 = s.last_realized_pnl_points * 50;
+          rows += '<div class="kv-row"><span class="k">最近一次觸發(' + s.last_trade_date + ')</span><span class="v mono ' + (lastTwd2 > 0 ? "pos" : lastTwd2 < 0 ? "neg" : "") + '">' + fmtSigned(lastTwd2) + ' TWD</span></div>';
         }
       }
       return '<div class="strategy-card">' +
@@ -262,19 +286,21 @@
   function renderLog(log) {
     var body = document.getElementById("log-body");
     if (!log.length) {
-      body.innerHTML = '<tr class="empty-row"><td colspan="7">目前還沒有任何進出場事件——兩個策略都屬於低頻策略，觸發間隔可能長達數月，這是正常現象。</td></tr>';
+      body.innerHTML = '<tr class="empty-row"><td colspan="7">目前還沒有任何進出場事件。</td></tr>';
       return;
     }
     var sorted = log.slice().sort(function (a, b) { return b.sim_date < a.sim_date ? -1 : 1; });
+    var eventLabel = { open: "進場", close: "出場", trade: "當日完成" };
     body.innerHTML = sorted.map(function (e) {
-      var eventText = e.event === "open" ? "進場" : "出場";
+      var eventText = eventLabel[e.event] || e.event;
       var dirText = e.direction === "long" ? "多" : "空";
       var pnl = e.realized_pnl_points;
-      var pnlCell = (pnl === null || pnl === undefined) ? "—" :
+      var pnlCell = (pnl === null || pnl === undefined) ? '<td class="num">—</td>' :
         '<td class="num mono ' + (pnl > 0 ? "pos" : pnl < 0 ? "neg" : "") + '">' + fmtSigned(pnl, 1) + "</td>";
-      var priceCell = e.event === "open" ? fmtPlain(e.sim_entry_price) : fmtPlain(e.sim_exit_price);
+      var priceCell = e.event === "open" ? fmtPlain(e.sim_entry_price) :
+        (e.event === "trade" ? fmtPlain(e.sim_entry_price) + " → " + fmtPlain(e.sim_exit_price) : fmtPlain(e.sim_exit_price));
       return "<tr><td class=\"mono\">" + e.sim_date + "</td><td>" + e.strategy_id + "</td><td>" + eventText + "</td><td>" + dirText + "</td>" +
-        '<td class="num mono">' + priceCell + "</td>" + (e.event === "close" ? pnlCell : '<td class="num">—</td>') +
+        '<td class="num mono">' + priceCell + "</td>" + pnlCell +
         "<td>" + (e.note || "") + "</td></tr>";
     }).join("");
   }

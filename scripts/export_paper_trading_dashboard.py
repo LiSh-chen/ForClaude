@@ -20,14 +20,29 @@ OUT_PATH = REPO_ROOT / "web" / "paper_trading" / "data.json"
 
 STRATEGY_META = {
     "low_vol_buyhold": dict(
-        label="低波動做多+8%停損",
-        rule="用近月台指期，在ATR波動體制判定為「低波動」的期間做多；收盤價從進場後至今最高點回落8%即出場，同一段低波動週期內不重新進場。",
+        kind="swing", label="低波動做多+8%停損",
+        rule="用近月台指期，在ATR波動體制判定為「低波動」的期間做多；收盤價從進場後至今最高點回落8%即出場，同一段低波動週期內不重新進場。體制用前一交易日收盤已確定的版本，不是歷史回測用的同日版本。",
         historical_note="2001-2023歷史回測25筆交易，淨損益約+52.9萬元（單口小台，低成本情境）——這是過去的回測結果，不是這套模擬系統本身的績效。",
     ),
     "calendar_spread": dict(
-        label="近月/遠月價差均值回歸",
+        kind="swing", label="近月/遠月價差均值回歸",
         rule="近月/遠月期貨價差相對90天滾動平均的z分數，偏離超過1個標準差進場（押注價差回歸），回到0.3個標準差以內或最長持有20個交易日即出場；遠月未平倉量低於3000口時不進場（流動性濾網）。",
         historical_note="2001-2023歷史回測199筆交易，淨損益約+10.6萬元（低成本情境）——這是過去的回測結果，不是這套模擬系統本身的績效。",
+    ),
+    "og": dict(
+        kind="intraday", label="開盤上衝",
+        rule="08:45那根K棒開盤價做多，09:00那根K棒開盤價出場，只在高波動體制成立的交易日進場。",
+        historical_note="2001-2023歷史回測（高波動體制篩選後）淨損益轉強，t值顯著——這是過去的回測結果，不是這套模擬系統本身的績效。",
+    ),
+    "lu": dict(
+        kind="intraday", label="午盤放空",
+        rule="12:00那根K棒開盤價放空，12:30那根K棒開盤價回補，只在高波動體制成立的交易日進場。",
+        historical_note="2001-2023歷史回測（高波動體制篩選後）淨損益轉強——這是過去的回測結果，不是這套模擬系統本身的績效。",
+    ),
+    "re": dict(
+        kind="intraday", label="盤中翻多",
+        rule="12:30那根K棒開盤價做多，13:00那根K棒開盤價出場，只在高波動體制成立、且量能濾網(前一交易日成交量/20日均量>=1.10)通過的交易日進場。",
+        historical_note="2001-2023歷史回測（高波動體制篩選後）淨損益轉強——這是過去的回測結果，不是這套模擬系統本身的績效。",
     ),
 }
 
@@ -48,6 +63,8 @@ def main() -> None:
             "sim_entry_price": s.get("sim_entry_price"),
             "unrealized_pnl_points": s.get("unrealized_pnl_points"),
             "last_realized_pnl_points": s.get("last_realized_pnl_points"),
+            "last_trade_date": s.get("last_trade_date"),
+            "note": s.get("note"),
             "as_of": s.get("as_of"),
         }
 
