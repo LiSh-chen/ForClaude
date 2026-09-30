@@ -1,0 +1,39 @@
+{
+  "start_date": "2026-09-30",
+  "last_run": "2026-09-30",
+  "strategies": {
+    "low_vol_buyhold": {
+      "label": "低波動做多+8%停損",
+      "rule": "用近月台指期，在ATR波動體制判定為「低波動」的期間做多；收盤價從進場後至今最高點回落8%即出場，同一段低波動週期內不重新進場。",
+      "historical_note": "2001-2023歷史回測25筆交易，淨損益約+52.9萬元（單口小台，低成本情境）——這是過去的回測結果，不是這套模擬系統本身的績效。",
+      "status": "flat",
+      "direction": null,
+      "sim_entry_date": null,
+      "sim_entry_price": null,
+      "unrealized_pnl_points": null,
+      "last_realized_pnl_points": null,
+      "as_of": "2026-09-30"
+    },
+    "calendar_spread": {
+      "label": "近月/遠月價差均值回歸",
+      "rule": "近月/遠月期貨價差相對90天滾動平均的z分數，偏離超過1個標準差進場（押注價差回歸），回到0.3個標準差以內或最長持有20個交易日即出場；遠月未平倉量低於3000口時不進場（流動性濾網）。",
+      "historical_note": "2001-2023歷史回測199筆交易，淨損益約+10.6萬元（低成本情境）——這是過去的回測結果，不是這套模擬系統本身的績效。",
+      "status": "flat",
+      "direction": null,
+      "sim_entry_date": null,
+      "sim_entry_price": null,
+      "unrealized_pnl_points": null,
+      "last_realized_pnl_points": null,
+      "as_of": "2026-09-30"
+    }
+  },
+  "log": [],
+  "equity": [
+    {
+      "date": "2026-09-30",
+      "realized": 0.0,
+      "unrealized": 0.0,
+      "total": 0.0
+    }
+  ]
+}

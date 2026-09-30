@@ -1,0 +1,348 @@
+<title>模擬倉追蹤</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+TC:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* 版面：頂部摘要條 -> 策略狀態卡片(2欄，手機堆疊) -> 權益曲線圖 -> 交易紀錄表 -> 規則/免責聲明 */
+  :root {
+    --bg: #f7f6f3;
+    --surface: #ffffff;
+    --surface-2: #f0efe9;
+    --text-primary: #16181c;
+    --text-secondary: #565b66;
+    --muted: #8a8f9b;
+    --border: rgba(22,24,28,0.10);
+    --accent: #2a4d8f;
+    --accent-soft: #e7edf9;
+    --win: #2a6b4f;
+    --loss: #b0432a;
+    --win-soft: #e4f0ea;
+    --loss-soft: #f7e7e2;
+    --grid: #e4e2db;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14161a;
+      --surface: #1c1f25;
+      --surface-2: #22262d;
+      --text-primary: #f1f0ec;
+      --text-secondary: #a6acb8;
+      --muted: #767c88;
+      --border: rgba(255,255,255,0.10);
+      --accent: #7ea0e0;
+      --accent-soft: #223252;
+      --win: #5fb98c;
+      --loss: #e2795c;
+      --win-soft: #1c2e26;
+      --loss-soft: #322019;
+      --grid: #2a2d34;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14161a;
+    --surface: #1c1f25;
+    --surface-2: #22262d;
+    --text-primary: #f1f0ec;
+    --text-secondary: #a6acb8;
+    --muted: #767c88;
+    --border: rgba(255,255,255,0.10);
+    --accent: #7ea0e0;
+    --accent-soft: #223252;
+    --win: #5fb98c;
+    --loss: #e2795c;
+    --win-soft: #1c2e26;
+    --loss-soft: #322019;
+    --grid: #2a2d34;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text-primary);
+    font-family: "IBM Plex Sans TC", "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 20px 16px 40px; }
+
+  header { margin-bottom: 18px; }
+  .eyebrow { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  h1 { font-size: 22px; font-weight: 700; margin: 4px 0 6px; letter-spacing: -0.01em; }
+  .sub { font-size: 12.5px; color: var(--text-secondary); }
+
+  .banner {
+    display: flex; align-items: flex-start; gap: 10px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; margin: 14px 0 20px; font-size: 12px; color: var(--text-secondary); line-height: 1.6;
+  }
+  .banner b { color: var(--text-primary); }
+
+  .summary-row {
+    display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;
+  }
+  .stat-tile {
+    flex: 1 1 140px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .stat-tile .k { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+  .stat-tile .v { font-size: 22px; font-weight: 600; }
+  .stat-tile .v.pos { color: var(--win); }
+  .stat-tile .v.neg { color: var(--loss); }
+
+  h2 { font-size: 14px; font-weight: 700; margin: 26px 0 10px; }
+
+  .strategy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 620px) { .strategy-grid { grid-template-columns: 1fr; } }
+  .strategy-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .strategy-card .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .strategy-card .name { font-weight: 600; font-size: 13.5px; }
+  .pill {
+    font-size: 10.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+  }
+  .pill.flat { background: var(--surface-2); color: var(--muted); }
+  .pill.long { background: var(--win-soft); color: var(--win); }
+  .pill.short { background: var(--loss-soft); color: var(--loss); }
+  .strategy-card .rule { font-size: 11.5px; color: var(--text-secondary); }
+  .strategy-card .kv-row { display: flex; justify-content: space-between; font-size: 12px; padding-top: 4px; border-top: 1px solid var(--border); }
+  .strategy-card .kv-row .k { color: var(--muted); }
+  .strategy-card .kv-row .v { font-weight: 600; }
+  .strategy-card .v.pos { color: var(--win); }
+  .strategy-card .v.neg { color: var(--loss); }
+  .strategy-card .hist { font-size: 10.5px; color: var(--muted); line-height: 1.5; margin-top: 2px; }
+
+  .chart-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px 10px;
+  }
+  #equity-svg { width: 100%; height: auto; display: block; }
+  .chart-empty { font-size: 12px; color: var(--muted); text-align: center; padding: 30px 0; }
+  .legend { display: flex; gap: 14px; font-size: 11px; color: var(--text-secondary); margin-top: 6px; }
+  .legend .key { display: inline-flex; align-items: center; gap: 5px; }
+  .legend .swatch { width: 10px; height: 2px; border-radius: 1px; display: inline-block; }
+
+  .table-scroll { overflow-x: auto; }
+  table.log { border-collapse: collapse; width: 100%; font-size: 11.5px; min-width: 480px; }
+  table.log th, table.log td { padding: 7px 9px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.log th { color: var(--muted); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+  table.log td.num { text-align: right; }
+  table.log td.pos { color: var(--win); font-weight: 600; }
+  table.log td.neg { color: var(--loss); font-weight: 600; }
+  .empty-row td { color: var(--muted); text-align: center; padding: 20px; }
+
+  .rules-card {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+    font-size: 11.5px; color: var(--text-secondary); line-height: 1.7;
+  }
+  .rules-card ul { margin: 6px 0 0; padding-left: 18px; }
+  .rules-card li { margin-bottom: 4px; }
+
+  footer { margin-top: 26px; font-size: 10.5px; color: var(--muted); text-align: center; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">紙上交易 · 無真實資金</div>
+    <h1>模擬倉追蹤</h1>
+    <div class="sub">台指期日頻策略前瞻紀錄，每個交易日收盤後自動更新</div>
+  </header>
+
+  <div class="banner" id="disclaimer-banner">
+    載入中…
+  </div>
+
+  <div class="summary-row" id="summary-row"></div>
+
+  <h2>策略狀態</h2>
+  <div class="strategy-grid" id="strategy-grid"></div>
+
+  <h2>累積模擬損益</h2>
+  <div class="chart-card">
+    <svg id="equity-svg" viewBox="0 0 800 260" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="legend" id="equity-legend"></div>
+  </div>
+
+  <h2>事件紀錄</h2>
+  <div class="chart-card">
+    <div class="table-scroll">
+      <table class="log">
+        <thead><tr><th>日期</th><th>策略</th><th>事件</th><th>方向</th><th class="num">價位</th><th class="num">損益(點)</th><th>備註</th></tr></thead>
+        <tbody id="log-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <h2>規則與限制</h2>
+  <div class="rules-card">
+    這套追蹤系統只記錄「如果從系統啟用那天開始、完全照規則機械化執行，會發生什麼」，不涉及真實下單，也不構成投資建議。
+    <ul>
+      <li>只追蹤兩個資料源能每天更新的日頻策略；三腳組合（開盤上衝/午盤放空/盤中翻多）需要當天1分K資料，目前沒有可用的每日更新來源，不在追蹤範圍內。</li>
+      <li>若系統啟用當天策略剛好已經處於「進行中的部位」，會以當天價格記錄為模擬進場（不回溯用策略邏輯上更早的真實進場價），確保績效只反映「從今天跟著做」會發生的損益。</li>
+      <li>損益以1口小型台指期（點值50元）計算，未計入手續費與交易稅；卡片上的「歷史回測」數字是過去23年的資料結果，跟這套系統從啟用日起算的前瞻績效是兩件事，不能相加或比較。</li>
+    </ul>
+  </div>
+
+  <footer id="footer-meta"></footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  function cssVar(name) { return getComputedStyle(document.body).getPropertyValue(name).trim(); }
+  function fmtSigned(n, digits) {
+    if (n === null || n === undefined || isNaN(n)) return "—";
+    var s = n > 0 ? "+" : "";
+    return s + n.toLocaleString("zh-TW", { maximumFractionDigits: digits || 0, minimumFractionDigits: digits || 0 });
+  }
+  function fmtPlain(n) {
+    if (n === null || n === undefined || isNaN(n)) return "—";
+    return n.toLocaleString("zh-TW");
+  }
+
+  fetch("./data.json").then(function (r) { return r.json(); }).then(render).catch(function (err) {
+    document.getElementById("disclaimer-banner").textContent = "資料載入失敗：" + err;
+  });
+
+  function render(data) {
+    document.getElementById("disclaimer-banner").innerHTML =
+      "<span>這是<b>模擬倉（紙上交易）</b>，不涉及真實資金下單，記錄的損益是「假設從 <b>" +
+      (data.start_date || "—") + "</b> 起完全照規則機械化操作」會得到的結果，僅供研究與策略前瞻驗證參考，不構成投資建議。</span>";
+
+    var lastEq = data.equity.length ? data.equity[data.equity.length - 1] : { realized: 0, unrealized: 0, total: 0 };
+    var summaryEl = document.getElementById("summary-row");
+    var tiles = [
+      { k: "累積模擬損益", v: lastEq.total },
+      { k: "已實現損益", v: lastEq.realized },
+      { k: "未實現(浮動)損益", v: lastEq.unrealized },
+    ];
+    summaryEl.innerHTML = tiles.map(function (t) {
+      var cls = t.v > 0 ? "pos" : (t.v < 0 ? "neg" : "");
+      return '<div class="stat-tile"><div class="k">' + t.k + '</div><div class="v mono ' + cls + '">' + fmtSigned(t.v) + ' <span style="font-size:12px;font-weight:500;color:var(--muted)">TWD</span></div></div>';
+    }).join("");
+
+    var gridEl = document.getElementById("strategy-grid");
+    gridEl.innerHTML = Object.keys(data.strategies).map(function (sid) {
+      var s = data.strategies[sid];
+      var pillClass = s.status === "flat" ? "flat" : (s.direction === "long" ? "long" : "short");
+      var pillText = s.status === "flat" ? "空手" : (s.direction === "long" ? "持有多單" : "持有空單");
+      var rows = "";
+      if (s.status === "open") {
+        var upnl = s.unrealized_pnl_points;
+        var upnlTwd = upnl !== null && upnl !== undefined ? upnl * 50 : null;
+        rows += '<div class="kv-row"><span class="k">模擬進場日</span><span class="v mono">' + (s.sim_entry_date || "—") + '</span></div>';
+        rows += '<div class="kv-row"><span class="k">模擬進場價</span><span class="v mono">' + fmtPlain(s.sim_entry_price) + '</span></div>';
+        rows += '<div class="kv-row"><span class="k">浮動損益</span><span class="v mono ' + (upnlTwd > 0 ? "pos" : upnlTwd < 0 ? "neg" : "") + '">' + fmtSigned(upnlTwd) + ' TWD</span></div>';
+      } else {
+        rows += '<div class="kv-row"><span class="k">狀態</span><span class="v">等待下一個進場訊號</span></div>';
+        if (s.last_realized_pnl_points !== null && s.last_realized_pnl_points !== undefined) {
+          var lastTwd = s.last_realized_pnl_points * 50;
+          rows += '<div class="kv-row"><span class="k">最近一筆已實現損益</span><span class="v mono ' + (lastTwd > 0 ? "pos" : lastTwd < 0 ? "neg" : "") + '">' + fmtSigned(lastTwd) + ' TWD</span></div>';
+        }
+      }
+      return '<div class="strategy-card">' +
+        '<div class="head"><span class="name">' + s.label + '</span><span class="pill ' + pillClass + '">' + pillText + '</span></div>' +
+        '<div class="rule">' + s.rule + '</div>' +
+        rows +
+        '<div class="hist">' + s.historical_note + '</div>' +
+      '</div>';
+    }).join("");
+
+    renderEquityChart(data.equity);
+    renderLog(data.log);
+
+    document.getElementById("footer-meta").textContent =
+      "啟用日 " + (data.start_date || "—") + " · 最後更新 " + (data.last_run || "—");
+  }
+
+  function renderLog(log) {
+    var body = document.getElementById("log-body");
+    if (!log.length) {
+      body.innerHTML = '<tr class="empty-row"><td colspan="7">目前還沒有任何進出場事件——兩個策略都屬於低頻策略，觸發間隔可能長達數月，這是正常現象。</td></tr>';
+      return;
+    }
+    var sorted = log.slice().sort(function (a, b) { return b.sim_date < a.sim_date ? -1 : 1; });
+    body.innerHTML = sorted.map(function (e) {
+      var eventText = e.event === "open" ? "進場" : "出場";
+      var dirText = e.direction === "long" ? "多" : "空";
+      var pnl = e.realized_pnl_points;
+      var pnlCell = (pnl === null || pnl === undefined) ? "—" :
+        '<td class="num mono ' + (pnl > 0 ? "pos" : pnl < 0 ? "neg" : "") + '">' + fmtSigned(pnl, 1) + "</td>";
+      var priceCell = e.event === "open" ? fmtPlain(e.sim_entry_price) : fmtPlain(e.sim_exit_price);
+      return "<tr><td class=\"mono\">" + e.sim_date + "</td><td>" + e.strategy_id + "</td><td>" + eventText + "</td><td>" + dirText + "</td>" +
+        '<td class="num mono">' + priceCell + "</td>" + (e.event === "close" ? pnlCell : '<td class="num">—</td>') +
+        "<td>" + (e.note || "") + "</td></tr>";
+    }).join("");
+  }
+
+  function renderEquityChart(equity) {
+    var svg = document.getElementById("equity-svg");
+    var legendEl = document.getElementById("equity-legend");
+    if (equity.length < 2) {
+      svg.innerHTML = "";
+      svg.hidden = true;
+      legendEl.innerHTML = "";
+      var wrap = document.createElement("div");
+      wrap.className = "chart-empty";
+      wrap.textContent = "系統剛啟用，累積至少幾個交易日的紀錄後這裡會畫出權益曲線。";
+      svg.parentNode.insertBefore(wrap, svg.nextSibling);
+      return;
+    }
+    svg.hidden = false;
+    var W = 800, H = 260, padL = 46, padR = 14, padT = 14, padB = 28;
+    var xs = equity.map(function (d) { return d.date; });
+    var ys = equity.map(function (d) { return d.total; });
+    var yMin = Math.min(0, Math.min.apply(null, ys));
+    var yMax = Math.max(0, Math.max.apply(null, ys));
+    if (yMin === yMax) { yMin -= 1; yMax += 1; }
+    var pad = (yMax - yMin) * 0.1;
+    yMin -= pad; yMax += pad;
+
+    function xPos(i) { return padL + (i / (xs.length - 1)) * (W - padL - padR); }
+    function yPos(v) { return padT + (1 - (v - yMin) / (yMax - yMin)) * (H - padT - padB); }
+
+    var gridColor = cssVar("--grid"), textColor = cssVar("--text-secondary"), mutedColor = cssVar("--muted");
+    var lineColor = cssVar("--accent");
+    var zeroY = yPos(0);
+
+    var gridLines = "";
+    var ticks = 4;
+    for (var t = 0; t <= ticks; t++) {
+      var v = yMin + (t / ticks) * (yMax - yMin);
+      var y = yPos(v);
+      gridLines += '<line x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y + '" stroke="' + gridColor + '" stroke-width="1"/>';
+      gridLines += '<text x="' + (padL - 8) + '" y="' + (y + 3) + '" text-anchor="end" font-size="10" fill="' + mutedColor + '" font-family="IBM Plex Mono, monospace">' + Math.round(v).toLocaleString("zh-TW") + '</text>';
+    }
+
+    var path = ys.map(function (v, i) { return (i === 0 ? "M" : "L") + xPos(i).toFixed(1) + "," + yPos(v).toFixed(1); }).join(" ");
+    var areaPath = path + " L" + xPos(ys.length - 1).toFixed(1) + "," + zeroY.toFixed(1) +
+      " L" + xPos(0).toFixed(1) + "," + zeroY.toFixed(1) + " Z";
+
+    var lastX = xPos(ys.length - 1), lastY = yPos(ys[ys.length - 1]);
+
+    var xLabelStep = Math.max(1, Math.ceil(xs.length / 6));
+    var xLabels = "";
+    for (var i = 0; i < xs.length; i += xLabelStep) {
+      xLabels += '<text x="' + xPos(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" fill="' + mutedColor + '" font-family="IBM Plex Mono, monospace">' + xs[i].slice(5) + '</text>';
+    }
+
+    svg.innerHTML =
+      '<defs><linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" stop-color="' + lineColor + '" stop-opacity="0.22"/>' +
+        '<stop offset="100%" stop-color="' + lineColor + '" stop-opacity="0.02"/>' +
+      '</linearGradient></defs>' +
+      gridLines +
+      '<line x1="' + padL + '" y1="' + zeroY + '" x2="' + (W - padR) + '" y2="' + zeroY + '" stroke="' + mutedColor + '" stroke-width="1" stroke-dasharray="2,3"/>' +
+      '<path d="' + areaPath + '" fill="url(#eqFill)" stroke="none"/>' +
+      '<path d="' + path + '" fill="none" stroke="' + lineColor + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
+      '<circle cx="' + lastX + '" cy="' + lastY + '" r="3.5" fill="' + lineColor + '"/>' +
+      xLabels;
+
+    legendEl.innerHTML = '<span class="key"><span class="swatch" style="background:' + lineColor + '"></span>累積模擬損益（已實現＋未實現，TWD）</span>';
+  }
+})();
+</script>

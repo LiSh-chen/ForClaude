@@ -1,0 +1,14 @@
+{
+  "start_date": "2026-09-30",
+  "strategies": {
+    "low_vol_buyhold": {
+      "status": "flat",
+      "as_of": "2026-09-30"
+    },
+    "calendar_spread": {
+      "status": "flat",
+      "as_of": "2026-09-30"
+    }
+  },
+  "last_run": "2026-09-30"
+}
