@@ -153,7 +153,11 @@ def build_registry() -> dict[str, StrategyDef]:
         return t[t["leg"] == "long_afternoon_rebound"]
 
     add("lu", "午盤放空", run_lunch_short, lunch_cfg, "validated",
-        lambda df: _std(df, "lu", None, "trading_date", "entry_price", "trading_date", "exit_price", "pnl_points",
+        # direction_col=None預設填"long"，但lu(short_lunch_dip)本身是空單，
+        # 之前這裡漏掉了，一直誤標成"long"（pnl_points本身算對，只有這個
+        # 顯示/篩選用的metadata欄位錯，這次會話新增的parity測試才抓到）
+        lambda df: _std(df.assign(direction="short"), "lu", "direction", "trading_date", "entry_price",
+                         "trading_date", "exit_price", "pnl_points",
                          entry_time_col="entry_dt", exit_time_col="exit_dt"))
     add("re", "盤中翻多", run_lunch_long, lunch_cfg, "validated",
         lambda df: _std(df, "re", None, "trading_date", "entry_price", "trading_date", "exit_price", "pnl_points",

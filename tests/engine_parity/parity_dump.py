@@ -184,7 +184,8 @@ def main():
     dump("og_highvol_filtered", std_to_norm(og_filtered))
 
     lu_raw = bt_lu(df, LunchReversalConfig())
-    lu_std = _std(lu_raw[lu_raw["leg"] == "short_lunch_dip"], "lu", None, "trading_date", "entry_price",
+    lu_sub = lu_raw[lu_raw["leg"] == "short_lunch_dip"].assign(direction="short")
+    lu_std = _std(lu_sub, "lu", "direction", "trading_date", "entry_price",
                    "trading_date", "exit_price", "pnl_points", entry_time_col="entry_dt", exit_time_col="exit_dt")
     lu_filtered = apply_volatility_regime_filter(lu_std, df, VolatilityRegimeFilterSpec(high_vol_only=True))
     dump("lu_highvol_filtered", std_to_norm(lu_filtered))
