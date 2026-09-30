@@ -91,6 +91,7 @@ def build_nearfar(d: pd.DataFrame) -> pd.DataFrame:
         rows.append(dict(
             date=dt,
             near_expiry=near["expiry_ym"], near_price=near["price"],
+            near_open=near["open"], near_high=near["high"], near_low=near["low"],
             near_volume=near["volume"], near_oi=near["open_interest"],
             far_expiry=far["expiry_ym"] if far is not None else None,
             far_price=far["price"] if far is not None else None,
