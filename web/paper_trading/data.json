@@ -113,5 +113,24 @@
       "unrealized": 0.0,
       "total": -1600.0
     }
-  ]
+  ],
+  "margin": {
+    "margin_original": 175250,
+    "margin_maintenance": 134500,
+    "margin_settlement": 129750,
+    "margin_buffer_points": 815.0,
+    "current_lots": 0,
+    "current_margin_original": 0,
+    "current_margin_maintenance": 0,
+    "theoretical_max_lots": 3,
+    "theoretical_max_margin": 525750,
+    "low_vol_risk": {
+      "reference_price": 48330.0,
+      "stop_points": 3866.4,
+      "stop_amount": 193320.0,
+      "buffer_ratio": 4.74,
+      "recommended_capital_per_lot": 327820.0,
+      "is_live_position": false
+    }
+  }
 }

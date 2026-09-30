@@ -18,6 +18,8 @@
     --loss: #b0432a;
     --win-soft: #e4f0ea;
     --loss-soft: #f7e7e2;
+    --warning: #9a6400;
+    --warning-soft: #fbf1de;
     --grid: #e4e2db;
     color-scheme: light;
   }
@@ -36,6 +38,8 @@
       --loss: #e2795c;
       --win-soft: #1c2e26;
       --loss-soft: #322019;
+      --warning: #e0ac47;
+      --warning-soft: #332a13;
       --grid: #2a2d34;
       color-scheme: dark;
     }
@@ -54,6 +58,8 @@
     --loss: #e2795c;
     --win-soft: #1c2e26;
     --loss-soft: #322019;
+    --warning: #e0ac47;
+    --warning-soft: #332a13;
     --grid: #2a2d34;
     color-scheme: dark;
   }
@@ -141,6 +147,27 @@
   .rules-card ul { margin: 6px 0 0; padding-left: 18px; }
   .rules-card li { margin-bottom: 4px; }
 
+  .margin-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  @media (max-width: 620px) { .margin-grid { grid-template-columns: 1fr; } }
+  .margin-tile {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px;
+  }
+  .margin-tile .k { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .margin-tile .v { font-size: 18px; font-weight: 600; }
+  .margin-tile .sub { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+  .margin-note {
+    font-size: 10.5px; color: var(--muted); margin-bottom: 12px; line-height: 1.6;
+  }
+
+  .risk-banner {
+    background: var(--warning-soft); border: 1px solid var(--warning); border-radius: 12px;
+    padding: 14px 16px; display: flex; gap: 10px; align-items: flex-start;
+  }
+  .risk-banner .icon { font-size: 16px; line-height: 1.4; flex: none; }
+  .risk-banner .body { font-size: 12px; color: var(--text-primary); line-height: 1.7; }
+  .risk-banner .title { font-weight: 700; color: var(--warning); margin-bottom: 4px; font-size: 12.5px; }
+  .risk-banner .figure { font-weight: 700; font-variant-numeric: tabular-nums; }
+
   footer { margin-top: 26px; font-size: 10.5px; color: var(--muted); text-align: center; }
 </style>
 
@@ -159,6 +186,11 @@
 
   <h2>策略狀態</h2>
   <div class="strategy-grid" id="strategy-grid"></div>
+
+  <h2>保證金與資金需求</h2>
+  <div class="margin-grid" id="margin-grid"></div>
+  <div class="margin-note" id="margin-note"></div>
+  <div class="risk-banner" id="risk-banner" style="margin-bottom:20px;"></div>
 
   <h2>累積模擬損益</h2>
   <div class="chart-card">
@@ -276,11 +308,51 @@
       '</div>';
     }).join("");
 
+    renderMargin(data.margin);
     renderEquityChart(data.equity);
     renderLog(data.log);
 
     document.getElementById("footer-meta").textContent =
       "啟用日 " + (data.start_date || "—") + " · 最後更新 " + (data.last_run || "—");
+  }
+
+  function renderMargin(m) {
+    if (!m) return;
+    var gridEl = document.getElementById("margin-grid");
+    var tiles = [
+      { k: "目前實際佔用", v: m.current_lots + " 口 / " + fmtPlain(m.current_margin_original) + " TWD",
+        sub: m.current_lots > 0 ? "跨日策略持倉中，用原始保證金估算" : "收盤後無跨日持倉" },
+      { k: "理論最大併發", v: m.theoretical_max_lots + " 口 / " + fmtPlain(m.theoretical_max_margin) + " TWD",
+        sub: "2個跨日策略同時持倉＋三腳當中1個同時觸發" },
+      { k: "標準保證金緩衝", v: fmtPlain(m.margin_buffer_points) + " 點",
+        sub: "原始" + fmtPlain(m.margin_original) + " − 維持" + fmtPlain(m.margin_maintenance) + "，換算每口" },
+    ];
+    gridEl.innerHTML = tiles.map(function (t) {
+      return '<div class="margin-tile"><div class="k">' + t.k + '</div><div class="v mono">' + t.v + '</div>' +
+        '<div class="sub">' + t.sub + '</div></div>';
+    }).join("");
+    document.getElementById("margin-note").textContent =
+      "MTX(小型臺指期貨)保證金：原始 " + fmtPlain(m.margin_original) + " / 維持 " + fmtPlain(m.margin_maintenance) +
+      " / 結算 " + fmtPlain(m.margin_settlement) + " 元（TAIFEX官方保證金一覽表查證，會隨市場波動不定期調整，以交易所最新公告為準，這裡的數字不會每天自動跟著更新）。";
+
+    var r = m.low_vol_risk;
+    var banner = document.getElementById("risk-banner");
+    if (r) {
+      var liveNote = r.is_live_position
+        ? "目前低波動做多正持倉中，這是這筆部位實際的進場價。"
+        : "目前低波動做多空手，用今天近月期貨價位試算，供部位觸發前參考，實際進場價會不同。";
+      banner.innerHTML =
+        '<span class="icon">⚠</span>' +
+        '<div class="body">' +
+          '<div class="title">低波動做多的8%停損，距離已經遠超過保證金緩衝</div>' +
+          '以參考價位 <span class="figure mono">' + fmtPlain(r.reference_price) + '</span> 點計算，8%停損距離約 ' +
+          '<span class="figure mono">' + fmtPlain(r.stop_points) + '</span> 點（約 ' +
+          '<span class="figure mono">' + fmtPlain(r.stop_amount) + '</span> 元），是標準保證金緩衝(815點)的 ' +
+          '<span class="figure mono">' + r.buffer_ratio + '</span> 倍。只準備最低保證金會在虧損815點時就先被追繳/砍倉，根本撐不到8%停損真正觸發，停損規則形同虛設。' +
+          '若要照規則執行到底，這一口建議準備至少 <span class="figure mono">' + fmtPlain(r.recommended_capital_per_lot) + '</span> 元' +
+          '（＝維持保證金＋8%停損對應虧損），而不是只準備原始保證金 ' + fmtPlain(m.margin_original) + ' 元。' + liveNote +
+        '</div>';
+    }
   }
 
   function renderLog(log) {
