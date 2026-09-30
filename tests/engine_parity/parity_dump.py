@@ -22,6 +22,7 @@ from tw_quant.donchian_breakout_strategy import DonchianConfig, backtest as bt_d
 from tw_quant.rsi2_mean_reversion_strategy import Rsi2Config, backtest as bt_rsi2
 from tw_quant.opening_range_breakout_strategy import OpeningRangeBreakoutConfig, backtest as bt_orb
 from tw_quant.liquidity_sweep_reversal_strategy import LiquiditySweepConfig, backtest as bt_liqsweep
+from tw_quant.strategy_lab import apply_volatility_regime_filter, VolatilityRegimeFilterSpec, _std, STD_COLUMNS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = Path(__file__).resolve().parent / "parity_out"
@@ -161,6 +162,37 @@ def main():
     dump("liqsweep_default", norm_liqsweep(bt_liqsweep(df, LiquiditySweepConfig())))
     dump("liqsweep_variant", norm_liqsweep(bt_liqsweep(df, LiquiditySweepConfig(
         sweep_buffer_points=5.0, stop_buffer_points=8.0, target_r_multiple=3.0, max_hold_days=5))))
+
+    # ---- 高波動體制濾網（三腿策略的必要條件，見 strategy_lab.py
+    # VolatilityRegimeFilterSpec / engine.js computeVolatilityRegimeMap）----
+    def std_to_norm(std_df):
+        out = []
+        for _, r in std_df.iterrows():
+            out.append({
+                "direction": r["direction"],
+                "entryDate": r["entry_date"], "entryTime": r["entry_time"],
+                "entryPrice": round(float(r["entry_price"]), 4),
+                "exitDate": r["exit_date"], "exitTime": r["exit_time"],
+                "exitPrice": round(float(r["exit_price"]), 4),
+                "pnlPoints": round(float(r["pnl_points"]), 4), "approxTime": bool(r["approx_time"]),
+            })
+        return out
+
+    og_std = _std(bt_og(df, OpeningRallyConfig()), "og", None, "trading_date", "entry_price",
+                   "trading_date", "exit_price", "pnl_points", entry_time_col="entry_dt", exit_time_col="exit_dt")
+    og_filtered = apply_volatility_regime_filter(og_std, df, VolatilityRegimeFilterSpec(high_vol_only=True))
+    dump("og_highvol_filtered", std_to_norm(og_filtered))
+
+    lu_raw = bt_lu(df, LunchReversalConfig())
+    lu_std = _std(lu_raw[lu_raw["leg"] == "short_lunch_dip"], "lu", None, "trading_date", "entry_price",
+                   "trading_date", "exit_price", "pnl_points", entry_time_col="entry_dt", exit_time_col="exit_dt")
+    lu_filtered = apply_volatility_regime_filter(lu_std, df, VolatilityRegimeFilterSpec(high_vol_only=True))
+    dump("lu_highvol_filtered", std_to_norm(lu_filtered))
+
+    re_std = _std(lu_raw[lu_raw["leg"] == "long_afternoon_rebound"], "re", None, "trading_date", "entry_price",
+                   "trading_date", "exit_price", "pnl_points", entry_time_col="entry_dt", exit_time_col="exit_dt")
+    re_filtered = apply_volatility_regime_filter(re_std, df, VolatilityRegimeFilterSpec(high_vol_only=True))
+    dump("re_highvol_filtered", std_to_norm(re_filtered))
 
     print("done ->", OUT_DIR)
 

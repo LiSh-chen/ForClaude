@@ -18,18 +18,24 @@
 `approx_time=True`，前端會在tooltip特別註記「僅日K模擬，時間為近似值」。
 
 **已知結論，供選擇策略時參考**（這次會話完整驗證過的結果）：
-- 已驗證有正邊際、值得納入組合考慮：三腿(開盤上衝/午盤放空/盤中翻多)、
-  VWAP趨勢日(frac=0.90，但近13年含OOS已轉弱，見risk analysis)、
-  支撐壓力順勢突破(唯一OOS候選，證據強度弱於三腿)
+- 已驗證有正邊際、值得納入組合考慮：三腿(開盤上衝/午盤放空/盤中翻多，
+  加上高波動體制濾網後最穩健，見 VolatilityRegimeFilterSpec)、
+  低波動做多+8%停損(跟三腿互斥的體制互補腿)、近月/遠月價差均值回歸
+  (完全不同的多日波段操作頻率，6折walk-forward全正)、VWAP趨勢日
+  (frac=0.90，但近13年含OOS已轉弱，見risk analysis)、支撐壓力順勢突破
+  (OOS候選，證據強度弱於三腿)
 - 已系統性證明為負或雜訊、不建議實際疊加、僅供對照實驗：支撐壓力
   逆勢fade(288組合27/28顯著負)、唐奇安(含各種濾網)、RSI2均值回歸、
-  開盤區間突破ORB(OOS轉負)、ICT流動性掃單(54組合IS全滅)、夜盤各版本
+  開盤區間突破ORB(OOS轉負)、ICT流動性掃單(54組合IS全滅)、夜盤VWAP版
   (全部零信號或負)、跨日反轉(OOS淨損)
+- 證據尚弱、僅供模擬帳戶參考：夜盤大跳空延續(NightGapFollowConfig，
+  IS/OOS方向一致但樣本小、部分邊際依賴少數極端年份)
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -38,6 +44,18 @@ import pandas as pd
 POINT_VALUE = 50.0
 STD_COLUMNS = ["strategy_id", "direction", "entry_date", "entry_time", "entry_price",
                "exit_date", "exit_time", "exit_price", "pnl_points", "approx_time"]
+REPO_ROOT = Path(__file__).resolve().parent.parent
+MULTI_CONTRACT_PATH = REPO_ROOT / "data" / "taifex_tx_multi_contract.parquet"
+
+
+def _load_multi_contract() -> pd.DataFrame:
+    """近月/遠月合約每日序列（近月結算價/未平倉、遠月結算價/未平倉、價差），
+    來源 scripts/build_taifex_multi_contract.py。低波動做多、近月/遠月價差
+    這兩個策略都需要這份資料，1分K的txf_1min.parquet不含遠月合約，也不含
+    官方結算價（只有日盤逐分鐘成交），所以這兩個策略無法只靠傳進來的df
+    自給自足，直接讀這個檔案——跟引擎其餘策略「只靠df」的設計不同，這裡
+    誠實揭露這個例外。"""
+    return pd.read_parquet(MULTI_CONTRACT_PATH).sort_values("date").reset_index(drop=True)
 
 
 @dataclass
@@ -176,6 +194,18 @@ def build_registry() -> dict[str, StrategyDef]:
         lambda df: _std(df, "night", "direction", "trading_date", "entry_price", "trading_date", "exit_price",
                          "pnl_points", entry_time_col="entry_dt", exit_time_col="exit_dt"))
 
+    add("low_vol_buyhold", "低波動做多+8%停損", run_low_vol_buyhold, LowVolBuyHoldConfig(), "validated",
+        lambda df: _std(df, "low_vol_buyhold", "direction", "entry_date", "entry_price", "exit_date", "exit_price",
+                         "pnl_points", approx_time=True))
+
+    add("calendar_spread", "近月/遠月價差均值回歸", run_calendar_spread, CalendarSpreadConfig(), "validated",
+        lambda df: _std(df, "calendar_spread", "direction", "entry_date", "entry_price", "exit_date", "exit_price",
+                         "pnl_points", approx_time=True))
+
+    add("night_gap_follow", "夜盤大跳空延續", run_night_gap_follow, NightGapFollowConfig(), "weak",
+        lambda df: _adapt_intraday_dt(df, "night_gap_follow")
+        if not df.empty else pd.DataFrame(columns=STD_COLUMNS))
+
     return reg
 
 
@@ -234,6 +264,278 @@ def apply_trend_regime_filter(std_trades: pd.DataFrame, df: pd.DataFrame, spec: 
     aligned = ((std_trades["direction"] == "long") & regime) | ((std_trades["direction"] == "short") & ~regime)
     mask = aligned if spec.aligned_only else ~aligned.fillna(False)
     return std_trades[mask.fillna(False)].reset_index(drop=True)
+
+
+@dataclass
+class VolatilityRegimeFilterSpec:
+    """波動度體制濾網(ATR14 vs 252日ATR均值，10%遲滯帶)，跟
+    scripts/build_smoothed_regime_classifier.py同一套演算法，只是改用
+    df(1分K)聚合出的日盤OHLC重算，不依賴獨立的
+    data/regime_classification_daily.parquet——維持這支引擎「單一輸入df」
+    的架構一致性（跟raw CSV重建版比對過，體制邊界幾乎一致，差異只在
+    極少數轉換日附近的一兩天）。
+
+    high_vol_only=True 時只保留「前一交易日收盤已確定為高波動體制」的
+    交易日（三腿策略用，跟Pine Script `isHighVol[1]`同一個「用前一天、
+    不用當天」的道理——今天自己的日K要收盤才有ATR，不能拿來決定今天
+    要不要交易）；False 時保留低波動體制（低波動做多用）。
+    """
+    atr_window: int = 14
+    ma_window: int = 252
+    band: float = 0.10
+    high_vol_only: bool = True
+
+
+def _compute_volatility_regime_map(df: pd.DataFrame, atr_window: int, ma_window: int, band: float) -> dict:
+    """回傳 {date: 0.0/1.0/nan}，值＝『前一交易日收盤』已確定的體制
+    （對外一律用這個already-lagged版本，呼叫端不需要再shift）。"""
+    from tw_quant.technical_indicators import build_daily_bars
+    daily = build_daily_bars(df).sort_values("date").reset_index(drop=True)
+    close, high, low = daily["close"], daily["high"], daily["low"]
+    prev_close = close.shift(1)
+    tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1 / atr_window, adjust=False).mean()
+    atr_ma = atr.rolling(ma_window).mean()
+    upper = atr_ma * (1 + band)
+    lower = atr_ma * (1 - band)
+
+    regime = np.full(len(daily), np.nan)
+    current = np.nan
+    for i in range(len(daily)):
+        if pd.isna(atr_ma.iloc[i]):
+            continue
+        v = atr.iloc[i]
+        if pd.isna(current):
+            current = 1.0 if v > atr_ma.iloc[i] else 0.0
+        elif v > upper.iloc[i]:
+            current = 1.0
+        elif v < lower.iloc[i]:
+            current = 0.0
+        regime[i] = current
+    lagged = pd.Series(regime).shift(1)  # 今天能不能交易，看「前一天」已確定的體制
+    return dict(zip(daily["date"].dt.date, lagged))
+
+
+def apply_volatility_regime_filter(std_trades: pd.DataFrame, df: pd.DataFrame,
+                                     spec: VolatilityRegimeFilterSpec) -> pd.DataFrame:
+    if std_trades.empty:
+        return std_trades
+    regime_map = _compute_volatility_regime_map(df, spec.atr_window, spec.ma_window, spec.band)
+    entry_dates = pd.to_datetime(std_trades["entry_date"]).dt.date
+    is_high_vol = entry_dates.map(regime_map)
+    mask = (is_high_vol == 1.0) if spec.high_vol_only else (is_high_vol == 0.0)
+    return std_trades[mask.fillna(False)].reset_index(drop=True)
+
+
+@dataclass
+class LowVolBuyHoldConfig:
+    """低波動做多+移動停損（跟三腿策略互斥的體制互補腿，見
+    scripts/test_low_vol_stoploss.py）。用近月期貨(taifex_tx_multi_contract.
+    parquet的near_price)在低波動體制期間做多，收盤價從進場後至今最高點
+    回落stop_pct即出場，同一段低波動週期內不重新進場。
+
+    體制邊界用同一套VolatilityRegimeFilterSpec邏輯算(atr_window/ma_window/
+    band跟三腿濾網共用同一組數字，體制定義本身只能有一套、不能各策略各自
+    表述)，這裡的回測維持跟原始驗證腳本一致的「同日規則」（用episode當天
+    自己的體制值找週期邊界，不額外lag）——這在統計上跟lag版本幾乎沒有
+    差異(轉換日很少見)，但**真實下單一定要按手冊的規則，用前一交易日
+    收盤已確定的體制決定隔天要不要進場**，不能用當天還沒收盤的體制。"""
+    atr_window: int = 14
+    ma_window: int = 252
+    band: float = 0.10
+    stop_pct: float = 0.08
+
+
+def run_low_vol_buyhold(df: pd.DataFrame, cfg: LowVolBuyHoldConfig) -> pd.DataFrame:
+    from tw_quant.technical_indicators import build_daily_bars
+    daily = build_daily_bars(df).sort_values("date").reset_index(drop=True)
+    close, high, low = daily["close"], daily["high"], daily["low"]
+    prev_close = close.shift(1)
+    tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1 / cfg.atr_window, adjust=False).mean()
+    atr_ma = atr.rolling(cfg.ma_window).mean()
+    upper, lower = atr_ma * (1 + cfg.band), atr_ma * (1 - cfg.band)
+
+    regime = np.full(len(daily), np.nan)
+    current = np.nan
+    for i in range(len(daily)):
+        if pd.isna(atr_ma.iloc[i]):
+            continue
+        v = atr.iloc[i]
+        if pd.isna(current):
+            current = 1.0 if v > atr_ma.iloc[i] else 0.0
+        elif v > upper.iloc[i]:
+            current = 1.0
+        elif v < lower.iloc[i]:
+            current = 0.0
+        regime[i] = current
+
+    mc = _load_multi_contract()
+    mc = mc.merge(pd.DataFrame({"date": daily["date"], "high_vol_regime": regime}), on="date", how="inner")
+    mc = mc.sort_values("date").reset_index(drop=True)
+
+    valid = mc["high_vol_regime"].notna()
+    r = (mc.loc[valid, "high_vol_regime"] == 0.0)
+    d = mc.loc[valid, "date"]
+    group_id = r.ne(r.shift()).cumsum()
+    tmp = pd.DataFrame({"date": d.values, "is_low_vol": r.values, "group": group_id.values})
+    episodes = []
+    for _, sub in tmp.groupby("group"):
+        if sub["is_low_vol"].iloc[0]:
+            episodes.append((sub["date"].min(), sub["date"].max()))
+
+    trades = []
+    for start, end in episodes:
+        ep = mc[(mc["date"] >= start) & (mc["date"] <= end)].reset_index(drop=True)
+        if len(ep) < 2:
+            continue
+        entry_price = ep["near_price"].iloc[0]
+        peak = entry_price
+        stopped = False
+        exit_price, exit_date = ep["near_price"].iloc[-1], ep["date"].iloc[-1]
+        for i in range(1, len(ep)):
+            price = ep["near_price"].iloc[i]
+            peak = max(peak, price)
+            if price <= peak * (1 - cfg.stop_pct):
+                exit_price, exit_date, stopped = price, ep["date"].iloc[i], True
+                break
+        trades.append(dict(
+            direction="long", entry_date=ep["date"].iloc[0], exit_date=exit_date,
+            entry_price=entry_price, exit_price=exit_price,
+            pnl_points=exit_price - entry_price, stopped=stopped,
+        ))
+    return pd.DataFrame(trades)
+
+
+@dataclass
+class CalendarSpreadConfig:
+    """近月/遠月價差均值回歸（見 scripts/validate_calendar_spread_reversion.py）。
+    z分數用90天滾動窗格、shift(1)避免未來函數；事件週期式進出場（z第一次
+    穿越門檻才進場，回到中性帶或碰到最長持有天數才出場，天生不重疊，
+    不需要額外做非重疊窗格校正）。entry_price/exit_price 這裡存的是「價差
+    本身」（近月結算價-遠月結算價），不是單一合約價位——這是這支引擎裡
+    唯一一個entry_price/exit_price代表價差、不是單一商品價格的策略，
+    pnl_points的算法（(exit_spread-entry_spread)*方向）沒有變。"""
+    window: int = 90
+    entry_z: float = 1.0
+    exit_z: float = 0.3
+    max_hold_days: int = 20
+    min_far_oi: float = 3000.0
+
+
+def run_calendar_spread(df: pd.DataFrame, cfg: CalendarSpreadConfig) -> pd.DataFrame:
+    mc = _load_multi_contract()
+    mc["spread"] = mc["calendar_spread"].astype(float)
+    roll_mean = mc["spread"].rolling(cfg.window).mean().shift(1)
+    roll_std = mc["spread"].rolling(cfg.window).std(ddof=1).shift(1)
+    mc["z"] = (mc["spread"].shift(1) - roll_mean) / roll_std
+
+    trades = []
+    in_position, direction, entry_idx = False, None, None
+    for i in range(len(mc)):
+        row = mc.iloc[i]
+        if pd.isna(row["z"]) or row["far_oi"] < cfg.min_far_oi:
+            continue
+        if not in_position:
+            if row["z"] >= cfg.entry_z:
+                in_position, direction, entry_idx = True, "short", i
+            elif row["z"] <= -cfg.entry_z:
+                in_position, direction, entry_idx = True, "long", i
+        else:
+            held = i - entry_idx
+            reverted = abs(row["z"]) <= cfg.exit_z
+            if reverted or held >= cfg.max_hold_days or i == len(mc) - 1:
+                entry_row = mc.iloc[entry_idx]
+                sign = 1 if direction == "long" else -1
+                entry_spread, exit_spread = entry_row["spread"], row["spread"]
+                trades.append(dict(
+                    direction=direction, entry_date=entry_row["date"], exit_date=row["date"],
+                    entry_price=entry_spread, exit_price=exit_spread,
+                    pnl_points=(exit_spread - entry_spread) * sign,
+                ))
+                in_position = False
+    return pd.DataFrame(trades)
+
+
+@dataclass
+class NightGapFollowConfig:
+    """夜盤大跳空延續（見 scripts/test_night_session_gap_follow.py）。跳空=
+    夜盤開盤價-當天日盤收盤價，|跳空|>=gap_min才進場，跟隨跳空方向（賭
+    延續、不回補）。停利=跳空距離的target_frac倍，停損=跳空距離的
+    stop_frac倍，01:00時間停損，04:45保底出場。"""
+    gap_min: float = 50.0
+    target_frac: float = 1.0
+    stop_frac: float = 1.0
+    slippage_points: float = 3.0
+
+
+def run_night_gap_follow(df: pd.DataFrame, cfg: NightGapFollowConfig) -> pd.DataFrame:
+    from datetime import time as dtime
+    t = df["datetime"].dt.time
+    day = df[(t >= dtime(8, 45)) & (t <= dtime(13, 45))].copy()
+    day["trading_date"] = day["datetime"].dt.date
+    day_close = day.sort_values("datetime").groupby("trading_date")["close"].last().rename("day_close")
+    day_close.index = pd.to_datetime(day_close.index)
+
+    night = df[(t >= dtime(15, 0)) | (t <= dtime(5, 0))].copy()
+    is_evening = night["datetime"].dt.time >= dtime(15, 0)
+    night["own_date"] = night["datetime"].dt.date
+    night["trading_date"] = np.where(is_evening, night["own_date"], night["own_date"] - pd.Timedelta(days=1))
+    night["trading_date"] = pd.to_datetime(night["trading_date"])
+
+    half_slip = cfg.slippage_points / 2
+    trades = []
+    for td, g in night.groupby("trading_date"):
+        if td not in day_close.index:
+            continue
+        g = g.sort_values("datetime").reset_index(drop=True)
+        if len(g) < 30:
+            continue
+        dclose = day_close.loc[td]
+        night_open = g["open"].iloc[0]
+        gap = night_open - dclose
+        abs_gap = abs(gap)
+        if abs_gap < cfg.gap_min:
+            continue
+
+        direction = "long" if gap > 0 else "short"
+        sign = 1 if direction == "long" else -1
+        entry_bar = g.iloc[0]
+        entry_price = entry_bar["open"] + sign * half_slip
+        target_dist, stop_dist = abs_gap * cfg.target_frac, abs_gap * cfg.stop_frac
+
+        exit_price = exit_dt = None
+        for j in range(1, len(g)):
+            r = g.iloc[j]
+            rt = r["datetime"].time()
+            favorable = (r["high"] - entry_price) if direction == "long" else (entry_price - r["low"])
+            adverse = (entry_price - r["low"]) if direction == "long" else (r["high"] - entry_price)
+            if favorable >= target_dist:
+                exit_price = entry_price + sign * target_dist - sign * half_slip
+                exit_dt = r["datetime"]
+                break
+            if adverse >= stop_dist:
+                exit_price = entry_price - sign * stop_dist - sign * half_slip
+                exit_dt = r["datetime"]
+                break
+            is_evening_bar = rt >= dtime(15, 0)
+            if (not is_evening_bar) and (rt >= dtime(1, 0)):
+                exit_price = r["close"] - sign * half_slip
+                exit_dt = r["datetime"]
+                break
+        if exit_price is None:
+            last = g.iloc[-1]
+            exit_price, exit_dt = last["close"] - sign * half_slip, last["datetime"]
+
+        trades.append(dict(
+            direction=direction, entry_dt=entry_bar["datetime"], exit_dt=exit_dt,
+            entry_price=entry_price, exit_price=exit_price,
+            pnl_points=(exit_price - entry_price) * sign,
+        ))
+    trades_df = pd.DataFrame(trades)
+    if trades_df.empty:
+        return trades_df
+    return trades_df.sort_values("entry_dt").reset_index(drop=True)
 
 
 def combine(trade_frames: list[pd.DataFrame]) -> pd.DataFrame:

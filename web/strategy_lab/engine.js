@@ -916,6 +916,41 @@
     });
   }
 
+  // 波動度體制濾網(ATR14 vs 252日ATR均值，10%遲滯帶)，跟
+  // tw_quant/strategy_lab.py 的 _compute_volatility_regime_map 逐行對照。
+  // 回傳已經lag過1天的regime陣列(1=高波動/0=低波動/NaN=暖機期)，直接
+  // 用daily.dateStr[i]對應的index去查，不需要呼叫端自己再shift。
+  function computeVolatilityRegimeMap(daily, atrWindow, maWindow, band) {
+    const atr = computeATR(daily, atrWindow);
+    const atrMa = rollingMean(atr, maWindow);
+    const n = daily.n;
+    const regime = new Array(n).fill(NaN);
+    let current = NaN;
+    for (let i = 0; i < n; i++) {
+      if (Number.isNaN(atrMa[i])) continue;
+      const v = atr[i];
+      const upper = atrMa[i] * (1 + band), lower = atrMa[i] * (1 - band);
+      if (Number.isNaN(current)) current = v > atrMa[i] ? 1 : 0;
+      else if (v > upper) current = 1;
+      else if (v < lower) current = 0;
+      regime[i] = current;
+    }
+    // 往後移一格：第i天能不能交易，看「第i-1天」已確定的體制
+    const lagged = new Array(n).fill(NaN);
+    for (let i = 1; i < n; i++) lagged[i] = regime[i - 1];
+    return lagged;
+  }
+
+  function applyVolatilityRegimeFilter(trades, daily, dateIndexMap, regimeLagged, highVolOnly) {
+    return trades.filter((t) => {
+      const idx = dateIndexMap.get(t.entryDate);
+      if (idx === undefined) return false;
+      const v = regimeLagged[idx];
+      if (Number.isNaN(v)) return false;
+      return highVolOnly ? v === 1 : v === 0;
+    });
+  }
+
   function combine(tradeArrays) {
     const out = [];
     for (const arr of tradeArrays) for (const t of arr) out.push(t);
@@ -1038,6 +1073,7 @@
     runOpeningRally, runLunchReversal, runTrendDay, runNightWindow,
     runSupportResistanceFade, runDonchian, runRsi2, runORB, runLiquiditySweep,
     computeVolRatioLag1, applyVolumeFilterFixed, applyTrendRegimeFilter, combine,
+    computeVolatilityRegimeMap, applyVolatilityRegimeFilter,
     STRATEGY_PARAMS,
   };
 });

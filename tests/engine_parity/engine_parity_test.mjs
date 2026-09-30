@@ -144,6 +144,20 @@ cmpTrades("liqsweep_default", loadExpected("liqsweep_default"),
 cmpTrades("liqsweep_variant", loadExpected("liqsweep_variant"),
   Engine.runLiquiditySweep(daily, dayMinute, { channelWindow: 20, sweepBufferPoints: 5, stopBufferPoints: 8, targetRMultiple: 3.0, maxHoldDays: 5, slippagePoints: 1 }));
 
+// ---- 高波動體制濾網（三腿策略的必要條件）----
+const dateIndexMap = Engine.buildDateIndexMap(daily);
+const volRegimeLagged = Engine.computeVolatilityRegimeMap(daily, 14, 252, 0.10);
+
+const ogAll = Engine.runOpeningRally(daily, dayMinute, { entryMoy: 525, exitMoy: 540 });
+cmpTrades("og_highvol_filtered", loadExpected("og_highvol_filtered"),
+  Engine.applyVolatilityRegimeFilter(ogAll, daily, dateIndexMap, volRegimeLagged, true));
+
+const luReAll = Engine.runLunchReversal(daily, dayMinute, { shortEntryMoy: 720, flipMoy: 750, longExitMoy: 780, maxLossPoints: null });
+cmpTrades("lu_highvol_filtered", loadExpected("lu_highvol_filtered"),
+  Engine.applyVolatilityRegimeFilter(luReAll.filter(t => t.leg === "short_lunch_dip"), daily, dateIndexMap, volRegimeLagged, true));
+cmpTrades("re_highvol_filtered", loadExpected("re_highvol_filtered"),
+  Engine.applyVolatilityRegimeFilter(luReAll.filter(t => t.leg === "long_afternoon_rebound"), daily, dateIndexMap, volRegimeLagged, true));
+
 console.log(`\n=== ${totalPass}/${totalCases} cases passed ===`);
 if (failures.length) {
   console.log("FAILURES:", failures.map(f => f.name).join(", "));

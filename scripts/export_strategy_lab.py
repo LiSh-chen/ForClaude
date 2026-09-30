@@ -40,6 +40,8 @@ from tw_quant.technical_indicators import build_daily_bars, daily_indicators  # 
 from tw_quant.strategy_lab import (  # noqa: E402
     build_registry, run_strategy, combine, apply_volume_filter, VolumeFilterSpec,
     apply_trend_regime_filter, TrendRegimeFilterSpec,
+    apply_volatility_regime_filter, VolatilityRegimeFilterSpec,
+    _load_multi_contract, _compute_volatility_regime_map,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -51,24 +53,33 @@ IS_CUTOFF = "2021-01-01"
 
 # ============================================================
 # 這裡改參數：每個 tuple = (strategy_id, cfg覆寫(None=用註冊時的預設),
-# 濾網函式list(每個是 (df, trades) -> trades 的callable，None=不加濾網))
+# 濾網名稱list(可疊多個，空list=不加濾網))
 # strategy_id 對照 tw_quant/strategy_lab.py 的 build_registry()：
 #   og=開盤上衝, lu=午盤放空, re=盤中翻多, vwap_trend=VWAP趨勢日,
 #   sr_breakout=支撐壓力順勢突破, sr_fade=支撐壓力逆勢fade, donchian=唐奇安,
-#   rsi2=RSI2均值回歸, orb=開盤區間突破, liqsweep=ICT流動性掃單, night=夜盤熱區
+#   rsi2=RSI2均值回歸, orb=開盤區間突破, liqsweep=ICT流動性掃單, night=夜盤熱區,
+#   low_vol_buyhold=低波動做多+8%停損, calendar_spread=近月/遠月價差均值回歸,
+#   night_gap_follow=夜盤大跳空延續
+#
+# og/lu/re預設疊上高波動體制濾網（跟低波動做多互斥，這是手冊建議的
+# 實際操作版本，不是原始未濾網的三腿——原始版本仍可在前端手動關掉濾網
+# 對照）。
 # ============================================================
 ACTIVE = [
-    ("og", None, None),
-    ("lu", None, None),
-    ("re", None, "volume_filter"),  # 盤中翻多沿用原本的成交量濾網
-    ("vwap_trend", None, None),
-    ("sr_breakout", None, None),
-    ("sr_fade", None, None),
-    ("donchian", None, None),
-    ("rsi2", None, None),
-    ("orb", None, None),
-    ("liqsweep", None, None),
-    ("night", None, None),
+    ("og", None, ["volatility_regime_filter"]),
+    ("lu", None, ["volatility_regime_filter"]),
+    ("re", None, ["volume_filter", "volatility_regime_filter"]),
+    ("vwap_trend", None, []),
+    ("sr_breakout", None, []),
+    ("sr_fade", None, []),
+    ("donchian", None, []),
+    ("rsi2", None, []),
+    ("orb", None, []),
+    ("liqsweep", None, []),
+    ("night", None, []),
+    ("low_vol_buyhold", None, []),
+    ("calendar_spread", None, []),
+    ("night_gap_follow", None, []),
 ]
 
 
@@ -87,13 +98,33 @@ def main() -> None:
     print("=" * 70)
     all_trades = {}
     meta = {}
-    for sid, cfg_override, filt in ACTIVE:
+    for sid, cfg_override, filters in ACTIVE:
         trades = run_strategy(reg, sid, df, cfg_override)
-        if filt == "volume_filter":
-            trades = apply_volume_filter(trades, df, VolumeFilterSpec(threshold=vol_threshold))
-        elif filt == "trend_regime_filter":
-            trades = apply_trend_regime_filter(trades, df, TrendRegimeFilterSpec())
-        trades = apply_costs(trades, LOW_COST)
+        for filt in filters:
+            if filt == "volume_filter":
+                trades = apply_volume_filter(trades, df, VolumeFilterSpec(threshold=vol_threshold))
+            elif filt == "trend_regime_filter":
+                trades = apply_trend_regime_filter(trades, df, TrendRegimeFilterSpec())
+            elif filt == "volatility_regime_filter":
+                trades = apply_volatility_regime_filter(trades, df, VolatilityRegimeFilterSpec(high_vol_only=True))
+        if sid == "calendar_spread":
+            # 價差策略entry_price/exit_price存的是「價差」本身(近月-遠月)，
+            # 不是單一合約的實際價位——generic apply_costs()用entry_price+
+            # exit_price算比例稅金，套在價差值上會嚴重低估(價差量級遠小於
+            # 實際近/遠月價位)。這裡沿用scripts/validate_calendar_spread_
+            # reversion.py驗證時用的手動算法：雙腳固定手續費+滑價，不額外
+            # 疊比例稅金(維持跟已回報給使用者的驗證數字一致)。
+            trades = trades.copy()
+            # 雙腳各1點滑價假設，跟scripts/validate_calendar_spread_reversion.py
+            # 的SPREAD_COST_SCENARIOS一致(該次驗證時獨立假設的滑價，不是從
+            # LOW_COST欄位帶出來的，LOW_COST本身沒有滑價欄位)
+            spread_commission = LOW_COST.commission_round_trip * 2
+            spread_slippage_twd = 1.0 * 2 * LOW_COST.point_value
+            trades["gross_twd"] = trades["pnl_points"] * LOW_COST.point_value
+            trades["cost_twd"] = spread_commission + spread_slippage_twd
+            trades["net_twd"] = trades["gross_twd"] - trades["cost_twd"]
+        else:
+            trades = apply_costs(trades, LOW_COST)
         all_trades[sid] = trades
         meta[sid] = dict(label=reg[sid].label, verdict=reg[sid].verdict, n=len(trades),
                           sum_net=round(float(trades["net_twd"].sum()), 1) if len(trades) else 0.0)
@@ -169,6 +200,29 @@ def main() -> None:
     print("meta.json 已寫入")
 
     print("\n" + "=" * 70)
+    print("2b) 建立 regime.json（低波動做多/近月遠月價差策略需要，1分K資料本身沒有）")
+    print("=" * 70)
+    mc = _load_multi_contract()
+    regime_map = _compute_volatility_regime_map(df, atr_window=14, ma_window=252, band=0.10)
+    mc["date_str"] = mc["date"].dt.strftime("%Y-%m-%d")
+    mc["high_vol_regime"] = mc["date"].dt.date.map(regime_map)
+    regime_records = []
+    for _, r in mc.iterrows():
+        hv = r["high_vol_regime"]
+        regime_records.append({
+            "t": r["date_str"],
+            "near": round(float(r["near_price"]), 1) if pd.notna(r["near_price"]) else None,
+            "far": round(float(r["far_price"]), 1) if pd.notna(r["far_price"]) else None,
+            "farOi": float(r["far_oi"]) if pd.notna(r["far_oi"]) else None,
+            "spread": round(float(r["calendar_spread"]), 1) if pd.notna(r["calendar_spread"]) else None,
+            # 已lag過(前一交易日已知)，1=高波動/0=低波動/null=暖機期還沒有值
+            "hv": None if pd.isna(hv) else int(hv),
+        })
+    with open(OUT_DIR / "regime.json", "w", encoding="utf-8") as f:
+        json.dump(regime_records, f, separators=(",", ":"))
+    print(f"regime.json: {len(regime_records)} 筆日資料")
+
+    print("\n" + "=" * 70)
     print("3) 建立逐年 1分K + 交易紀錄")
     print("=" * 70)
     from datetime import time
@@ -185,6 +239,22 @@ def main() -> None:
     night_session["moy"] = night_session["datetime"].dt.hour * 60 + night_session["datetime"].dt.minute
     night_session["year"] = night_session["datetime"].dt.year
 
+    # 完整夜盤(15:00~05:00，night_gap_follow需要)，跨零點，歸屬到它銜接的
+    # 「日盤交易日」（跟 tw_quant/strategy_lab.py 的 run_night_gap_follow
+    # 同一套判斷：晚上的部分算當天日曆日，凌晨0-5點算前一天）。moy用
+    # 「延伸分鐘」(evening=正常0~1439, 凌晨+1440變成1440~1740)，確保同一個
+    # night block內的K棒moy值單調遞增，firstBarAtOrAfter才能正確用二分/線性
+    # 搜尋；前端顯示時鐘時間要用 moy % 1440 換算。
+    night_full = df[(t >= time(15, 0)) | (t <= time(5, 0))].copy()
+    is_evening = night_full["datetime"].dt.time >= time(15, 0)
+    night_full["own_date"] = night_full["datetime"].dt.date
+    trading_date = np.where(is_evening, night_full["own_date"], night_full["own_date"] - pd.Timedelta(days=1))
+    trading_date = pd.to_datetime(trading_date)
+    night_full["date_str"] = trading_date.strftime("%Y-%m-%d")
+    raw_moy = night_full["datetime"].dt.hour * 60 + night_full["datetime"].dt.minute
+    night_full["moy"] = np.where(is_evening, raw_moy, raw_moy + 1440)
+    night_full["year"] = trading_date.year
+
     all_trades_combined = combine(list(all_trades.values()))
     # 用「進場年份 或 出場年份」把交易複製進相關年度檔案，讓跨年度持有的交易
     # 在對應的月份都能正確顯示進/出場標記
@@ -196,6 +266,7 @@ def main() -> None:
             net_map[(sid, r["entry_date"], r["exit_date"])] = round(float(r["net_twd"]), 1)
 
     night_by_year = {y: g for y, g in night_session.groupby("year")}
+    night_full_by_year = {y: g for y, g in night_full.groupby("year")}
 
     def write_minute_bin(path, session_df):
         """把一年份的1分K（含volume）打包成緊湊二進位格式，取代JSON陣列——
@@ -222,6 +293,8 @@ def main() -> None:
         write_minute_bin(YEARS_DIR / f"{year}_day.bin", g)
         ng = night_by_year.get(year)
         write_minute_bin(YEARS_DIR / f"{year}_night.bin", ng if ng is not None else g.iloc[0:0])
+        nfg = night_full_by_year.get(year)
+        write_minute_bin(YEARS_DIR / f"{year}_night_full.bin", nfg if nfg is not None else g.iloc[0:0])
 
         yr_trades = all_trades_combined[(all_trades_combined["entry_year"] == year) |
                                           (all_trades_combined["exit_year"] == year)]
