@@ -12,7 +12,6 @@ on:
   workflow_run:
     workflows: ["Daily US Market Data Ingest"]
     types: [completed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       refresh_factors:
@@ -20,7 +19,6 @@ on:
         type: boolean
         default: false
   push:
-    branches: [main]
     paths: ["stock-derby/**"]
 
 permissions:
@@ -34,15 +32,14 @@ concurrency:
 
 jobs:
   build:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    # 只在預設分支上建置/發佈（workflow_run 與排程本來就只在預設分支觸發）
+    if: github.ref_name == github.event.repository.default_branch && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: stock-derby
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: main
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install pandas numpy pyarrow yfinance requests lxml
