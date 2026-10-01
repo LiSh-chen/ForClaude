@@ -1,0 +1,50 @@
+name: Stock Derby Daily Prices
+
+# 每個美股交易日收盤後抓取賽馬用的股價，寫進 stock-derby/data/prices.csv
+# 並 commit 回 repo（GitHub 即資料庫），最後把 stock-derby/ 發佈到 GitHub Pages。
+# 需要在 repo Settings → Pages → Source 選 "GitHub Actions"。
+
+on:
+  schedule:
+    - cron: "30 21 * * 1-5"   # 美東收盤後（夏令 16:30 ET = 21:30 UTC）
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "強制回填幾個日曆天（0 = 增量更新）"
+        default: "0"
+  push:
+    branches: [main]
+    paths: ["stock-derby/**"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: stock-derby
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install pandas yfinance
+      - name: Fetch prices
+        if: github.event_name != 'push'
+        run: python stock-derby/fetch_prices.py --days "${{ inputs.days || 0 }}"
+      - name: Commit data
+        if: github.event_name != 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add stock-derby/data/prices.csv
+          git diff --cached --quiet || git commit -m "chore: stock-derby daily prices $(date -u +%F)"
+          git push
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: stock-derby }
+      - uses: actions/deploy-pages@v4

@@ -1,0 +1,10 @@
+[
+  {"ticker": "AAPL",  "horse": "Apple Crumble",  "color": "#9aa0a6"},
+  {"ticker": "MSFT",  "horse": "Blue Screen",    "color": "#4f8df7"},
+  {"ticker": "NVDA",  "horse": "Green Rocket",   "color": "#76b900"},
+  {"ticker": "TSLA",  "horse": "Red Lightning",  "color": "#e5484d"},
+  {"ticker": "AMZN",  "horse": "Prime Express",  "color": "#f5a623"},
+  {"ticker": "GOOGL", "horse": "Search Party",   "color": "#a855f7"},
+  {"ticker": "META",  "horse": "Meta Morphosis", "color": "#14b8a6"},
+  {"ticker": "AVGO",  "horse": "Broad Band",     "color": "#ec4899"}
+]
