@@ -42,18 +42,24 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python scripts/export_us_earnings_snapshot.py
 
+      # 2026-09-30 刻意不 commit data/tw_market.db：這份本機 SQLite 每次
+      # 執行都是全新、用完即丟的工作檔案（見 tw_quant/storage.py 開頭的
+      # 背景說明），上面的 Parquet 快照才是美股財報資料真正跨執行持久化
+      # 的來源。
       - name: Commit US earnings snapshot
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/us_earnings_snapshot.parquet
-          git diff --cached --quiet || git commit -m "chore: update US earnings snapshot for PEAD strategy $(date -u +%F)"
-          git push
-
-      - name: Commit updated local SQLite snapshot
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/tw_market.db
-          git diff --cached --quiet || git commit -m "chore: US earnings data sync $(date -u +%F)"
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: update US earnings snapshot for PEAD strategy $(date -u +%F)"
+          # 見 daily_data_ingest.yml 同一處的說明：push 被拒絕時 fetch +
+          # rebase 重試幾次。
+          for i in 1 2 3 4 5; do
+            git push && exit 0
+            echo "push rejected（第 $i 次），fetch + rebase 後重試..."
+            git fetch origin "$GITHUB_REF_NAME"
+            git rebase "origin/$GITHUB_REF_NAME"
+            sleep $((i * 3))
+          done
           git push

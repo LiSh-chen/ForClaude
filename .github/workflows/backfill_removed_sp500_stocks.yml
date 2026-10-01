@@ -48,19 +48,24 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A -- data/us_prices_snapshot*.parquet data/us_index_membership_snapshot.parquet
-          git diff --cached --quiet || git commit -m "chore: update US data snapshot after removed-stock backfill $(date -u +%F)"
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: update US data snapshot after removed-stock backfill $(date -u +%F)"
+          # 見 daily_data_ingest.yml 同一處的說明：push 被拒絕時 fetch +
+          # rebase 重試幾次。
+          for i in 1 2 3 4 5; do
+            git push && exit 0
+            echo "push rejected（第 $i 次），fetch + rebase 後重試..."
+            git fetch origin "$GITHUB_REF_NAME"
+            git rebase "origin/$GITHUB_REF_NAME"
+            sleep $((i * 3))
+          done
           git push
 
-      # 2026-09-30 新增：不再有共用的雲端 Postgres 幫忙在不同 ephemeral
-      # runner 之間保留狀態（見 tw_quant/storage.py 開頭說明）——這支
-      # workflow 寫入的 data/tw_market.db 只存在於這次 runner 本機，如果
-      # 不 commit 回 repo，下次 us_daily_data_ingest.yml 從 repo 重新
-      # checkout 出來的 tw_market.db 就不會有這次回填的資料，連帶讓下次
-      # 匯出的 Parquet 快照把這次回填的 74 檔被剔除股票覆寫掉——等於做白工。
-      - name: Commit updated local SQLite snapshot
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/tw_market.db
-          git diff --cached --quiet || git commit -m "chore: persist removed-S&P-500-stock backfill to SQLite $(date -u +%F)"
-          git push
+      # 2026-09-30：刻意不 commit data/tw_market.db。原本這裡擔心「不 commit
+      # 回 repo，下次重新 checkout 出來的 SQLite 就沒有這次回填的資料」，
+      # 但已經用更好的方式解決：scripts/backfill_removed_sp500_stocks.py
+      # 開頭會先呼叫 seed_store_from_us_snapshot() 把上面剛 commit 的
+      # Parquet 快照種回本機 SQLite，不需要靠 commit 原始 SQLite 檔案來
+      # 保留狀態。而且這份 SQLite 種完歷史後會超過 100MB，commit 回 repo
+      # 反而會被 GitHub 的單檔 push 上限擋下（見 us_daily_data_ingest.yml
+      # 同一處的說明）。

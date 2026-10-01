@@ -36,6 +36,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tw_quant.data_snapshot import seed_store_from_us_snapshot
 from tw_quant.sp500_history import (
     build_membership_intervals,
     fetch_snapshot_csv_text,
@@ -78,6 +79,10 @@ def backfill_one(store, provider: YFinanceUSDataProvider, row) -> dict:
 
 def main() -> None:
     store = get_data_store()
+    # 這份本機 SQLite 每次執行都是全新、用完即丟的（見 tw_quant/storage.py
+    # 開頭 2026-09-30 的背景說明），下面判斷「哪些股票還缺資料」如果沒有
+    # 先把既有歷史種回來，會誤判成「資料庫完全沒有美股資料」而直接中止。
+    seed_store_from_us_snapshot(store)
     us_prices = store.load_us_prices()
     if us_prices.empty:
         print("資料庫裡沒有任何美股價量資料。", file=sys.stderr)

@@ -85,17 +85,27 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A -- data/us_prices_snapshot*.parquet data/us_index_membership_snapshot.parquet
-          git diff --cached --quiet || git commit -m "chore: update US data snapshot for strategy scripts $(date -u +%F)"
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: update US data snapshot for strategy scripts $(date -u +%F)"
+          # 見 daily_data_ingest.yml 同一處的說明：沒有共用資料庫序列化
+          # 寫入了，push 被拒絕時 fetch + rebase 重試幾次。
+          for i in 1 2 3 4 5; do
+            git push && exit 0
+            echo "push rejected（第 $i 次），fetch + rebase 後重試..."
+            git fetch origin "$GITHUB_REF_NAME"
+            git rebase "origin/$GITHUB_REF_NAME"
+            sleep $((i * 3))
+          done
           git push
 
       - name: Show current data status
         if: always()
         run: python scripts/show_data_status.py
 
-      - name: Commit updated local SQLite snapshot
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/tw_market.db
-          git diff --cached --quiet || git commit -m "chore: daily US market data sync $(date -u +%F)"
-          git push
+      # 2026-09-30 刻意不 commit data/tw_market.db：ingest_us_daily_data.py
+      # 開頭會先把 Parquet 快照整個種回這份本機 SQLite（見
+      # tw_quant/data_snapshot.py 的 seed_store_from_us_snapshot），種完
+      # 再加上台股共用的表格，整個檔案輕鬆超過 100MB（實測 108MB，被
+      # GitHub 的 100MB 單檔 push 上限擋下）。上面「Commit US data
+      # snapshot」那步的 Parquet 快照才是美股資料真正跨執行持久化的來源，
+      # 這份本機 SQLite 純粹是這次執行用完即丟的工作檔案，不應該 commit。

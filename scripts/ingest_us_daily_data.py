@@ -43,6 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 
+from tw_quant.data_snapshot import seed_store_from_us_snapshot
 from tw_quant.us_data_provider import YFinanceUSDataProvider
 from tw_quant.storage import get_data_store
 
@@ -82,6 +83,13 @@ def main() -> None:
 
     provider = YFinanceUSDataProvider()
     store = get_data_store()
+
+    # 這份本機 SQLite 每次執行都是全新、用完即丟的（見 tw_quant/storage.py
+    # 開頭 2026-09-30 的背景說明），下面的增量同步判斷（store.latest_date）
+    # 如果沒有先把既有歷史種回來，會誤判成「資料庫是空的」，把本來只需要
+    # 補最近幾天的增量同步錯當成要整個從頭回填好幾年。
+    n_seeded_prices, n_seeded_membership = seed_store_from_us_snapshot(store)
+    print(f"已從 Parquet 快照種回本機 SQLite：價量 {n_seeded_prices} 筆、成分股區間 {n_seeded_membership} 筆\n")
 
     print("抓取 S&P 500 成分股清單（維基百科）...")
     constituents = _call_with_timeout(provider.fetch_sp500_constituents, timeout_s=30.0)

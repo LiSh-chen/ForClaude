@@ -40,6 +40,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tw_quant.data_snapshot import seed_store_from_us_snapshot
 from tw_quant.sp500_history import (
     build_membership_intervals,
     fetch_snapshot_csv_text,
@@ -99,6 +100,9 @@ def _error_category(error: str | None) -> str:
 
 def main() -> None:
     store = get_data_store()
+    # 見 backfill_removed_sp500_stocks.py 同一處的說明：本機 SQLite 每次
+    # 執行都是全新的，要先把既有歷史種回來才能正確判斷哪些股票還缺資料。
+    seed_store_from_us_snapshot(store)
     us_prices = store.load_us_prices()
     if us_prices.empty:
         print("資料庫裡沒有任何美股價量資料。", file=sys.stderr)

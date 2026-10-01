@@ -68,5 +68,16 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/tw_market.db
-          git diff --cached --quiet || git commit -m "chore: daily TW market data sync $(date -u +%F)"
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: daily TW market data sync $(date -u +%F)"
+          # 沒有共用資料庫序列化寫入了，這個 repo 上任何其他 workflow
+          # 這段時間剛好也 push 過，這裡的 push 就會被拒絕（non-fast-forward）
+          # ——用 fetch + rebase 重試幾次，而不是直接讓整個 job 失敗。
+          for i in 1 2 3 4 5; do
+            git push && exit 0
+            echo "push rejected（第 $i 次），fetch + rebase 後重試..."
+            git fetch origin "$GITHUB_REF_NAME"
+            git rebase "origin/$GITHUB_REF_NAME"
+            sleep $((i * 3))
+          done
           git push

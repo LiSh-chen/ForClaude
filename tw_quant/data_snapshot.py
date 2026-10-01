@@ -146,6 +146,43 @@ def load_us_index_membership_snapshot(path: Path = US_INDEX_MEMBERSHIP_SNAPSHOT_
     return pd.read_parquet(path)
 
 
+def seed_store_from_us_snapshot(store) -> tuple[int, int]:
+    """把已經 commit 進 repo 的美股 Parquet 快照匯入到（通常是全新、
+    每次 GitHub Actions 執行都重新 checkout 出來的 ephemeral）SQLiteDataStore
+    裡，回傳 (us_prices 列數, membership 列數)。
+
+    背景（2026-09-30 退役 Neon）：SQLite 檔案本身不再 commit 回 repo——
+    20 年×630 檔美股資料攤開來超過 GitHub 單檔 100MB push 上限（實測
+    108MB 被 pre-receive hook 擋下），改成每次執行都是用完即丟的本機
+    SQLite，Parquet 快照才是真正跨執行持久化的唯一來源（見
+    tw_quant/storage.py 開頭說明）。任何需要「資料庫裡已經有什麼」才能
+    正確運作的寫入腳本——ingest_us_daily_data.py 的增量同步水位判斷、
+    backfill_removed_sp500_stocks.py／retry_missing_sp500_stocks_from_db.py
+    判斷哪些股票還缺資料——都必須在開始寫入前先呼叫這個函式把舊狀態種回
+    本機 store，否則會誤判成「資料庫是空的」：輕則把本來只需要抓最近
+    10 天的增量同步錯當成要從頭回填好幾年，重則讓回填腳本直接判定
+    「資料庫沒有任何美股資料」而中止執行。
+
+    快照檔不存在（例如全新 repo、還沒有任何歷史可種）時安靜略過對應那
+    一份，不視為錯誤——第一次執行本來就該是從零回填。
+    """
+    try:
+        prices = load_us_prices_snapshot()
+    except FileNotFoundError:
+        prices = pd.DataFrame()
+    try:
+        membership = load_us_index_membership_snapshot()
+    except FileNotFoundError:
+        membership = pd.DataFrame()
+
+    if not prices.empty:
+        store.upsert_us_prices(prices)
+    if not membership.empty:
+        store.upsert_us_index_membership(membership)
+
+    return len(prices), len(membership)
+
+
 def export_us_earnings_snapshot(store, path: Path = US_EARNINGS_SNAPSHOT_PATH) -> int:
     """從傳入的 DataStore 讀出目前的 us_earnings 全部內容，寫成 Parquet
     快照檔。回傳列數方便呼叫端印出摘要。
