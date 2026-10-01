@@ -22,9 +22,38 @@ FIELD = 10
 N_FORM = 4
 KEY_FACTORS = Path(__file__).parent / "data" / "key_factors.json"
 OUT = Path(__file__).parent / "data" / "derby.json"
+MANIFEST = Path(__file__).parent / "assets" / "horses" / "manifest.json"
+ADJ = [("疾風", "Swift"), ("烈焰", "Blaze"), ("飛雲", "Skycloud"), ("銀箭", "Silver Arrow"), ("金蹄", "Gold Hoof"),
+       ("雷霆", "Thunder"), ("追月", "Moonchaser"), ("踏雪", "Snowstep"), ("流星", "Comet"), ("驚鴻", "Swan Dive"),
+       ("破浪", "Wavebreaker"), ("鐵衛", "Ironclad"), ("赤兔", "Red Hare"), ("青驄", "Bluemane"), ("白虹", "White Rainbow"),
+       ("紫電", "Violet Bolt"), ("玄影", "Shadowrun"), ("烈陽", "Sunfire"), ("凌霄", "Skyward"), ("奔雷", "Rumble")]
 SECTOR_ZH = {"Information Technology": "科技", "Communication Services": "通訊", "Consumer Discretionary": "非必需消費",
              "Consumer Staples": "必需消費", "Financials": "金融", "Health Care": "醫療", "Industrials": "工業",
              "Energy": "能源", "Utilities": "公用事業", "Real Estate": "房地產", "Materials": "原物料"}
+
+
+def assign_looks(field: list[str], manifest: dict) -> dict[str, dict]:
+    """Horse name + sprite sheet per ticker. Listed companies get a logo-inspired design; the rest a stable
+    generic coat (by ticker hash, never two identical coats in one field) and an adjective+ticker name."""
+    generic = list(manifest["generic"])
+    used: set[str] = set()
+    looks = {}
+    for t in field:
+        b = manifest["brands"].get(t)
+        if b:
+            looks[t] = {"company": b["company"], "horse_zh": b["zh"], "horse_en": b["en"], "sprite": t,
+                        "coat": b["features"], "inspired_by": b["inspired_by"], "silks": b["silks"]}
+            continue
+        h = sum(ord(ch) * (i + 1) for i, ch in enumerate(t))
+        k = h % len(generic)
+        while generic[k] in used:
+            k = (k + 1) % len(generic)
+        used.add(generic[k])
+        zh, en = ADJ[h % len(ADJ)]
+        g = manifest["generic"][generic[k]]
+        looks[t] = {"company": t, "horse_zh": f"{zh}{t}", "horse_en": f"{en} {t}", "sprite": f"generic_{generic[k]}",
+                    "coat": f"{g['zh']}・{g['features']}", "inspired_by": "", "silks": None}
+    return looks
 
 
 def style_label(early_rank: float) -> tuple[str, str]:
@@ -59,7 +88,7 @@ def stars(score: float) -> int:
 def comment(h: dict, factors: list[dict]) -> str:
     ab = sorted(h["ability"].items(), key=lambda kv: -kv[1])
     labels = {f["id"]: f["label"] for f in factors}
-    parts = []
+    parts = [f"{h['horse_zh']}（{h['company']}）"]
     if h["form"] and h["form"][0] is not None:
         wins = sum(1 for x in h["form"] if x is not None and x <= 3)
         parts.append(f"近{sum(x is not None for x in h['form'])}戰{wins}次進前三" if wins else "近績欠佳")
@@ -93,6 +122,7 @@ def build_race(pool_tickers, panels_, fac, kf, sector_of, dk):
     cum = cum / cum.iloc[0] - 1
     final_rank = ranks_of(cum.iloc[-1])
 
+    looks = assign_looks(field, json.loads(MANIFEST.read_text()))
     past = [window_ranks(close, field, start - (k + 1) * N, start - k * N) for k in range(N_FORM)]
     horses = []
     for no, t in enumerate(field, 1):
@@ -104,7 +134,7 @@ def build_race(pool_tickers, panels_, fac, kf, sector_of, dk):
         total = round(float(sum(wi * ability[f["id"]] for wi, f in zip(w, kf))), 1)
         raw = {f["id"]: (None if pd.isna(fac[f["id"]].iloc[start][t]) else round(float(fac[f["id"]].iloc[start][t]), 4)) for f in kf}
         h = {"no": no, "ticker": t, "sector": SECTOR_ZH.get(sector_of.get(t, ""), "—"),
-             "form": form, "style": style, "style_desc": style_desc, "early_rank": round(early_avg, 1),
+             **looks[t], "form": form, "style": style, "style_desc": style_desc, "early_rank": round(early_avg, 1),
              "ability": ability, "raw": raw, "total": total, "stars": stars(total),
              "price_start": round(float(close[t].iloc[start]), 2), "price_end": round(float(close[t].iloc[end]), 2),
              "ret": round(float(cum[t].iloc[-1]), 4), "result": int(final_rank[t]),

@@ -23,7 +23,8 @@
   .date { font-variant-numeric:tabular-nums; font-weight:600; min-width:7em; }
   /* race card */
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin:10px 0; display:grid; grid-template-columns:auto 1fr; gap:4px 12px; }
-  .no { width:36px; height:36px; border-radius:8px; color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; font-size:18px; }
+  .cardsp { display:flex; flex-direction:column; align-items:center; gap:2px; }
+  .no { width:36px; height:24px; border-radius:8px; color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; font-size:18px; }
   .head { display:flex; flex-wrap:wrap; gap:4px 12px; align-items:baseline; }
   .tk { font-size:1.15rem; font-weight:700; } .muted { color:var(--muted); font-size:13px; }
   .mark { font-size:1.3rem; color:var(--gold); font-weight:700; }
@@ -39,11 +40,16 @@
   .cmt { grid-column:1 / -1; font-size:14px; }
   /* track */
   .track { background:var(--grass); border-radius:12px; padding:8px 0; position:relative; overflow:hidden; }
-  .lane { position:relative; height:50px; margin:2px 0; background:var(--track); border-top:2px dashed rgba(255,255,255,.35); }
+  .lane { position:relative; height:62px; margin:2px 0; background:var(--track); border-top:2px dashed rgba(255,255,255,.35); }
   .lane:nth-child(even) { background:var(--track2); }
-  .name { position:absolute; left:8px; top:2px; font-size:12px; color:#fff; text-shadow:0 1px 2px #0008; z-index:2; pointer-events:none; }
-  .horse { position:absolute; top:12px; left:0; transition:left .35s linear; font-size:26px; line-height:1; z-index:1; white-space:nowrap; }
-  .horse .tag { display:inline-block; vertical-align:middle; font-size:11px; font-weight:700; color:#fff; padding:1px 6px; border-radius:10px; margin-left:4px; }
+  .name { position:absolute; left:8px; top:2px; font-size:12px; font-weight:600; color:#fff; text-shadow:0 1px 2px #0008; z-index:2; pointer-events:none; }
+  .horse { position:absolute; top:4px; left:0; transition:left .35s linear; z-index:1; white-space:nowrap; display:flex; align-items:flex-end; }
+  .horse .tag { font-size:11px; font-weight:700; color:#fff; padding:1px 6px; border-radius:10px; margin-left:4px; margin-bottom:6px; }
+  /* 48x36 px pixel sprites, 7 frames per sheet (6 gallop + 1 standing), shown at 1.5x */
+  .sprite { width:72px; height:54px; background-size:504px 54px; background-position:-432px 0; image-rendering:pixelated; flex:none; }
+  .running .sprite, .sprite.live { animation:gallop var(--spd,.55s) steps(6) infinite; }
+  @keyframes gallop { from { background-position:0 0; } to { background-position:-432px 0; } }
+  .swatch { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:3px; border:1px solid var(--line); }
   .finish { position:absolute; right:12px; top:0; bottom:0; width:10px; z-index:1; background:repeating-conic-gradient(#fff 0 25%,#222 0 50%) 0 0/10px 10px; opacity:.85; }
   table { width:100%; border-collapse:collapse; background:var(--card); border-radius:12px; overflow:hidden; margin-top:12px; }
   th, td { padding:6px 10px; text-align:right; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
@@ -58,7 +64,7 @@
 <body>
 <main>
   <h1>🏇 Stock Derby 美股賽馬</h1>
-  <p class="sub">股票當賽馬：看賽馬報選馬，再看誰先衝線。</p>
+  <p class="sub">股票當賽馬：看賽馬報選馬，再看誰先衝線。<a href="gallery.html">🎨 馬匹圖鑑</a></p>
 
   <div class="controls">
     <span>參賽馬群
@@ -108,6 +114,8 @@ function segs() {
     $(id).querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === cur));
 }
 
+const swatch = h => h.silks ? `<span class="swatch" style="background:${h.silks.primary}"></span><span class="swatch" style="background:${h.silks.secondary}"></span>` : "";
+
 function renderCards() {
   const kf = D.key_factors;
   $("info").innerHTML = `<b>${POOL_NAME[pool]}・${DIST_NAME[dist]}賽</b>｜起跑 ${race.start} → 終點 ${race.end}（${race.days} 個交易日）<br>` +
@@ -115,15 +123,15 @@ function renderCards() {
   $("cards").innerHTML = race.horses.map(h => {
     const form = h.form.map(r => `<span class="chip ${r && r <= 3 ? "g" + r : ""}">${r ?? "–"}</span>`).join("");
     const abil = kf.map(f => `<span>${esc(f.label)}</span><div class="bar"><i style="width:${h.ability[f.id]}%"></i></div><span>${Math.round(h.ability[f.id])}</span>`).join("");
-    return `<div class="card"><div class="no" style="background:${COLORS[h.no - 1]}">${h.no}</div>
-      <div class="head"><span class="tk">${esc(h.ticker)}</span><span class="muted">${esc(h.sector)}・人氣 ${h.no}</span>
+    return `<div class="card"><div class="cardsp"><div class="sprite live" style="background-image:url(assets/horses/${h.sprite}.png);--spd:${(.5 + h.no * .03).toFixed(2)}s"></div><div class="no" style="background:${COLORS[h.no - 1]}">${h.no}</div></div>
+      <div class="head"><span class="tk">${esc(h.horse_zh)}</span><span class="muted">${esc(h.horse_en)}・${esc(h.ticker)} ${esc(h.company)}・${esc(h.sector)}</span>
         <span class="mark">${h.mark}</span><span class="stars">${"★".repeat(h.stars)}${"☆".repeat(5 - h.stars)}</span><span class="muted">能力指數 ${h.total}</span></div>
       <div class="body">
         <div><div class="lbl">近績（近 4 場同賽程名次，新→舊）</div><div class="chips">${form}</div>
           <div class="lbl" style="margin-top:8px">跑法</div><span class="badge">${h.style}</span> <span class="muted">${h.style_desc}（前 1/3 段平均第 ${h.early_rank} 名）</span></div>
         <div><div class="lbl">能力（五大關鍵參數，0–100 為馬群內百分位）</div><div class="abil">${abil}</div></div>
       </div>
-      <div class="cmt">📝 ${esc(h.comment)}</div></div>`;
+      <div class="cmt">🎨 花色：${swatch(h)}${esc(h.coat)}${h.inspired_by ? "（靈感：" + esc(h.inspired_by) + "）" : ""}<br>📝 ${esc(h.comment)}</div></div>`;
   }).join("");
   $("factors").innerHTML = `<b>五大關鍵參數怎麼選的？</b> 以 ${D.study.universe_size} 檔成分股、${D.study.period[0]}～${D.study.period[1]} 逐月計算各指標與未來 1/3/6 個月報酬的等級相關（Rank IC），挑出相關性最強且彼此不重複的五項（<code>data/key_factors.json</code> 有完整 12 項比較）：<br>` +
     kf.map(f => `・<b>${esc(f.label)}</b>（${f.group}，${f.sign > 0 ? "越高越好" : "越低越好"}；IC：1M ${f["1m"].ic.toFixed(3)} / 3M ${f["3m"].ic.toFixed(3)} / 6M ${f["6m"].ic.toFixed(3)}）`).join("<br>") +
@@ -132,8 +140,8 @@ function renderCards() {
 
 function drawTrack() {
   $("track").innerHTML = race.horses.map(h =>
-    `<div class="lane" data-n="${h.no}"><span class="name">${h.no} ${esc(h.ticker)}</span>` +
-    `<div class="horse">🏇<span class="tag" style="background:${COLORS[h.no - 1]}"></span></div></div>`).join("") + '<div class="finish"></div>';
+    `<div class="lane" data-n="${h.no}"><span class="name">${h.no} ${esc(h.horse_zh)} ${esc(h.ticker)}</span>` +
+    `<div class="horse"><div class="sprite" style="background-image:url(assets/horses/${h.sprite}.png)"></div><span class="tag" style="background:${COLORS[h.no - 1]}"></span></div></div>`).join("") + '<div class="finish"></div>';
   let lo = 0, hi = 0;           // sqrt-compress so one runaway horse doesn't squash the pack
   race.horses.forEach(h => h.path.forEach(v => { lo = Math.min(lo, squash(v)); hi = Math.max(hi, squash(v)); }));
   race.lo = lo; race.span = (hi - lo) || 1;
@@ -147,21 +155,22 @@ function render() {
   const cur = race.horses.map(h => ({ h, r: h.path[idx] })).sort((a, b) => b.r - a.r);
   for (const { h, r } of cur) {
     const horse = document.querySelector(`.lane[data-n="${h.no}"] .horse`);
-    horse.style.left = (8 + (squash(r) - race.lo) / race.span * (w - 8 - 90)) + "px";
+    horse.style.left = (8 + (squash(r) - race.lo) / race.span * (w - 8 - 150)) + "px";
     horse.querySelector(".tag").textContent = pct(r);
   }
+  cur.forEach(({ h }, i) => document.querySelector(`.lane[data-n="${h.no}"] .sprite`).style.setProperty("--spd", (.38 + i * .035).toFixed(2) + "s"));  // leaders gallop faster
   $("board").querySelector("tbody").innerHTML = cur.map(({ h, r }, i) => {
     const diff = h.pred - (i + 1);
-    return `<tr><td>${last && i === 0 ? "🏆" : i + 1}</td><td>${h.no} ${esc(h.ticker)} <small class="muted">${h.mark}</small></td>` +
+    return `<tr><td>${last && i === 0 ? "🏆" : i + 1}</td><td>${h.no} ${esc(h.horse_zh)} <small class="muted">${esc(h.ticker)}</small> <small class="muted">${h.mark}</small></td>` +
       `<td class="${cls(r)}">${pct(r)}</td><td>${h.pred}</td>` +
       `<td class="${diff >= 0 ? "up" : "down"}">${last ? (diff > 0 ? "▲" + diff : diff < 0 ? "▼" + -diff : "＝") : ""}</td></tr>`;
   }).join("");
 }
 
-function stop() { clearInterval(timer); timer = null; $("play").textContent = "▶ 開跑"; }
+function stop() { clearInterval(timer); timer = null; $("track").classList.remove("running"); $("play").textContent = "▶ 開跑"; }
 function play() {
   if (idx >= race.dates.length - 1) idx = 0;
-  $("play").textContent = "⏸ 暫停";
+  $("play").textContent = "⏸ 暫停"; $("track").classList.add("running");
   timer = setInterval(() => { if (idx >= race.dates.length - 1) return stop(); idx++; render(); }, +$("speed").value);
 }
 

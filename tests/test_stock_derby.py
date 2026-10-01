@@ -66,3 +66,25 @@ def test_committed_derby_json_is_consistent():
             assert sorted(h["result"] for h in race["horses"]) == list(range(1, 11))
             assert all(len(h["path"]) == race["days"] + 1 for h in race["horses"])
             assert len(d["key_factors"]) == 5
+
+
+def test_every_horse_has_sprite_sheet_and_name():
+    import json
+    from PIL import Image
+    d = json.loads((D / "data" / "derby.json").read_text())
+    man = json.loads((D / "assets" / "horses" / "manifest.json").read_text())
+    for pool in d["pools"].values():
+        for race in pool.values():
+            sprites = [h["sprite"] for h in race["horses"]]
+            assert len(set(sprites)) == len(sprites), "no two identical coats in one field"
+            for h in race["horses"]:
+                im = Image.open(D / "assets" / "horses" / f"{h['sprite']}.png")
+                assert im.size == (man["frame_w"] * (man["run_frames"] + 1), man["frame_h"])
+                assert h["horse_zh"] and h["horse_en"] and h["company"]
+
+
+def test_sprite_frames_differ_so_gallop_animates():
+    from PIL import Image, ImageChops
+    im = Image.open(D / "assets" / "horses" / "NVDA.png")
+    fr = [im.crop((i * 48, 0, i * 48 + 48, 36)) for i in range(6)]
+    assert all(ImageChops.difference(fr[i], fr[(i + 1) % 6]).getbbox() for i in range(6))
