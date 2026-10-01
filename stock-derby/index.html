@@ -5,159 +5,186 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Stock Derby 美股賽馬</title>
 <style>
-  :root { --bg:#f6f4ee; --fg:#1d2b1f; --track:#c9a66b; --track2:#bd9a5e; --grass:#4c8a4a; --card:#fffdf7; --muted:#6b7367; --up:#1a8f4c; --down:#d23b3b; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#14181a; --fg:#e8ece6; --track:#7d6638; --track2:#725d33; --grass:#2f5a2e; --card:#1d2326; --muted:#98a39a; } }
+  :root { --bg:#f6f4ee; --fg:#1d2b1f; --track:#c9a66b; --track2:#bd9a5e; --grass:#4c8a4a; --card:#fffdf7; --muted:#6b7367; --up:#1a8f4c; --down:#d23b3b; --line:rgba(128,128,128,.25); --gold:#d4a017; --accent:#2f6b3a; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14181a; --fg:#e8ece6; --track:#7d6638; --track2:#725d33; --grass:#2f5a2e; --card:#1d2326; --muted:#98a39a; --accent:#6fbf7a; } }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,-apple-system,"Noto Sans TC",sans-serif; }
-  main { max-width:960px; margin:0 auto; padding:16px; }
-  h1 { margin:0 0 4px; font-size:1.5rem; }
-  .sub { color:var(--muted); margin:0 0 16px; }
-  .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
-  button, select { font:inherit; padding:6px 12px; border-radius:8px; border:1px solid var(--muted); background:var(--card); color:var(--fg); cursor:pointer; }
+  main { max-width:1000px; margin:0 auto; padding:16px; }
+  h1 { margin:0 0 4px; font-size:1.5rem; } h2 { font-size:1.15rem; margin:24px 0 8px; }
+  .sub { color:var(--muted); margin:0 0 12px; }
+  .controls { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin:8px 0; }
+  .seg { display:inline-flex; border:1px solid var(--muted); border-radius:8px; overflow:hidden; }
+  .seg button { border:0; border-radius:0; border-right:1px solid var(--line); }
+  .seg button:last-child { border-right:0; }
+  .seg button.on { background:var(--accent); color:#fff; }
+  button, select { font:inherit; padding:6px 12px; border:1px solid var(--muted); border-radius:8px; background:var(--card); color:var(--fg); cursor:pointer; }
   button.primary { background:var(--grass); color:#fff; border-color:var(--grass); }
   input[type=range] { flex:1; min-width:140px; }
   .date { font-variant-numeric:tabular-nums; font-weight:600; min-width:7em; }
+  /* race card */
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin:10px 0; display:grid; grid-template-columns:auto 1fr; gap:4px 12px; }
+  .no { width:36px; height:36px; border-radius:8px; color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; font-size:18px; }
+  .head { display:flex; flex-wrap:wrap; gap:4px 12px; align-items:baseline; }
+  .tk { font-size:1.15rem; font-weight:700; } .muted { color:var(--muted); font-size:13px; }
+  .mark { font-size:1.3rem; color:var(--gold); font-weight:700; }
+  .body { grid-column:1 / -1; display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:8px 20px; }
+  .lbl { font-size:12px; color:var(--muted); margin-bottom:2px; }
+  .chips { display:flex; gap:4px; }
+  .chip { min-width:28px; text-align:center; padding:1px 6px; border-radius:6px; background:var(--line); font-weight:600; font-variant-numeric:tabular-nums; }
+  .chip.g1 { background:var(--gold); color:#fff; } .chip.g2 { background:#9aa3ab; color:#fff; } .chip.g3 { background:#b87333; color:#fff; }
+  .badge { display:inline-block; padding:1px 8px; border-radius:10px; background:var(--accent); color:#fff; font-size:13px; font-weight:600; }
+  .abil { display:grid; grid-template-columns:minmax(120px,auto) 1fr 32px; gap:2px 8px; align-items:center; font-size:13px; }
+  .bar { height:8px; border-radius:4px; background:var(--line); overflow:hidden; } .bar i { display:block; height:100%; background:var(--accent); }
+  .stars { color:var(--gold); letter-spacing:1px; }
+  .cmt { grid-column:1 / -1; font-size:14px; }
+  /* track */
   .track { background:var(--grass); border-radius:12px; padding:8px 0; position:relative; overflow:hidden; }
   .lane { position:relative; height:50px; margin:2px 0; background:var(--track); border-top:2px dashed rgba(255,255,255,.35); }
   .lane:nth-child(even) { background:var(--track2); }
   .name { position:absolute; left:8px; top:2px; font-size:12px; color:#fff; text-shadow:0 1px 2px #0008; z-index:2; pointer-events:none; }
-  .horse { position:absolute; top:12px; left:0; transition:left .35s linear; font-size:28px; line-height:1; z-index:1; white-space:nowrap; }
+  .horse { position:absolute; top:12px; left:0; transition:left .35s linear; font-size:26px; line-height:1; z-index:1; white-space:nowrap; }
   .horse .tag { display:inline-block; vertical-align:middle; font-size:11px; font-weight:700; color:#fff; padding:1px 6px; border-radius:10px; margin-left:4px; }
   .finish { position:absolute; right:12px; top:0; bottom:0; width:10px; z-index:1; background:repeating-conic-gradient(#fff 0 25%,#222 0 50%) 0 0/10px 10px; opacity:.85; }
-  table { width:100%; border-collapse:collapse; background:var(--card); border-radius:12px; overflow:hidden; margin-top:16px; }
-  th, td { padding:8px 12px; text-align:right; border-bottom:1px solid rgba(128,128,128,.2); font-variant-numeric:tabular-nums; }
-  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align:left; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border-radius:12px; overflow:hidden; margin-top:12px; }
+  th, td { padding:6px 10px; text-align:right; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
+  th:nth-child(-n+2), td:nth-child(-n+2) { text-align:left; }
   .up { color:var(--up); } .down { color:var(--down); }
-  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; }
+  .box { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 14px; font-size:13px; color:var(--muted); }
+  .box b { color:var(--fg); }
   #msg { padding:24px; text-align:center; color:var(--muted); }
-  footer { color:var(--muted); font-size:12px; margin-top:16px; }
+  footer { color:var(--muted); font-size:12px; margin:20px 0; }
 </style>
 </head>
 <body>
 <main>
   <h1>🏇 Stock Derby 美股賽馬</h1>
-  <p class="sub">每匹馬代表一檔美股，跑得越前面代表賽程區間內累積漲幅越大。</p>
+  <p class="sub">股票當賽馬：看賽馬報選馬，再看誰先衝線。</p>
 
   <div class="controls">
-    <label>賽程 <select id="window">
-      <option value="5">近 5 個交易日</option>
-      <option value="20" selected>近 20 個交易日</option>
-      <option value="60">近 60 個交易日</option>
-      <option value="0">全部資料</option>
-    </select></label>
-    <button id="play" class="primary">▶ 開跑</button>
-    <button id="reset">⏮ 重來</button>
-    <label>速度 <select id="speed"><option value="900">慢</option><option value="450" selected>中</option><option value="180">快</option></select></label>
+    <span>參賽馬群
+      <span class="seg" id="pool"><button data-v="spx">S&amp;P 500</button><button data-v="ndx">Nasdaq-100</button><button data-v="all">兩者合併</button></span></span>
+    <span>賽程
+      <span class="seg" id="dist"><button data-v="1m">1 個月</button><button data-v="3m">3 個月</button><button data-v="6m">6 個月</button></span></span>
   </div>
-  <div class="controls">
-    <span class="date" id="date"></span>
-    <input type="range" id="scrub" min="0" max="0" value="0">
-  </div>
-
   <div id="msg">載入資料中…</div>
-  <div class="track" id="track" hidden></div>
-  <table id="board" hidden>
-    <thead><tr><th>名次</th><th>馬匹</th><th>收盤價</th><th>累積報酬</th><th>當日</th></tr></thead>
-    <tbody></tbody>
-  </table>
+  <div id="app" hidden>
+    <div class="box" id="info"></div>
+
+    <h2>📋 賽馬報</h2>
+    <div id="cards"></div>
+    <div class="box" id="factors"></div>
+
+    <h2>🏁 賽事</h2>
+    <div class="controls">
+      <button id="play" class="primary">▶ 開跑</button>
+      <button id="reset">⏮ 重來</button>
+      <label>速度 <select id="speed"><option value="900">慢</option><option value="450" selected>中</option><option value="180">快</option></select></label>
+      <span class="date" id="date"></span>
+      <input type="range" id="scrub" min="0" max="0" value="0">
+    </div>
+    <div class="track" id="track"></div>
+    <table id="board"><thead><tr><th>名次</th><th>馬匹</th><th>報酬</th><th>賽前預測</th><th>名次差</th></tr></thead><tbody></tbody></table>
+  </div>
   <footer id="foot"></footer>
 </main>
 
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-let racers = [], dates = [], prices = {}, days = [], idx = 0, timer = null;
+const COLORS = ["#e5484d","#4f8df7","#76b900","#f5a623","#a855f7","#14b8a6","#ec4899","#6b7280","#0ea5e9","#84cc16"];
+const POOL_NAME = { spx: "S&P 500", ndx: "Nasdaq-100", all: "S&P 500 + Nasdaq-100" };
+const DIST_NAME = { "1m": "1個月", "3m": "3個月", "6m": "6個月" };
+let D, pool = "all", dist = "3m", race, idx = 0, timer = null;
+try { pool = localStorage.getItem("derby.pool") || pool; dist = localStorage.getItem("derby.dist") || dist; } catch (e) {}
 
-async function load() {
-  const [tk, csv] = await Promise.all([
-    fetch("tickers.json").then(r => r.json()),
-    fetch("data/prices.csv").then(r => r.text()),
-  ]);
-  racers = tk;
-  const lines = csv.trim().split(/\r?\n/);
-  const cols = lines[0].split(",").slice(1);
-  dates = []; prices = Object.fromEntries(cols.map(c => [c, []]));
-  for (const line of lines.slice(1)) {
-    const f = line.split(",");
-    dates.push(f[0]);
-    cols.forEach((c, i) => prices[c].push(f[i + 1] === "" ? null : parseFloat(f[i + 1])));
-  }
-  racers = racers.filter(r => prices[r.ticker]);
+const pct = (v, d = 2) => (v >= 0 ? "+" : "") + (v * 100).toFixed(d) + "%";
+const squash = v => Math.sign(v) * Math.sqrt(Math.abs(v));
+const cls = v => v >= 0 ? "up" : "down";
+const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+function fmtRaw(f, v) { return v == null ? "—" : f.fmt === "pct" ? pct(v, 1) : v.toFixed(2); }
+
+function segs() {
+  for (const [id, cur] of [["pool", pool], ["dist", dist]])
+    $(id).querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === cur));
 }
 
-// Position data for the chosen window: cumulative return vs. the window's first day.
-function buildRace() {
-  const n = +$("window").value;
-  const start = n ? Math.max(0, dates.length - 1 - n) : 0;
-  days = [];
-  for (let d = start; d < dates.length; d++) {
-    days.push({ date: dates[d], rows: racers.map(r => {
-      const p = prices[r.ticker], base = firstValid(p, start), cur = p[d] ?? lastValid(p, d);
-      const prev = d > start ? (p[d - 1] ?? cur) : cur;
-      return { ...r, price: cur, ret: base ? cur / base - 1 : 0, day: prev ? cur / prev - 1 : 0 };
-    }) });
-  }
-  let lo = 0, hi = 0;
-  days.forEach(day => day.rows.forEach(r => { lo = Math.min(lo, r.ret); hi = Math.max(hi, r.ret); }));
-  days.lo = lo; days.span = (hi - lo) || 1;
-  $("scrub").max = days.length - 1;
-  idx = 0;
-  drawTrack();
-  render();
+function renderCards() {
+  const kf = D.key_factors;
+  $("info").innerHTML = `<b>${POOL_NAME[pool]}・${DIST_NAME[dist]}賽</b>｜起跑 ${race.start} → 終點 ${race.end}（${race.days} 個交易日）<br>` +
+    `參賽陣容：起跑前 60 日平均成交金額最高的 10 檔（人氣馬）。賽馬報的近績、跑法、能力都只用<b>起跑日以前</b>的資料。`;
+  $("cards").innerHTML = race.horses.map(h => {
+    const form = h.form.map(r => `<span class="chip ${r && r <= 3 ? "g" + r : ""}">${r ?? "–"}</span>`).join("");
+    const abil = kf.map(f => `<span>${esc(f.label)}</span><div class="bar"><i style="width:${h.ability[f.id]}%"></i></div><span>${Math.round(h.ability[f.id])}</span>`).join("");
+    return `<div class="card"><div class="no" style="background:${COLORS[h.no - 1]}">${h.no}</div>
+      <div class="head"><span class="tk">${esc(h.ticker)}</span><span class="muted">${esc(h.sector)}・人氣 ${h.no}</span>
+        <span class="mark">${h.mark}</span><span class="stars">${"★".repeat(h.stars)}${"☆".repeat(5 - h.stars)}</span><span class="muted">能力指數 ${h.total}</span></div>
+      <div class="body">
+        <div><div class="lbl">近績（近 4 場同賽程名次，新→舊）</div><div class="chips">${form}</div>
+          <div class="lbl" style="margin-top:8px">跑法</div><span class="badge">${h.style}</span> <span class="muted">${h.style_desc}（前 1/3 段平均第 ${h.early_rank} 名）</span></div>
+        <div><div class="lbl">能力（五大關鍵參數，0–100 為馬群內百分位）</div><div class="abil">${abil}</div></div>
+      </div>
+      <div class="cmt">📝 ${esc(h.comment)}</div></div>`;
+  }).join("");
+  $("factors").innerHTML = `<b>五大關鍵參數怎麼選的？</b> 以 ${D.study.universe_size} 檔成分股、${D.study.period[0]}～${D.study.period[1]} 逐月計算各指標與未來 1/3/6 個月報酬的等級相關（Rank IC），挑出相關性最強且彼此不重複的五項（<code>data/key_factors.json</code> 有完整 12 項比較）：<br>` +
+    kf.map(f => `・<b>${esc(f.label)}</b>（${f.group}，${f.sign > 0 ? "越高越好" : "越低越好"}；IC：1M ${f["1m"].ic.toFixed(3)} / 3M ${f["3m"].ic.toFixed(3)} / 6M ${f["6m"].ic.toFixed(3)}）`).join("<br>") +
+    `<br>⚠️ 這些相關性都很弱（IC 約 0.01–0.06）、且成分股名單有存活者偏差，能力指數只是遊戲化的參考，不是預測。◎○▲△ 為能力指數前 5 名。籌碼面因美股沒有免費的法人資料，以量價資金流向指標代替，本次研究中未入選。`;
 }
-const firstValid = (p, from) => { for (let i = from; i < p.length; i++) if (p[i] != null) return p[i]; };
-const lastValid = (p, to) => { for (let i = to; i >= 0; i--) if (p[i] != null) return p[i]; };
 
 function drawTrack() {
-  $("track").innerHTML = racers.map(r =>
-    `<div class="lane" data-t="${r.ticker}"><span class="name">${r.ticker} · ${r.horse}</span>` +
-    `<div class="horse">🏇<span class="tag" style="background:${r.color}"></span></div></div>`).join("") + '<div class="finish"></div>';
+  $("track").innerHTML = race.horses.map(h =>
+    `<div class="lane" data-n="${h.no}"><span class="name">${h.no} ${esc(h.ticker)}</span>` +
+    `<div class="horse">🏇<span class="tag" style="background:${COLORS[h.no - 1]}"></span></div></div>`).join("") + '<div class="finish"></div>';
+  let lo = 0, hi = 0;           // sqrt-compress so one runaway horse doesn't squash the pack
+  race.horses.forEach(h => h.path.forEach(v => { lo = Math.min(lo, squash(v)); hi = Math.max(hi, squash(v)); }));
+  race.lo = lo; race.span = (hi - lo) || 1;
+  $("scrub").max = race.dates.length - 1;
 }
 
-const pct = v => (v >= 0 ? "+" : "") + (v * 100).toFixed(2) + "%";
-const cls = v => v >= 0 ? "up" : "down";
-
 function render() {
-  const day = days[idx];
-  $("date").textContent = day.date;
+  $("date").textContent = race.dates[idx];
   $("scrub").value = idx;
-  const laneW = $("track").clientWidth;
-  const ranked = [...day.rows].sort((a, b) => b.ret - a.ret);
-  for (const r of day.rows) {
-    const lane = document.querySelector(`.lane[data-t="${r.ticker}"]`);
-    const frac = (r.ret - days.lo) / days.span;           // 0 = worst ever in window, 1 = best ever
-    const x = 8 + frac * (laneW - 8 - 90);
-    const horse = lane.querySelector(".horse");
-    horse.style.left = x + "px";
-    horse.querySelector(".tag").textContent = pct(r.ret);
+  const w = $("track").clientWidth, last = idx === race.dates.length - 1;
+  const cur = race.horses.map(h => ({ h, r: h.path[idx] })).sort((a, b) => b.r - a.r);
+  for (const { h, r } of cur) {
+    const horse = document.querySelector(`.lane[data-n="${h.no}"] .horse`);
+    horse.style.left = (8 + (squash(r) - race.lo) / race.span * (w - 8 - 90)) + "px";
+    horse.querySelector(".tag").textContent = pct(r);
   }
-  $("board").querySelector("tbody").innerHTML = ranked.map((r, i) =>
-    `<tr><td>${idx === days.length - 1 && i === 0 ? "🏆" : i + 1}</td>` +
-    `<td><span class="dot" style="background:${r.color}"></span>${r.ticker} <small>${r.horse}</small></td>` +
-    `<td>$${r.price.toFixed(2)}</td><td class="${cls(r.ret)}">${pct(r.ret)}</td><td class="${cls(r.day)}">${pct(r.day)}</td></tr>`).join("");
+  $("board").querySelector("tbody").innerHTML = cur.map(({ h, r }, i) => {
+    const diff = h.pred - (i + 1);
+    return `<tr><td>${last && i === 0 ? "🏆" : i + 1}</td><td>${h.no} ${esc(h.ticker)} <small class="muted">${h.mark}</small></td>` +
+      `<td class="${cls(r)}">${pct(r)}</td><td>${h.pred}</td>` +
+      `<td class="${diff >= 0 ? "up" : "down"}">${last ? (diff > 0 ? "▲" + diff : diff < 0 ? "▼" + -diff : "＝") : ""}</td></tr>`;
+  }).join("");
 }
 
 function stop() { clearInterval(timer); timer = null; $("play").textContent = "▶ 開跑"; }
 function play() {
-  if (idx >= days.length - 1) idx = 0;
+  if (idx >= race.dates.length - 1) idx = 0;
   $("play").textContent = "⏸ 暫停";
-  timer = setInterval(() => {
-    if (idx >= days.length - 1) return stop();
-    idx++; render();
-  }, +$("speed").value);
+  timer = setInterval(() => { if (idx >= race.dates.length - 1) return stop(); idx++; render(); }, +$("speed").value);
 }
 
+function select() {
+  stop(); segs();
+  race = D.pools[pool][dist]; idx = 0;
+  renderCards(); drawTrack(); render();
+  try { localStorage.setItem("derby.pool", pool); localStorage.setItem("derby.dist", dist); } catch (e) {}
+}
+
+$("pool").onclick = e => { if (e.target.dataset.v) { pool = e.target.dataset.v; select(); } };
+$("dist").onclick = e => { if (e.target.dataset.v) { dist = e.target.dataset.v; select(); } };
 $("play").onclick = () => timer ? stop() : play();
 $("reset").onclick = () => { stop(); idx = 0; render(); };
 $("scrub").oninput = e => { stop(); idx = +e.target.value; render(); };
-$("window").onchange = () => { stop(); buildRace(); };
 $("speed").onchange = () => { if (timer) { stop(); play(); } };
-window.addEventListener("resize", () => days.length && render());
+window.addEventListener("resize", () => race && render());
 
-load().then(() => {
-  $("msg").hidden = true; $("track").hidden = false; $("board").hidden = false;
-  $("foot").textContent = `資料：${dates[0]} ~ ${dates[dates.length - 1]}（每日由 GitHub Actions 自動更新）。僅供娛樂，非投資建議。`;
-  buildRace();
+fetch("data/derby.json").then(r => r.json()).then(d => {
+  D = d; if (!D.pools[pool]) pool = "all"; if (!D.pools[pool][dist]) dist = "3m";
+  $("msg").hidden = true; $("app").hidden = false;
+  $("foot").textContent = `資料更新至 ${D.asof}（每個交易日由 GitHub Actions 自動更新）。僅供娛樂，非投資建議。`;
+  select();
 }).catch(e => { $("msg").textContent = "資料載入失敗：" + e.message; });
 </script>
 </body>

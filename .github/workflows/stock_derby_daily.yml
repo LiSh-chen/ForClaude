@@ -1,17 +1,24 @@
-name: Stock Derby Daily Prices
+name: Stock Derby Daily Build
 
-# 每個美股交易日收盤後抓取賽馬用的股價，寫進 stock-derby/data/prices.csv
-# 並 commit 回 repo（GitHub 即資料庫），最後把 stock-derby/ 發佈到 GitHub Pages。
+# S&P 500 的每日股價由既有的 "Daily US Market Data Ingest" 寫進 data/us_prices_snapshot*.parquet；
+# 它跑完後這個 workflow 接著：
+#   1. fetch_extras.py  補抓「不在 S&P 500 快照裡」的 Nasdaq-100 成分股（yfinance → stock-derby/data/extra_prices.csv）
+#   2. build_derby.py   重算賽馬報與賽事 → stock-derby/data/derby.json
+#   3. commit 資料回 repo（GitHub 即資料庫），並發佈 stock-derby/ 到 GitHub Pages
 # 需要在 repo Settings → Pages → Source 選 "GitHub Actions"。
+# 手動執行 refresh_factors=true 可重跑因子研究（factor_study.py），重新挑選五大關鍵參數。
 
 on:
-  schedule:
-    - cron: "30 21 * * 1-5"   # 美東收盤後（夏令 16:30 ET = 21:30 UTC）
+  workflow_run:
+    workflows: ["Daily US Market Data Ingest"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
-      days:
-        description: "強制回填幾個日曆天（0 = 增量更新）"
-        default: "0"
+      refresh_factors:
+        description: "重跑因子研究、重新挑選五大關鍵參數"
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths: ["stock-derby/**"]
@@ -26,23 +33,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  fetch:
+  build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: stock-derby
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install pandas yfinance
-      - name: Fetch prices
-        if: github.event_name != 'push'
-        run: python stock-derby/fetch_prices.py --days "${{ inputs.days || 0 }}"
+      - run: pip install pandas numpy pyarrow yfinance requests lxml
+      - name: Top up Nasdaq-100 names missing from the S&P snapshot
+        run: python fetch_extras.py
+      - name: Re-pick the five key factors
+        if: inputs.refresh_factors
+        run: python factor_study.py
+      - name: Build race cards
+        run: python build_derby.py
       - name: Commit data
-        if: github.event_name != 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add stock-derby/data/prices.csv
-          git diff --cached --quiet || git commit -m "chore: stock-derby daily prices $(date -u +%F)"
+          git add data
+          git diff --cached --quiet || git commit -m "chore: stock-derby data $(date -u +%F)"
           git push
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
