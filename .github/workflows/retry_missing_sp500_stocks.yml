@@ -4,7 +4,8 @@ name: Retry Missing S&P 500 Stocks (period=max)
 # 改用 period="max"（要 yfinance 有的全部歷史，不指定 start/end 窗口）
 # 重試一次，篩出「查詢窗口設錯」造成的假陰性（見
 # scripts/retry_missing_sp500_stocks_from_db.py 檔頭的完整背景說明）。
-# 會真的寫入資料庫（不是唯讀診斷），但是 upsert-based，冪等，可以安全重跑。
+# 會真的寫入 Parquet 快照（不是唯讀診斷），但是 upsert-based 合併，冪等，
+# 可以安全重跑。
 
 on:
   workflow_dispatch:
@@ -29,19 +30,14 @@ jobs:
       - name: Run test suite (regression guard)
         run: python -m pytest tests/ -q
 
+      # scripts/retry_missing_sp500_stocks_from_db.py 直接合併寫回 Parquet
+      # 快照，不經過 SQLite，不需要另外的「匯出」步驟。us_prices 可能被
+      # 拆成多個 part 檔案（見 tw_quant/data_snapshot.py 檔頭說明），下面
+      # 用 -A + glob 一併 git add。
       - name: Retry missing S&P 500 stocks with period=max
         env:
           PYTHONUNBUFFERED: "1"
         run: python scripts/retry_missing_sp500_stocks_from_db.py
-
-      # 見 us_daily_data_ingest.yml 同一個步驟的說明：把回填後的最新資料
-      # 匯出成 Parquet 快照 commit 回 repo，策略腳本才能改讀本機檔案、
-      # 不用再連資料庫整表撈一次。us_prices 可能被拆成多個 part 檔案，
-      # 用 -A + glob 一併 git add。
-      - name: Export US data snapshot for strategy scripts
-        env:
-          PYTHONUNBUFFERED: "1"
-        run: python scripts/export_us_data_snapshot.py
 
       - name: Commit US data snapshot
         run: |
@@ -61,8 +57,7 @@ jobs:
           done
           git push
 
-      # 見 backfill_removed_sp500_stocks.yml 同一個步驟的說明：這裡刻意不
-      # commit data/tw_market.db——scripts/retry_missing_sp500_stocks_from_db.py
-      # 開頭已經會呼叫 seed_store_from_us_snapshot() 把上面剛 commit 的
-      # Parquet 快照種回本機 SQLite，不需要靠 commit 原始 SQLite 檔案保留
-      # 狀態；而且這份 SQLite 種完歷史後會超過 GitHub 的 100MB 單檔上限。
+      # 2026-09-30：這支 workflow 完全不碰 SQLite 了，沒有東西可 commit——
+      # scripts/retry_missing_sp500_stocks_from_db.py 直接讀寫 Parquet
+      # 快照，上面「Commit US data snapshot」那步就是唯一需要的持久化
+      # 動作。

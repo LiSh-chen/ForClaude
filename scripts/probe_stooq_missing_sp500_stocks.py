@@ -25,7 +25,9 @@ from tw_quant.sp500_history import (
     find_missing_intervals,
     parse_snapshot_table,
 )
-from tw_quant.storage import get_data_store
+import pandas as pd
+
+from tw_quant.data_snapshot import load_us_prices_snapshot
 from tw_quant.stooq_provider import fetch_stooq_price
 
 SLEEP_SECONDS = 1.0  # 對 Stooq 客氣一點，避免連續呼叫被暫時限速
@@ -57,10 +59,12 @@ def probe_one(stock_id: str, needed_start, needed_end, fetch_fn=fetch_stooq_pric
 
 
 def main() -> None:
-    store = get_data_store()
-    us_prices = store.load_us_prices()
+    try:
+        us_prices = load_us_prices_snapshot()
+    except FileNotFoundError:
+        us_prices = pd.DataFrame()
     if us_prices.empty:
-        print("資料庫裡沒有任何美股價量資料。", file=sys.stderr)
+        print("Parquet 快照裡沒有任何美股價量資料。", file=sys.stderr)
         sys.exit(1)
 
     db_stock_ids = set(us_prices["stock_id"].unique())

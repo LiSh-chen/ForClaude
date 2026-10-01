@@ -37,7 +37,7 @@ from tw_quant.sp500_history import (
     find_missing_intervals,
     parse_snapshot_table,
 )
-from tw_quant.storage import get_data_store
+from tw_quant.data_snapshot import load_us_prices_snapshot
 
 
 def _fmt_date(d) -> str:
@@ -45,10 +45,12 @@ def _fmt_date(d) -> str:
 
 
 def main() -> None:
-    store = get_data_store()
-    us_prices = store.load_us_prices()
+    try:
+        us_prices = load_us_prices_snapshot()
+    except FileNotFoundError:
+        us_prices = pd.DataFrame()
     if us_prices.empty:
-        print("資料庫裡沒有任何美股價量資料。", file=sys.stderr)
+        print("Parquet 快照裡沒有任何美股價量資料。", file=sys.stderr)
         sys.exit(1)
 
     db_stock_ids = set(us_prices["stock_id"].unique())

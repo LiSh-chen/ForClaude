@@ -23,7 +23,11 @@ period="max" 直接要全部歷史，繞開「查詢窗口設錯」這個可能�
 下市後就不會再有任何資料源持續收錄「正常股價」，這不是查詢方式能解決的
 問題（見 test_us_momentum_2008_crisis_from_db.py 檔頭的完整討論）。
 
-冪等：跟 backfill_removed_sp500_stocks.py 一樣用 upsert，可以安全重跑。
+冪等：跟 backfill_removed_sp500_stocks.py 一樣用 upsert 合併，可以安全重跑。
+
+2026-09-30 起不再經過 tw_quant/storage.py 的 DataStore/SQLite：直接讀寫
+本機已 commit 的 Parquet 快照（見 tw_quant/data_snapshot.py 開頭
+「2026-09-30 退役 SQLite」說明）。
 
 用法：
     python scripts/retry_missing_sp500_stocks_from_db.py
@@ -40,14 +44,17 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tw_quant.data_snapshot import seed_store_from_us_snapshot
+from tw_quant.data_snapshot import (
+    load_us_prices_snapshot,
+    upsert_us_index_membership_snapshot,
+    upsert_us_prices_snapshot,
+)
 from tw_quant.sp500_history import (
     build_membership_intervals,
     fetch_snapshot_csv_text,
     find_missing_intervals,
     parse_snapshot_table,
 )
-from tw_quant.storage import get_data_store
 from tw_quant.us_data_provider import YFinanceUSDataProvider
 
 SLEEP_SECONDS = 1.0
@@ -57,18 +64,24 @@ SLEEP_SECONDS = 1.0
 EXCLUDED_ANOMALOUS_TICKERS = {"AVB", "EQR"}
 
 
-def retry_one(store, provider: YFinanceUSDataProvider, row) -> dict:
+def retry_one(provider: YFinanceUSDataProvider, row) -> dict:
     """用 period="max" 重試一檔股票，篩選出 clipped_start~clipped_end
-    範圍內的資料才寫入。回傳結果摘要，獨立成函式方便測試。
+    範圍內的資料。回傳結果摘要（成功時含抓到的 price_df/membership_row），
+    獨立成函式方便測試。刻意不在這裡直接寫回 Parquet 快照，理由見
+    backfill_removed_sp500_stocks.py 的 backfill_one 同一處說明——main()
+    收集所有結果後只在最後合併寫入一次。
     """
     stock_id = row.stock_id
     try:
         full_history = provider.fetch_price_full_history(stock_id)
     except Exception as exc:  # noqa: BLE001
-        return {"stock_id": stock_id, "written": False, "rows": 0, "error": f"{type(exc).__name__}: {exc}"}
+        return {
+            "stock_id": stock_id, "written": False, "rows": 0, "error": f"{type(exc).__name__}: {exc}",
+            "price_df": None, "membership_row": None,
+        }
 
     if full_history.empty:
-        return {"stock_id": stock_id, "written": False, "rows": 0, "error": None}
+        return {"stock_id": stock_id, "written": False, "rows": 0, "error": None, "price_df": None, "membership_row": None}
 
     windowed = full_history[
         (full_history["date"] >= row.clipped_start) & (full_history["date"] <= row.clipped_end)
@@ -77,13 +90,12 @@ def retry_one(store, provider: YFinanceUSDataProvider, row) -> dict:
         return {
             "stock_id": stock_id, "written": False, "rows": 0,
             "error": f"period=max 抓到 {len(full_history)} 列但都落在查詢窗口外（{row.clipped_start.date()}~{row.clipped_end.date()}）",
+            "price_df": None, "membership_row": None,
         }
 
-    store.upsert_us_prices(windowed)
     membership_row = pd.DataFrame({"stock_id": [stock_id], "start_date": [row.start_date], "end_date": [row.end_date]})
-    store.upsert_us_index_membership(membership_row)
 
-    return {"stock_id": stock_id, "written": True, "rows": len(windowed), "error": None}
+    return {"stock_id": stock_id, "written": True, "rows": len(windowed), "error": None, "price_df": windowed, "membership_row": membership_row}
 
 
 def _error_category(error: str | None) -> str:
@@ -99,13 +111,12 @@ def _error_category(error: str | None) -> str:
 
 
 def main() -> None:
-    store = get_data_store()
-    # 見 backfill_removed_sp500_stocks.py 同一處的說明：本機 SQLite 每次
-    # 執行都是全新的，要先把既有歷史種回來才能正確判斷哪些股票還缺資料。
-    seed_store_from_us_snapshot(store)
-    us_prices = store.load_us_prices()
+    try:
+        us_prices = load_us_prices_snapshot()
+    except FileNotFoundError:
+        us_prices = pd.DataFrame()
     if us_prices.empty:
-        print("資料庫裡沒有任何美股價量資料。", file=sys.stderr)
+        print("Parquet 快照裡沒有任何美股價量資料。", file=sys.stderr)
         sys.exit(1)
 
     db_stock_ids = set(us_prices["stock_id"].unique())
@@ -125,10 +136,10 @@ def main() -> None:
     provider = YFinanceUSDataProvider()
     results = []
     for i, row in enumerate(missing.itertuples(), start=1):
-        result = retry_one(store, provider, row)
+        result = retry_one(provider, row)
         results.append(result)
         if result["written"]:
-            print(f"[{i}/{n_stocks}] ✓ {row.stock_id}：新增寫入 {result['rows']} 列")
+            print(f"[{i}/{n_stocks}] ✓ {row.stock_id}：新抓到 {result['rows']} 列")
         else:
             note = f"（{result['error']}）" if result["error"] else "（查無資料，跳過）"
             print(f"[{i}/{n_stocks}] ✗ {row.stock_id} {note}")
@@ -136,6 +147,18 @@ def main() -> None:
 
     written = [r for r in results if r["written"]]
     skipped = [r for r in results if not r["written"]]
+
+    if written:
+        all_prices = pd.concat([r["price_df"] for r in written], ignore_index=True)
+        all_membership = pd.concat([r["membership_row"] for r in written], ignore_index=True)
+        n_prices_total = upsert_us_prices_snapshot(all_prices)
+        n_membership_total = upsert_us_index_membership_snapshot(all_membership)
+        print(
+            f"\n已合併進 Parquet 快照：價量快照現在共 {n_prices_total} 列，"
+            f"成分股區間快照現在共 {n_membership_total} 筆"
+        )
+    else:
+        print("\n沒有任何股票成功抓到資料，快照維持不變。")
 
     print(f"\n=== 重試結果：{n_stocks} 檔裡，新補上 {len(written)} 檔、依然查無資料 {len(skipped)} 檔 ===\n")
     print("新補上：")

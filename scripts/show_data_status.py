@@ -1,11 +1,12 @@
-"""印出資料庫目前實際的內容：每檔股票的資料範圍與筆數。
+"""印出目前實際的資料狀態：每檔股票的資料範圍與筆數。
 
-跟 ingest_daily_data.py 共用 get_data_store()，所以不管現在是本機 SQLite
-還是雲端 Postgres 都直接看得到真實狀態。這支腳本會在每次
-daily_data_ingest.yml 執行後自動跑一次（見該 workflow 的
-"Show current data status" 步驟，用 `if: always()` 確保就算抓取那步失敗
-或逾時也一樣會印出目前資料庫裡實際有什麼），方便不用另外手動診斷就能看到
-真實進度。
+台股資料跟 ingest_daily_data.py 共用 get_data_store()（本機 SQLite，
+見 tw_quant/storage.py 開頭說明）。美股資料 2026-09-30 起已經不經過
+SQLite，直接讀 Parquet 快照（tw_quant/data_snapshot.py 的
+load_us_prices_snapshot，見該檔案「2026-09-30 退役 SQLite」說明）——這支
+腳本在台股/美股兩個每日排程 workflow 裡都會跑一次（用 `if: always()`
+確保就算抓取那步失敗或逾時也一樣會印出目前實際有什麼），方便不用另外
+手動診斷就能看到真實進度。
 
 用法：
     python scripts/show_data_status.py
@@ -18,18 +19,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tw_quant.storage import get_data_store
+import pandas as pd
+
+from tw_quant.data_snapshot import load_us_prices_snapshot
+from tw_quant.storage import PRICE_COLS, get_data_store
 
 
 def main() -> None:
     store = get_data_store()
     prices = store.load_prices()
     margin = store.load_margin_short()
-    us_prices = store.load_us_prices()
+    try:
+        us_prices = load_us_prices_snapshot()
+    except FileNotFoundError:
+        us_prices = pd.DataFrame(columns=PRICE_COLS)
 
     print(f"prices（台股）總筆數: {len(prices)}")
     print(f"margin_short 總筆數: {len(margin)}")
-    print(f"us_prices（美股）總筆數: {len(us_prices)}")
+    print(f"us_prices（美股，讀自 Parquet 快照）總筆數: {len(us_prices)}")
 
     if not prices.empty:
         print(f"\n台股共 {prices['stock_id'].nunique()} 檔股票，每檔的資料範圍：")

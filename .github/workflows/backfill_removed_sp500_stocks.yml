@@ -1,8 +1,9 @@
 name: Backfill Removed S&P 500 Stocks
 
-# 正式把 yfinance 抓得到的 74 檔被剔除 S&P 500 股票寫進資料庫（us_prices +
-# us_index_membership 兩張表），補齊存活者偏差修正的「被剔除」半邊。會真的
-# 寫入資料庫（不是唯讀診斷），但是 upsert-based，冪等，可以安全重跑。
+# 正式把 yfinance 抓得到的 74 檔被剔除 S&P 500 股票寫進 Parquet 快照
+# （us_prices + us_index_membership 兩份），補齊存活者偏差修正的「被剔除」
+# 半邊。會真的寫入快照（不是唯讀診斷），但是 upsert-based 合併，冪等，
+# 可以安全重跑。
 
 on:
   workflow_dispatch:
@@ -27,20 +28,14 @@ jobs:
       - name: Run test suite (regression guard)
         run: python -m pytest tests/ -q
 
+      # scripts/backfill_removed_sp500_stocks.py 直接合併寫回 Parquet
+      # 快照，不經過 SQLite，不需要另外的「匯出」步驟。
       - name: Backfill removed S&P 500 stocks
         env:
           PYTHONUNBUFFERED: "1"
         run: python scripts/backfill_removed_sp500_stocks.py
 
-      # 見 us_daily_data_ingest.yml 同一個步驟的說明：把回填後的最新資料
-      # 匯出成 Parquet 快照 commit 回 repo，策略腳本才能改讀本機檔案、
-      # 不用再連資料庫整表撈一次。
-      - name: Export US data snapshot for strategy scripts
-        env:
-          PYTHONUNBUFFERED: "1"
-        run: python scripts/export_us_data_snapshot.py
-
-      # us_prices 可能被 export_us_snapshot 拆成多個 part 檔案（見
+      # us_prices 可能被 upsert_us_prices_snapshot 拆成多個 part 檔案（見
       # tw_quant/data_snapshot.py 檔頭說明），用 -A + glob 一併 git add，
       # 才會連同「part 檔案數變少時舊檔案被刪除」這個狀態一起 stage。
       - name: Commit US data snapshot
@@ -61,11 +56,6 @@ jobs:
           done
           git push
 
-      # 2026-09-30：刻意不 commit data/tw_market.db。原本這裡擔心「不 commit
-      # 回 repo，下次重新 checkout 出來的 SQLite 就沒有這次回填的資料」，
-      # 但已經用更好的方式解決：scripts/backfill_removed_sp500_stocks.py
-      # 開頭會先呼叫 seed_store_from_us_snapshot() 把上面剛 commit 的
-      # Parquet 快照種回本機 SQLite，不需要靠 commit 原始 SQLite 檔案來
-      # 保留狀態。而且這份 SQLite 種完歷史後會超過 100MB，commit 回 repo
-      # 反而會被 GitHub 的單檔 push 上限擋下（見 us_daily_data_ingest.yml
-      # 同一處的說明）。
+      # 2026-09-30：這支 workflow 完全不碰 SQLite 了，沒有東西可 commit——
+      # scripts/backfill_removed_sp500_stocks.py 直接讀寫 Parquet 快照，
+      # 上面「Commit US data snapshot」那步就是唯一需要的持久化動作。

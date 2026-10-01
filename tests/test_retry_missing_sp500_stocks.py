@@ -1,5 +1,5 @@
-"""測試 scripts/retry_missing_sp500_stocks_from_db.py 的 retry_one 寫入
-邏輯與錯誤分類本身（不連網、不碰真的資料庫，用假 store/provider 替換掉）。
+"""測試 scripts/retry_missing_sp500_stocks_from_db.py 的 retry_one 篩選
+邏輯與錯誤分類本身（不連網，用假 provider 替換掉）。
 """
 
 import sys
@@ -24,8 +24,7 @@ def _row(stock_id="XTO", start="2006-09-25", end="2010-06-28", clipped_start="20
     )
 
 
-def test_retry_one_writes_only_rows_within_clipped_window():
-    store = mock.Mock()
+def test_retry_one_keeps_only_rows_within_clipped_window():
     provider = mock.Mock()
     # period="max" 抓到比 clipped 窗口更寬的歷史（含窗口外的資料）
     provider.fetch_price_full_history.return_value = pd.DataFrame(
@@ -36,48 +35,49 @@ def test_retry_one_writes_only_rows_within_clipped_window():
         }
     )
 
-    result = retry_one(store, provider, _row())
+    result = retry_one(provider, _row())
 
-    assert result == {"stock_id": "XTO", "written": True, "rows": 2, "error": None}
-    written_df = store.upsert_us_prices.call_args[0][0]
-    assert list(written_df["date"]) == [pd.Timestamp("2007-01-01"), pd.Timestamp("2010-01-01")]
-    store.upsert_us_index_membership.assert_called_once()
+    assert result["stock_id"] == "XTO"
+    assert result["written"] is True
+    assert result["rows"] == 2
+    assert result["error"] is None
+    assert list(result["price_df"]["date"]) == [pd.Timestamp("2007-01-01"), pd.Timestamp("2010-01-01")]
+    assert result["membership_row"]["stock_id"].iloc[0] == "XTO"
 
 
 def test_retry_one_reports_data_outside_window_when_nothing_overlaps():
-    store = mock.Mock()
     provider = mock.Mock()
     provider.fetch_price_full_history.return_value = pd.DataFrame(
         {"date": pd.to_datetime(["2020-01-01"]), "stock_id": ["XTO"], "close": [1.0]}
     )
 
-    result = retry_one(store, provider, _row())
+    result = retry_one(provider, _row())
 
     assert result["written"] is False
     assert "落在查詢窗口外" in result["error"]
-    store.upsert_us_prices.assert_not_called()
+    assert result["price_df"] is None
 
 
 def test_retry_one_skips_write_when_empty():
-    store = mock.Mock()
     provider = mock.Mock()
     provider.fetch_price_full_history.return_value = pd.DataFrame(columns=["date", "stock_id", "close"])
 
-    result = retry_one(store, provider, _row(stock_id="LEHMQ"))
+    result = retry_one(provider, _row(stock_id="LEHMQ"))
 
-    assert result == {"stock_id": "LEHMQ", "written": False, "rows": 0, "error": None}
-    store.upsert_us_prices.assert_not_called()
+    assert result == {
+        "stock_id": "LEHMQ", "written": False, "rows": 0, "error": None, "price_df": None, "membership_row": None,
+    }
 
 
 def test_retry_one_catches_exception():
-    store = mock.Mock()
     provider = mock.Mock()
     provider.fetch_price_full_history.side_effect = RuntimeError("possibly delisted; no timezone found")
 
-    result = retry_one(store, provider, _row(stock_id="WAMUQ"))
+    result = retry_one(provider, _row(stock_id="WAMUQ"))
 
     assert result["written"] is False
     assert "RuntimeError" in result["error"]
+    assert result["price_df"] is None
 
 
 def test_error_category_classifies_known_patterns():

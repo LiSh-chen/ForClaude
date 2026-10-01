@@ -2,10 +2,10 @@ name: Ingest US Earnings Data (yfinance quarterly EPS + report dates)
 
 # 手動觸發：2026-09-19 探路（probe_us_fundamentals_data.yml）確認 yfinance
 # 的財報公布日資料涵蓋度/深度/日期精確度都堪用，可以推進 PEAD（財報驚喜
-# 漂移）策略。這裡回填全部已追蹤股票的財報公布歷史到 us_earnings 表格，
-# 再匯出快照供策略回測腳本讀取。不像每日價量排程那樣定期跑——財報公布
-# 頻率是季度，之後真的需要更新時再手動觸發即可，見
-# scripts/ingest_us_earnings_data.py 開頭的完整背景說明。
+# 漂移）策略。這裡回填全部已追蹤股票的財報公布歷史，直接合併寫進 Parquet
+# 快照供策略回測腳本讀取（2026-09-30 起不經過 SQLite，見
+# scripts/ingest_us_earnings_data.py 開頭的完整背景說明）。不像每日價量
+# 排程那樣定期跑——財報公布頻率是季度，之後真的需要更新時再手動觸發即可。
 
 on:
   workflow_dispatch:
@@ -32,20 +32,13 @@ jobs:
       - name: Run test suite (regression guard)
         run: python -m pytest tests/ -q
 
+      # scripts/ingest_us_earnings_data.py 直接合併寫回 Parquet 快照，不
+      # 經過 SQLite，不需要另外的「匯出」步驟。
       - name: Ingest US earnings data
         env:
           PYTHONUNBUFFERED: "1"
         run: python scripts/ingest_us_earnings_data.py
 
-      - name: Export US earnings snapshot for strategy scripts
-        env:
-          PYTHONUNBUFFERED: "1"
-        run: python scripts/export_us_earnings_snapshot.py
-
-      # 2026-09-30 刻意不 commit data/tw_market.db：這份本機 SQLite 每次
-      # 執行都是全新、用完即丟的工作檔案（見 tw_quant/storage.py 開頭的
-      # 背景說明），上面的 Parquet 快照才是美股財報資料真正跨執行持久化
-      # 的來源。
       - name: Commit US earnings snapshot
         run: |
           git config user.name "github-actions[bot]"

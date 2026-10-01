@@ -25,13 +25,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import pandas as pd
+
 from tw_quant.sp500_history import (
     build_membership_intervals,
     fetch_snapshot_csv_text,
     find_missing_intervals,
     parse_snapshot_table,
 )
-from tw_quant.storage import get_data_store
+from tw_quant.data_snapshot import load_us_prices_snapshot
 from tw_quant.us_data_provider import YFinanceUSDataProvider
 
 SLEEP_SECONDS = 1.0  # 對 Yahoo Finance 客氣一點，避免連續呼叫被暫時限速
@@ -57,10 +59,12 @@ def fetch_one(provider: YFinanceUSDataProvider, stock_id: str, start_date: str, 
 
 
 def main() -> None:
-    store = get_data_store()
-    us_prices = store.load_us_prices()
+    try:
+        us_prices = load_us_prices_snapshot()
+    except FileNotFoundError:
+        us_prices = pd.DataFrame()
     if us_prices.empty:
-        print("資料庫裡沒有任何美股價量資料。", file=sys.stderr)
+        print("Parquet 快照裡沒有任何美股價量資料。", file=sys.stderr)
         sys.exit(1)
 
     db_stock_ids = set(us_prices["stock_id"].unique())

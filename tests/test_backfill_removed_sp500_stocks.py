@@ -24,45 +24,44 @@ def _row(stock_id="CELG", start="2005-01-01", end="2019-11-21", clipped_start="2
     )
 
 
-def test_backfill_one_writes_prices_and_membership_on_success():
-    store = mock.Mock()
+def test_backfill_one_returns_prices_and_membership_on_success():
     provider = mock.Mock()
     provider.fetch_price.return_value = pd.DataFrame(
         {"date": pd.to_datetime(["2018-09-20", "2018-09-21"]), "stock_id": ["CELG", "CELG"], "close": [1.0, 2.0]}
     )
 
-    result = backfill_one(store, provider, _row())
+    result = backfill_one(provider, _row())
 
-    assert result == {"stock_id": "CELG", "written": True, "rows": 2, "error": None}
-    store.upsert_us_prices.assert_called_once()
-    store.upsert_us_index_membership.assert_called_once()
-    membership_arg = store.upsert_us_index_membership.call_args[0][0]
-    assert membership_arg["stock_id"].iloc[0] == "CELG"
-    assert membership_arg["start_date"].iloc[0] == pd.Timestamp("2005-01-01")
-    assert membership_arg["end_date"].iloc[0] == pd.Timestamp("2019-11-21")
+    assert result["stock_id"] == "CELG"
+    assert result["written"] is True
+    assert result["rows"] == 2
+    assert result["error"] is None
+    pd.testing.assert_frame_equal(result["price_df"], provider.fetch_price.return_value)
+    membership_row = result["membership_row"]
+    assert membership_row["stock_id"].iloc[0] == "CELG"
+    assert membership_row["start_date"].iloc[0] == pd.Timestamp("2005-01-01")
+    assert membership_row["end_date"].iloc[0] == pd.Timestamp("2019-11-21")
 
 
 def test_backfill_one_skips_write_when_no_data():
-    store = mock.Mock()
     provider = mock.Mock()
     provider.fetch_price.return_value = pd.DataFrame(columns=["date", "stock_id", "close"])
 
-    result = backfill_one(store, provider, _row(stock_id="SIVB"))
+    result = backfill_one(provider, _row(stock_id="SIVB"))
 
-    assert result == {"stock_id": "SIVB", "written": False, "rows": 0, "error": None}
-    store.upsert_us_prices.assert_not_called()
-    store.upsert_us_index_membership.assert_not_called()
+    assert result == {
+        "stock_id": "SIVB", "written": False, "rows": 0, "error": None, "price_df": None, "membership_row": None,
+    }
 
 
 def test_backfill_one_catches_exception_and_skips_write():
-    store = mock.Mock()
     provider = mock.Mock()
     provider.fetch_price.side_effect = RuntimeError("possibly delisted; no timezone found")
 
-    result = backfill_one(store, provider, _row(stock_id="TWTR"))
+    result = backfill_one(provider, _row(stock_id="TWTR"))
 
     assert result["stock_id"] == "TWTR"
     assert result["written"] is False
     assert "RuntimeError" in result["error"]
-    store.upsert_us_prices.assert_not_called()
-    store.upsert_us_index_membership.assert_not_called()
+    assert result["price_df"] is None
+    assert result["membership_row"] is None

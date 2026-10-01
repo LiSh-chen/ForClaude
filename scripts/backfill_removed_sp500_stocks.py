@@ -19,8 +19,12 @@ tw_quant/us_universe.py 存活者偏差修正的「被剔除」半邊，第一�
      最早的資料，也不影響過濾結果，因為資料庫本來就不會有那之前的價量
      資料）
 
-冪等：upsert_us_prices / upsert_us_index_membership 都是以主鍵覆寫，
-重複執行這個腳本不會產生重複資料，可以安全重跑。
+冪等：upsert_us_prices_snapshot / upsert_us_index_membership_snapshot 都是
+以主鍵覆寫合併，重複執行這個腳本不會產生重複資料，可以安全重跑。
+
+2026-09-30 起不再經過 tw_quant/storage.py 的 DataStore/SQLite：直接讀寫
+本機已 commit 的 Parquet 快照（見 tw_quant/data_snapshot.py 開頭
+「2026-09-30 退役 SQLite」說明）。
 
 用法：
     python scripts/backfill_removed_sp500_stocks.py
@@ -36,14 +40,17 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tw_quant.data_snapshot import seed_store_from_us_snapshot
+from tw_quant.data_snapshot import (
+    load_us_prices_snapshot,
+    upsert_us_index_membership_snapshot,
+    upsert_us_prices_snapshot,
+)
 from tw_quant.sp500_history import (
     build_membership_intervals,
     fetch_snapshot_csv_text,
     find_missing_intervals,
     parse_snapshot_table,
 )
-from tw_quant.storage import get_data_store
 from tw_quant.us_data_provider import YFinanceUSDataProvider
 
 SLEEP_SECONDS = 1.0  # 對 Yahoo Finance 客氣一點，避免連續呼叫被暫時限速
@@ -54,38 +61,40 @@ SLEEP_SECONDS = 1.0  # 對 Yahoo Finance 客氣一點，避免連續呼叫被暫
 EXCLUDED_ANOMALOUS_TICKERS = {"AVB", "EQR"}
 
 
-def backfill_one(store, provider: YFinanceUSDataProvider, row) -> dict:
-    """試抓一檔股票的歷史股價，抓得到才寫入 us_prices + us_index_membership。
-    回傳結果摘要，獨立成函式方便測試（傳假的 store/provider 進來即可）。
+def backfill_one(provider: YFinanceUSDataProvider, row) -> dict:
+    """試抓一檔股票的歷史股價。回傳結果摘要（成功時含抓到的 price_df /
+    membership_row），獨立成函式方便測試（傳假的 provider 進來即可）。
+
+    刻意不在這裡直接寫回 Parquet 快照：upsert_us_prices_snapshot 每次
+    呼叫都要重寫整份快照（O(快照總列數)），每檔股票都個別呼叫一次會變成
+    O(檔數 × 快照總列數)——main() 收集所有結果後只在最後合併寫入一次。
     """
     stock_id = row.stock_id
     try:
         df = provider.fetch_price(stock_id, str(row.clipped_start.date()), str(row.clipped_end.date()))
     except Exception as exc:  # noqa: BLE001 -- 任何一檔失敗都不該中斷其他檔
-        return {"stock_id": stock_id, "written": False, "rows": 0, "error": f"{type(exc).__name__}: {exc}"}
+        return {
+            "stock_id": stock_id, "written": False, "rows": 0, "error": f"{type(exc).__name__}: {exc}",
+            "price_df": None, "membership_row": None,
+        }
 
     if df.empty:
-        return {"stock_id": stock_id, "written": False, "rows": 0, "error": None}
-
-    store.upsert_us_prices(df)
+        return {"stock_id": stock_id, "written": False, "rows": 0, "error": None, "price_df": None, "membership_row": None}
 
     membership_row = pd.DataFrame(
         {"stock_id": [stock_id], "start_date": [row.start_date], "end_date": [row.end_date]}
     )
-    store.upsert_us_index_membership(membership_row)
 
-    return {"stock_id": stock_id, "written": True, "rows": len(df), "error": None}
+    return {"stock_id": stock_id, "written": True, "rows": len(df), "error": None, "price_df": df, "membership_row": membership_row}
 
 
 def main() -> None:
-    store = get_data_store()
-    # 這份本機 SQLite 每次執行都是全新、用完即丟的（見 tw_quant/storage.py
-    # 開頭 2026-09-30 的背景說明），下面判斷「哪些股票還缺資料」如果沒有
-    # 先把既有歷史種回來，會誤判成「資料庫完全沒有美股資料」而直接中止。
-    seed_store_from_us_snapshot(store)
-    us_prices = store.load_us_prices()
+    try:
+        us_prices = load_us_prices_snapshot()
+    except FileNotFoundError:
+        us_prices = pd.DataFrame()
     if us_prices.empty:
-        print("資料庫裡沒有任何美股價量資料。", file=sys.stderr)
+        print("Parquet 快照裡沒有任何美股價量資料。", file=sys.stderr)
         sys.exit(1)
 
     db_stock_ids = set(us_prices["stock_id"].unique())
@@ -108,10 +117,10 @@ def main() -> None:
     provider = YFinanceUSDataProvider()
     results = []
     for i, row in enumerate(missing.itertuples(), start=1):
-        result = backfill_one(store, provider, row)
+        result = backfill_one(provider, row)
         results.append(result)
         if result["written"]:
-            print(f"[{i}/{n_stocks}] ✓ {row.stock_id}：寫入 {result['rows']} 列")
+            print(f"[{i}/{n_stocks}] ✓ {row.stock_id}：抓到 {result['rows']} 列")
         else:
             note = f"（{result['error']}）" if result["error"] else "（查無資料，跳過）"
             print(f"[{i}/{n_stocks}] ✗ {row.stock_id} {note}")
@@ -119,6 +128,18 @@ def main() -> None:
 
     written = [r for r in results if r["written"]]
     skipped = [r for r in results if not r["written"]]
+
+    if written:
+        all_prices = pd.concat([r["price_df"] for r in written], ignore_index=True)
+        all_membership = pd.concat([r["membership_row"] for r in written], ignore_index=True)
+        n_prices_total = upsert_us_prices_snapshot(all_prices)
+        n_membership_total = upsert_us_index_membership_snapshot(all_membership)
+        print(
+            f"\n已合併進 Parquet 快照：價量快照現在共 {n_prices_total} 列，"
+            f"成分股區間快照現在共 {n_membership_total} 筆"
+        )
+    else:
+        print("\n沒有任何股票成功抓到資料，快照維持不變。")
 
     print(f"\n=== 回填結果：{n_stocks} 檔裡，成功寫入 {len(written)} 檔、跳過 {len(skipped)} 檔 ===\n")
     print("成功寫入：")

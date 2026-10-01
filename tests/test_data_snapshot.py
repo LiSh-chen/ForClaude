@@ -16,6 +16,9 @@ from tw_quant.data_snapshot import (
     load_us_earnings_snapshot,
     load_us_index_membership_snapshot,
     load_us_prices_snapshot,
+    upsert_us_earnings_snapshot,
+    upsert_us_index_membership_snapshot,
+    upsert_us_prices_snapshot,
 )
 
 
@@ -199,3 +202,158 @@ def test_export_us_earnings_snapshot_creates_parent_directory_if_missing(tmp_pat
     export_us_earnings_snapshot(store, path=nested_path)
 
     assert nested_path.exists()
+
+
+# --- 2026-09-30：直接在 Parquet 快照上做增量合併，不經過 SQLite ---
+
+
+def _prices(dates, stock_ids, closes):
+    return pd.DataFrame(
+        {
+            "date": pd.to_datetime(dates),
+            "stock_id": stock_ids,
+            "industry": ["Tech"] * len(dates),
+            "open": closes,
+            "high": closes,
+            "low": closes,
+            "close": closes,
+            "volume": [1000] * len(dates),
+            "turnover_value": closes,
+        }
+    )
+
+
+def test_upsert_us_prices_snapshot_creates_snapshot_when_none_exists(tmp_path):
+    path = tmp_path / "prices.parquet"
+
+    n_total = upsert_us_prices_snapshot(_prices(["2024-01-02", "2024-01-03"], ["AAPL", "AAPL"], [1.0, 2.0]), path=path)
+
+    assert n_total == 2
+    assert len(load_us_prices_snapshot(path)) == 2
+
+
+def test_upsert_us_prices_snapshot_merges_and_overwrites_same_key(tmp_path):
+    path = tmp_path / "prices.parquet"
+    upsert_us_prices_snapshot(_prices(["2024-01-02", "2024-01-03"], ["AAPL", "AAPL"], [1.0, 2.0]), path=path)
+
+    # 新資料：2024-01-03 的 close 改成 20.0（同一天同一檔股票，應該覆蓋），
+    # 2024-01-04 是全新一天（應該新增）。
+    n_total = upsert_us_prices_snapshot(_prices(["2024-01-03", "2024-01-04"], ["AAPL", "AAPL"], [20.0, 3.0]), path=path)
+
+    assert n_total == 3
+    loaded = load_us_prices_snapshot(path).set_index("date")
+    assert loaded.loc[pd.Timestamp("2024-01-02"), "close"] == 1.0
+    assert loaded.loc[pd.Timestamp("2024-01-03"), "close"] == 20.0
+    assert loaded.loc[pd.Timestamp("2024-01-04"), "close"] == 3.0
+
+
+def test_upsert_us_prices_snapshot_keeps_rows_for_different_stocks_on_same_date(tmp_path):
+    path = tmp_path / "prices.parquet"
+    upsert_us_prices_snapshot(_prices(["2024-01-02"], ["AAPL"], [1.0]), path=path)
+
+    n_total = upsert_us_prices_snapshot(_prices(["2024-01-02"], ["MSFT"], [100.0]), path=path)
+
+    assert n_total == 2
+    assert set(load_us_prices_snapshot(path)["stock_id"]) == {"AAPL", "MSFT"}
+
+
+def test_upsert_us_prices_snapshot_splits_into_part_files_above_chunk_size(tmp_path):
+    path = tmp_path / "prices.parquet"
+    rows = _prices(
+        ["2020-01-02", "2020-01-03", "2020-01-06", "2020-01-07", "2020-01-08"],
+        ["AAPL"] * 5,
+        [1.0, 2.0, 3.0, 4.0, 5.0],
+    )
+
+    n_total = upsert_us_prices_snapshot(rows, path=path, max_rows_per_chunk=2)
+
+    assert n_total == 5
+    part_files = sorted(tmp_path.glob("prices.part*.parquet"))
+    assert [p.name for p in part_files] == ["prices.part2.parquet", "prices.part3.parquet"]
+
+
+def test_upsert_us_index_membership_snapshot_overwrites_same_stock_and_start_date(tmp_path):
+    path = tmp_path / "membership.parquet"
+    upsert_us_index_membership_snapshot(
+        pd.DataFrame({"stock_id": ["AAPL"], "start_date": [pd.Timestamp("1980-01-01")], "end_date": [pd.NaT]}),
+        path=path,
+    )
+
+    # 同一檔股票、同一個 start_date，這次補上了 end_date（例如事後發現剔除
+    # 日期）——應該覆蓋原本那一列，不是新增一列。
+    n_total = upsert_us_index_membership_snapshot(
+        pd.DataFrame(
+            {
+                "stock_id": ["AAPL"],
+                "start_date": [pd.Timestamp("1980-01-01")],
+                "end_date": [pd.Timestamp("2020-01-01")],
+            }
+        ),
+        path=path,
+    )
+
+    assert n_total == 1
+    loaded = load_us_index_membership_snapshot(path)
+    assert loaded["end_date"].iloc[0] == pd.Timestamp("2020-01-01")
+
+
+def test_upsert_us_index_membership_snapshot_keeps_multiple_intervals_for_same_stock(tmp_path):
+    """同一檔股票被剔除指數後又重新加入，會有兩段不同 start_date 的區間
+    ——合併鍵必須是 (stock_id, start_date)，只用 stock_id 當鍵會把這兩段
+    錯誤地合併成一段，弄丟被剔除又重新加入的歷史（這正是
+    SQLiteDataStore.upsert_us_index_membership 的 PRIMARY KEY 語意）。
+    """
+    path = tmp_path / "membership.parquet"
+    upsert_us_index_membership_snapshot(
+        pd.DataFrame(
+            {
+                "stock_id": ["CELG"],
+                "start_date": [pd.Timestamp("2005-01-01")],
+                "end_date": [pd.Timestamp("2010-01-01")],
+            }
+        ),
+        path=path,
+    )
+
+    n_total = upsert_us_index_membership_snapshot(
+        pd.DataFrame({"stock_id": ["CELG"], "start_date": [pd.Timestamp("2015-01-01")], "end_date": [pd.NaT]}),
+        path=path,
+    )
+
+    assert n_total == 2
+    loaded = load_us_index_membership_snapshot(path)
+    celg_rows = loaded[loaded["stock_id"] == "CELG"]
+    assert len(celg_rows) == 2
+    assert sorted(celg_rows["start_date"]) == [pd.Timestamp("2005-01-01"), pd.Timestamp("2015-01-01")]
+
+
+def test_upsert_us_earnings_snapshot_merges_on_date_and_stock_id(tmp_path):
+    path = tmp_path / "earnings.parquet"
+    upsert_us_earnings_snapshot(
+        pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2024-01-25"]),
+                "stock_id": ["AAPL"],
+                "eps_estimate": [1.0],
+                "eps_actual": [1.05],
+                "surprise_pct": [5.0],
+            }
+        ),
+        path=path,
+    )
+
+    n_total = upsert_us_earnings_snapshot(
+        pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2024-04-25"]),
+                "stock_id": ["AAPL"],
+                "eps_estimate": [1.1],
+                "eps_actual": [1.2],
+                "surprise_pct": [9.1],
+            }
+        ),
+        path=path,
+    )
+
+    assert n_total == 2
+    assert len(load_us_earnings_snapshot(path)) == 2

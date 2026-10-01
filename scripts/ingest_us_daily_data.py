@@ -15,11 +15,13 @@
     顧慮，即時抓即用比維護一份另外的快取檔案簡單。
   - 沒有融資券/月營收/已發行股數這些台股特有的資料，只有價量。
 
+2026-09-30 起不再經過 tw_quant/storage.py 的 DataStore/SQLite：直接讀本機
+已 commit 的 Parquet 快照判斷每檔股票的既有歷史、抓到新資料後直接合併寫回
+快照（tw_quant/data_snapshot.py 的 upsert_us_prices_snapshot /
+upsert_us_index_membership_snapshot），完全不碰資料庫，Parquet 快照本身
+就是唯一的持久化來源（見該檔案開頭「2026-09-30 退役 SQLite」說明）。
+
 環境變數：
-  SQLITE_DB_PATH         SQLite 檔案路徑（預設 data/tw_market.db，跟台股
-                         共用同一個檔案，只是不同表格；2026-09-30 起不再
-                         支援雲端 Postgres，見 tw_quant/storage.py 的
-                         get_data_store() 開頭說明）
   LOOKBACK_DAYS          增量同步時往回抓幾天（預設 10）
   REQUEST_SLEEP_SECONDS  每次 yfinance 呼叫間隔秒數，避免被 Yahoo 暫時限速
                          （預設 0.3）
@@ -43,9 +45,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 
-from tw_quant.data_snapshot import seed_store_from_us_snapshot
+from tw_quant.data_snapshot import (
+    US_PRICES_SNAPSHOT_PATH,
+    load_us_prices_snapshot,
+    upsert_us_index_membership_snapshot,
+    upsert_us_prices_snapshot,
+)
 from tw_quant.us_data_provider import YFinanceUSDataProvider
-from tw_quant.storage import get_data_store
 
 T = TypeVar("T")
 
@@ -82,14 +88,24 @@ def main() -> None:
     backfill_years = int(os.environ.get("BACKFILL_YEARS", "8"))
 
     provider = YFinanceUSDataProvider()
-    store = get_data_store()
 
-    # 這份本機 SQLite 每次執行都是全新、用完即丟的（見 tw_quant/storage.py
-    # 開頭 2026-09-30 的背景說明），下面的增量同步判斷（store.latest_date）
-    # 如果沒有先把既有歷史種回來，會誤判成「資料庫是空的」，把本來只需要
-    # 補最近幾天的增量同步錯當成要整個從頭回填好幾年。
-    n_seeded_prices, n_seeded_membership = seed_store_from_us_snapshot(store)
-    print(f"已從 Parquet 快照種回本機 SQLite：價量 {n_seeded_prices} 筆、成分股區間 {n_seeded_membership} 筆\n")
+    # 直接讀本機已 commit 的 Parquet 快照判斷「每檔股票既有資料到哪一天」，
+    # 不經過 SQLite（見 tw_quant/data_snapshot.py 開頭「2026-09-30 退役
+    # SQLite」說明）。快照不存在（全新 repo）時當作空歷史，全部當成首次
+    # 回填。
+    try:
+        existing_prices = load_us_prices_snapshot()
+    except FileNotFoundError:
+        existing_prices = pd.DataFrame(columns=["date", "stock_id"])
+    latest_by_stock: dict[str, pd.Timestamp] = (
+        {}
+        if force_backfill or existing_prices.empty
+        else existing_prices.groupby("stock_id")["date"].max().to_dict()
+    )
+    print(
+        f"既有快照：價量 {len(existing_prices)} 筆"
+        f"（{existing_prices['stock_id'].nunique() if not existing_prices.empty else 0} 檔股票）\n"
+    )
 
     print("抓取 S&P 500 成分股清單（維基百科）...")
     constituents = _call_with_timeout(provider.fetch_sp500_constituents, timeout_s=30.0)
@@ -101,11 +117,11 @@ def main() -> None:
     # 成本很低，不需要另外判斷要不要更新。
     membership = constituents[["stock_id", "date_added"]].rename(columns={"date_added": "start_date"})
     membership["end_date"] = pd.NaT  # 目前仍是成分股，還沒觀察到剔除日期（開放式區間）
-    store.upsert_us_index_membership(membership)
+    n_membership_total = upsert_us_index_membership_snapshot(membership)
     n_missing_date = membership["start_date"].isna().sum()
     print(
-        f"已更新 {len(membership)} 檔的指數加入日期記錄"
-        f"（{n_missing_date} 檔缺加入日期，回測時視為一直都在指數裡）\n"
+        f"已更新 {len(membership)} 檔的指數加入日期記錄（快照現在共 {n_membership_total} 筆區間，"
+        f"{n_missing_date} 檔缺加入日期，回測時視為一直都在指數裡）\n"
     )
 
     end_date = pd.Timestamp.today().strftime("%Y-%m-%d")
@@ -128,12 +144,18 @@ def main() -> None:
 
     total_rows = 0
     failures: list[str] = []
+    # 逐股抓到的新資料先收集在記憶體裡，迴圈跑完才一次性合併寫回 Parquet
+    # 快照（upsert_us_prices_snapshot 每次呼叫都要重寫整份快照，630 檔
+    # 股票每檔呼叫一次會變成 O(630 × 快照總列數)，跑一次要重寫快照 630
+    # 次——不只慢，也完全沒必要：新資料不會在同一次執行裡互相覆蓋，合併
+    # 一次就夠了）。
+    new_price_frames: list[pd.DataFrame] = []
 
     for i, row in enumerate(constituents.itertuples(), start=1):
         stock_id = row.stock_id
         industry = row.industry
         try:
-            stock_latest = None if force_backfill else store.latest_date("us_prices", stock_id=stock_id)
+            stock_latest = latest_by_stock.get(stock_id)
             if stock_latest is not None:
                 start_date = (stock_latest - pd.Timedelta(days=lookback_days)).strftime("%Y-%m-%d")
             else:
@@ -144,7 +166,7 @@ def main() -> None:
                 timeout_s=30.0,
             )
             if not price_df.empty:
-                store.upsert_us_prices(price_df)
+                new_price_frames.append(price_df)
                 total_rows += len(price_df)
 
             print(f"[{i}/{len(constituents)}] {stock_id}: {len(price_df)} 筆（{start_date} ~ {end_date}）")
@@ -153,11 +175,14 @@ def main() -> None:
             failures.append(stock_id)
         time.sleep(sleep_s)
 
-    print(f"\n完成。寫入美股價量 {total_rows} 筆。")
+    print(f"\n抓取完成，共 {total_rows} 筆新資料，合併進 Parquet 快照...")
+    if new_price_frames:
+        n_total = upsert_us_prices_snapshot(pd.concat(new_price_frames, ignore_index=True))
+        print(f"已寫入美股價量 {total_rows} 筆，快照現在共 {n_total} 列 -> {US_PRICES_SNAPSHOT_PATH}")
+    else:
+        print("沒有新資料，快照維持不變。")
     if failures:
         print(f"[warn] {len(failures)} 檔抓取失敗: {failures}", file=sys.stderr)
-
-    store.close()
 
 
 if __name__ == "__main__":

@@ -9,17 +9,16 @@
 
 跟 ingest_us_daily_data.py 不同：這裡不做逐股增量水位判斷。財報公布
 頻率是季度、資料量遠小於逐日價量，重新整批抓取一次的成本很低，每次
-執行都對整份股票清單重新抓一次可用歷史、upsert 覆蓋——冪等，可以安全
-重跑，不需要增量同步的複雜度。
+執行都對整份股票清單重新抓一次可用歷史、合併進快照——冪等，可以安全
+重跑，不需要增量同步的複雜度。單檔抓取失敗時，該檔在快照裡的既有資料
+會被保留（合併語意，不是整表覆寫），不會因為這次抓取失敗就消失。
 
 股票清單直接讀本機的 us_prices_snapshot.parquet（不連資料庫撈整表），
-確保跟目前策略回測腳本用的股票池一致，也避免佔用 Neon 免費方案的網路
-傳出流量額度（見 tw_quant/data_snapshot.py 開頭的背景說明）。
+確保跟目前策略回測腳本用的股票池一致。2026-09-30 起財報資料本身也不再
+經過 tw_quant/storage.py 的 DataStore/SQLite，直接合併寫回 Parquet 快照
+（見 tw_quant/data_snapshot.py 開頭「2026-09-30 退役 SQLite」說明）。
 
 環境變數：
-  SQLITE_DB_PATH         SQLite 檔案路徑（預設 data/tw_market.db；2026-09-30
-                         起不再支援雲端 Postgres，見 tw_quant/storage.py
-                         的 get_data_store() 開頭說明）
   REQUEST_SLEEP_SECONDS  每次 yfinance 呼叫間隔秒數，避免被 Yahoo 暫時
                          限速（預設 0.3）
   EARNINGS_LIMIT         每檔股票最多抓幾筆財報公布紀錄（預設 80，實際
@@ -36,10 +35,11 @@ import sys
 import time
 from pathlib import Path
 
+import pandas as pd
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tw_quant.data_snapshot import load_us_prices_snapshot
-from tw_quant.storage import get_data_store
+from tw_quant.data_snapshot import US_EARNINGS_SNAPSHOT_PATH, load_us_prices_snapshot, upsert_us_earnings_snapshot
 from tw_quant.us_data_provider import YFinanceUSDataProvider
 
 
@@ -56,15 +56,15 @@ def main() -> None:
     print(f"共 {len(tickers)} 檔股票要抓財報公布歷史（每檔間隔 {sleep_s} 秒，每檔最多 {earnings_limit} 筆）\n")
 
     provider = YFinanceUSDataProvider()
-    store = get_data_store()
 
     total_rows = 0
     failures: list[str] = []
+    new_frames: list[pd.DataFrame] = []
     for i, stock_id in enumerate(tickers, start=1):
         try:
             df = provider.fetch_earnings_history(stock_id, limit=earnings_limit)
             if not df.empty:
-                store.upsert_us_earnings(df)
+                new_frames.append(df)
                 total_rows += len(df)
             print(f"[{i}/{len(tickers)}] {stock_id}: {len(df)} 筆")
         except Exception as exc:  # noqa: BLE001 -- 單一檔失敗不該中斷整個排程
@@ -72,11 +72,14 @@ def main() -> None:
             failures.append(stock_id)
         time.sleep(sleep_s)
 
-    print(f"\n完成。寫入美股財報公布資料 {total_rows} 筆。")
+    print(f"\n抓取完成，共 {total_rows} 筆，合併進 Parquet 快照...")
+    if new_frames:
+        n_total = upsert_us_earnings_snapshot(pd.concat(new_frames, ignore_index=True))
+        print(f"已寫入美股財報公布資料 {total_rows} 筆，快照現在共 {n_total} 列 -> {US_EARNINGS_SNAPSHOT_PATH}")
+    else:
+        print("沒有新資料，快照維持不變。")
     if failures:
         print(f"[warn] {len(failures)} 檔抓取失敗: {failures}", file=sys.stderr)
-
-    store.close()
 
 
 if __name__ == "__main__":

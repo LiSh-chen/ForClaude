@@ -1,14 +1,13 @@
 name: Daily US Market Data Ingest
 
-# 美股版的每日資料排程，抓 S&P 500 成分股的價量資料，寫進資料庫的
-# us_prices 表格（跟台股的 prices 表格是獨立的，同一個資料庫互不干擾）。
-# 用 yfinance，不需要 API token，也沒有 FinMind 那種「當日額度用完」的
-# 限制。
+# 美股版的每日資料排程，抓 S&P 500 成分股的價量資料。用 yfinance，不需要
+# API token，也沒有 FinMind 那種「當日額度用完」的限制。
 #
-# 2026-09-30：不再使用雲端 Postgres（Neon 免費額度被打滿，見
-# tw_quant/storage.py 開頭說明）。一律寫本機 SQLite（data/tw_market.db），
-# 每次執行完這個 workflow 自己 commit 回 repo——repo 本身就是唯一的資料
-# 來源，不依賴任何外部服務。
+# 2026-09-30：不再使用雲端 Postgres（Neon 免費額度被打滿）。也不經過本機
+# SQLite（20 年×630 檔美股資料攤開來會超過 GitHub 100MB 單檔 push 上限，
+# 見 tw_quant/storage.py 開頭說明）——直接讀寫 commit 進 repo 的 Parquet
+# 快照（tw_quant/data_snapshot.py，已分檔避免超過單檔上限），repo 本身
+# 就是唯一的資料來源，不依賴任何外部服務。
 
 on:
   schedule:
@@ -55,20 +54,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # scripts/ingest_us_daily_data.py 2026-09-30 起直接讀寫 Parquet 快照
+      # （tw_quant/data_snapshot.py 的 upsert_us_prices_snapshot /
+      # upsert_us_index_membership_snapshot），不再經過 SQLite，也不需要
+      # 另外的「匯出」步驟——這一步本身就已經把快照寫好了。
       - name: Run US ingestion
         env:
           FORCE_BACKFILL: ${{ inputs.force_backfill }}
           BACKFILL_YEARS: ${{ inputs.backfill_years || '8' }}
           PYTHONUNBUFFERED: "1"
         run: python scripts/ingest_us_daily_data.py
-
-      # 匯出成 commit 進 repo 的 Parquet 快照，讓策略回測腳本改讀本機檔案、
-      # 不用每次都重新讀取整個 SQLite 檔案（見 tw_quant/data_snapshot.py
-      # 的背景說明）。
-      - name: Export US data snapshot for strategy scripts
-        env:
-          PYTHONUNBUFFERED: "1"
-        run: python scripts/export_us_data_snapshot.py
 
       # 注意（2026-09-20，backfill_years=20 那次觀察到）：資料量拉大到
       # 20 年時單一 us_prices_snapshot.parquet 會超過 101 MB，超過 GitHub
@@ -102,10 +97,7 @@ jobs:
         if: always()
         run: python scripts/show_data_status.py
 
-      # 2026-09-30 刻意不 commit data/tw_market.db：ingest_us_daily_data.py
-      # 開頭會先把 Parquet 快照整個種回這份本機 SQLite（見
-      # tw_quant/data_snapshot.py 的 seed_store_from_us_snapshot），種完
-      # 再加上台股共用的表格，整個檔案輕鬆超過 100MB（實測 108MB，被
-      # GitHub 的 100MB 單檔 push 上限擋下）。上面「Commit US data
-      # snapshot」那步的 Parquet 快照才是美股資料真正跨執行持久化的來源，
-      # 這份本機 SQLite 純粹是這次執行用完即丟的工作檔案，不應該 commit。
+      # 2026-09-30 刻意不 commit data/tw_market.db：這支 workflow 完全不碰
+      # SQLite 了（見上面「Run US ingestion」那步的說明），沒有東西可
+      # commit；上面「Commit US data snapshot」那步的 Parquet 快照就是
+      # 美股資料唯一的持久化來源。
