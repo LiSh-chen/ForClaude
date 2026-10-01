@@ -202,7 +202,7 @@
   <div class="chart-card">
     <div class="table-scroll">
       <table class="log">
-        <thead><tr><th>日期</th><th>策略</th><th>事件</th><th>方向</th><th class="num">價位</th><th class="num">損益(點)</th><th>備註</th></tr></thead>
+        <thead><tr><th>日期</th><th>策略</th><th>事件</th><th>方向</th><th class="num">價位</th><th class="num">損益(點)</th><th class="num">累計損益(TWD)</th><th>備註</th></tr></thead>
         <tbody id="log-body"></tbody>
       </table>
     </div>
@@ -358,10 +358,20 @@
   function renderLog(log) {
     var body = document.getElementById("log-body");
     if (!log.length) {
-      body.innerHTML = '<tr class="empty-row"><td colspan="7">目前還沒有任何進出場事件。</td></tr>';
+      body.innerHTML = '<tr class="empty-row"><td colspan="8">目前還沒有任何進出場事件。</td></tr>';
       return;
     }
-    var sorted = log.slice().sort(function (a, b) { return b.sim_date < a.sim_date ? -1 : 1; });
+    // 先依時間正序(舊→新)算每筆事件發生"之後"的累計已實現損益，再倒序顯示
+    // （最新在最上面）——open事件本身沒有已實現損益(進場當下還沒賺賠)，
+    // 不改變累計值，但仍然顯示「當時」的累計水位，方便對照資金變化。
+    var ascending = log.slice().sort(function (a, b) { return a.sim_date < b.sim_date ? -1 : 1; });
+    var running = 0;
+    var withCumulative = ascending.map(function (e) {
+      var pnl = e.realized_pnl_points;
+      if (pnl !== null && pnl !== undefined) running += pnl * 50;
+      return Object.assign({}, e, { cumulative_pnl_twd: running });
+    });
+    var sorted = withCumulative.slice().reverse();
     var eventLabel = { open: "進場", close: "出場", trade: "當日完成" };
     body.innerHTML = sorted.map(function (e) {
       var eventText = eventLabel[e.event] || e.event;
@@ -369,10 +379,12 @@
       var pnl = e.realized_pnl_points;
       var pnlCell = (pnl === null || pnl === undefined) ? '<td class="num">—</td>' :
         '<td class="num mono ' + (pnl > 0 ? "pos" : pnl < 0 ? "neg" : "") + '">' + fmtSigned(pnl, 1) + "</td>";
+      var cum = e.cumulative_pnl_twd;
+      var cumCell = '<td class="num mono ' + (cum > 0 ? "pos" : cum < 0 ? "neg" : "") + '">' + fmtSigned(cum) + "</td>";
       var priceCell = e.event === "open" ? fmtPlain(e.sim_entry_price) :
         (e.event === "trade" ? fmtPlain(e.sim_entry_price) + " → " + fmtPlain(e.sim_exit_price) : fmtPlain(e.sim_exit_price));
       return "<tr><td class=\"mono\">" + e.sim_date + "</td><td>" + e.strategy_id + "</td><td>" + eventText + "</td><td>" + dirText + "</td>" +
-        '<td class="num mono">' + priceCell + "</td>" + pnlCell +
+        '<td class="num mono">' + priceCell + "</td>" + pnlCell + cumCell +
         "<td>" + (e.note || "") + "</td></tr>";
     }).join("");
   }
