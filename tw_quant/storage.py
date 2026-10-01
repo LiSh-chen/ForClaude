@@ -1,17 +1,22 @@
 """資料落地層：把抓下來的價量 / 融資券資料寫進資料庫，供回測直接讀取。
 
-設計目標：**今天就能動、以後換雲端資料庫不用改任何程式碼**。
+設計目標：**今天就能動、完全不依賴任何雲端服務**。
 
-- 預設（沒有設定 `DATABASE_URL`）：寫進本機 SQLite 檔案
-  （預設路徑 `data/tw_market.db`）。在 GitHub Actions 排程情境下，這個檔案
-  由 workflow 直接 commit 回 repo，等於用 git 當免費、零設定的暫時資料庫。
-- 一旦你申請好雲端 Postgres（RDS / Supabase / Neon 等皆可），只要在 repo
-  設定 `DATABASE_URL` 這個 GitHub Secret（例如
-  `postgresql://user:pass@host:5432/dbname`），`get_data_store()` 會自動
-  切換到 `PostgresDataStore`，ingest 腳本與回測程式碼完全不用改。
+- 寫進本機 SQLite 檔案（預設路徑 `data/tw_market.db`）。在 GitHub Actions
+  排程情境下，這個檔案由 workflow 直接 commit 回 repo，用 git 當零成本、
+  零額度限制的資料庫——repo 本身就是唯一的資料來源，不依賴任何外部服務。
+- 2026-09-30：原本可選用雲端 Postgres（`PostgresDataStore`，透過
+  `DATABASE_URL` 環境變數切換）。改用 Neon 免費方案後遇到「每月流量/運算
+  額度被打滿」（`psycopg2.OperationalError: ... exceeded the quota`），
+  導致每日 ingest workflow 連續失敗（2026-09-29、09-30 兩次）；使用者
+  決定不再依賴任何雲端資料庫，全部資料改成「GitHub Actions 抓完直接寫
+  本機 SQLite，workflow 自己 commit 回 repo」。`get_data_store()` 已改成
+  一律回傳 `SQLiteDataStore`，不再讀取 `DATABASE_URL`。`PostgresDataStore`
+  類別保留在程式碼裡（含完整實作與測試），只是不再被 `get_data_store()`
+  自動選用——之後如果真的需要雲端資料庫，直接改這一個函式即可重新接上。
 
-兩種實作都是「以 (date, stock_id) 為主鍵的 upsert」，重複抓同一天資料不會
-產生重複列，可以放心每天無腦全量重抓最近 N 天做補資料。
+upsert 是「以 (date, stock_id) 為主鍵」，重複抓同一天資料不會產生重複列，
+可以放心每天無腦全量重抓最近 N 天做補資料。
 """
 
 from __future__ import annotations
@@ -705,8 +710,8 @@ class PostgresDataStore(DataStore):
 
 
 def get_data_store() -> DataStore:
-    """依環境變數決定要用雲端 Postgres 還是本機 SQLite，全系統只有這裡需要判斷。"""
-    dsn = os.environ.get("DATABASE_URL")
-    if dsn:
-        return PostgresDataStore(dsn)
+    """一律回傳本機 SQLite（commit 進 repo），不再依賴雲端 Postgres／Neon
+    （見本檔案開頭 2026-09-30 的背景說明）。全系統只有這裡需要判斷要用
+    哪個 DataStore 實作，其他程式碼一律呼叫這個函式、不應該自己判斷。
+    """
     return SQLiteDataStore(os.environ.get("SQLITE_DB_PATH", "data/tw_market.db"))

@@ -34,13 +34,11 @@ jobs:
 
       - name: Ingest US earnings data
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONUNBUFFERED: "1"
         run: python scripts/ingest_us_earnings_data.py
 
       - name: Export US earnings snapshot for strategy scripts
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONUNBUFFERED: "1"
         run: python scripts/export_us_earnings_snapshot.py
 
@@ -52,19 +50,7 @@ jobs:
           git diff --cached --quiet || git commit -m "chore: update US earnings snapshot for PEAD strategy $(date -u +%F)"
           git push
 
-      - name: Determine storage mode
-        id: storage
-        env:
-          DB_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          if [ -n "$DB_URL" ]; then
-            echo "use_git_snapshot=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "use_git_snapshot=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Commit updated local SQLite snapshot
-        if: steps.storage.outputs.use_git_snapshot == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

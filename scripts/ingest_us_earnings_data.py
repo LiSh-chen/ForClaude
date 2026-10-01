@@ -17,9 +17,9 @@
 傳出流量額度（見 tw_quant/data_snapshot.py 開頭的背景說明）。
 
 環境變數：
-  DATABASE_URL           雲端 Postgres 連線字串（跟其他美股資料共用同一個
-                         資料庫，存在獨立的 us_earnings 表格，互不污染）
-  SQLITE_DB_PATH         SQLite 檔案路徑（預設 data/tw_market.db）
+  SQLITE_DB_PATH         SQLite 檔案路徑（預設 data/tw_market.db；2026-09-30
+                         起不再支援雲端 Postgres，見 tw_quant/storage.py
+                         的 get_data_store() 開頭說明）
   REQUEST_SLEEP_SECONDS  每次 yfinance 呼叫間隔秒數，避免被 Yahoo 暫時
                          限速（預設 0.3）
   EARNINGS_LIMIT         每檔股票最多抓幾筆財報公布紀錄（預設 80，實際

@@ -29,7 +29,6 @@ jobs:
 
       - name: Backfill removed S&P 500 stocks
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONUNBUFFERED: "1"
         run: python scripts/backfill_removed_sp500_stocks.py
 
@@ -38,7 +37,6 @@ jobs:
       # 不用再連資料庫整表撈一次。
       - name: Export US data snapshot for strategy scripts
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONUNBUFFERED: "1"
         run: python scripts/export_us_data_snapshot.py
 
@@ -51,4 +49,18 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A -- data/us_prices_snapshot*.parquet data/us_index_membership_snapshot.parquet
           git diff --cached --quiet || git commit -m "chore: update US data snapshot after removed-stock backfill $(date -u +%F)"
+          git push
+
+      # 2026-09-30 新增：不再有共用的雲端 Postgres 幫忙在不同 ephemeral
+      # runner 之間保留狀態（見 tw_quant/storage.py 開頭說明）——這支
+      # workflow 寫入的 data/tw_market.db 只存在於這次 runner 本機，如果
+      # 不 commit 回 repo，下次 us_daily_data_ingest.yml 從 repo 重新
+      # checkout 出來的 tw_market.db 就不會有這次回填的資料，連帶讓下次
+      # 匯出的 Parquet 快照把這次回填的 74 檔被剔除股票覆寫掉——等於做白工。
+      - name: Commit updated local SQLite snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/tw_market.db
+          git diff --cached --quiet || git commit -m "chore: persist removed-S&P-500-stock backfill to SQLite $(date -u +%F)"
           git push

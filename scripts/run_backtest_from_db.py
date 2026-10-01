@@ -1,7 +1,7 @@
 """從累積下來的真實資料（由 ingest_daily_data.py 每日排程寫入）跑正式回測。
 
-資料來源與 ingest 腳本共用同一個 get_data_store()：沒設 DATABASE_URL 就讀
-本機 data/tw_market.db，設了就讀雲端 Postgres，兩邊完全不用改程式碼。
+資料來源與 ingest 腳本共用同一個 get_data_store()：讀本機 data/tw_market.db
+（2026-09-30 起不再支援雲端 Postgres，見 tw_quant/storage.py 開頭說明）。
 
 用法：
     python scripts/run_backtest_from_db.py

@@ -16,10 +16,10 @@
   - 沒有融資券/月營收/已發行股數這些台股特有的資料，只有價量。
 
 環境變數：
-  DATABASE_URL           雲端 Postgres 連線字串（跟台股版共用同一個資料庫，
-                         美股資料存在獨立的 us_prices 表格，不會互相污染）
-  SQLITE_DB_PATH         SQLite 檔案路徑（預設 data/tw_market.db，注意這是
-                         跟台股共用同一個檔案，只是不同表格）
+  SQLITE_DB_PATH         SQLite 檔案路徑（預設 data/tw_market.db，跟台股
+                         共用同一個檔案，只是不同表格；2026-09-30 起不再
+                         支援雲端 Postgres，見 tw_quant/storage.py 的
+                         get_data_store() 開頭說明）
   LOOKBACK_DAYS          增量同步時往回抓幾天（預設 10）
   REQUEST_SLEEP_SECONDS  每次 yfinance 呼叫間隔秒數，避免被 Yahoo 暫時限速
                          （預設 0.3）

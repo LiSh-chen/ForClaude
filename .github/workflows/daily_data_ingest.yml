@@ -4,11 +4,14 @@ name: Daily TW Market Data Ingest
 # 這支 workflow 跑在 GitHub 自己的 runner 上，有正常的網際網路存取權，
 # 不受 Claude Code 開發沙盒的網路白名單限制——這正是選它來做資料排程的原因。
 #
-# 需要的 GitHub Secrets（都是選填，沒設也能先用示範清單跑起來）：
+# 需要的 GitHub Secrets（選填，沒設也能先用示範清單跑起來）：
 #   FINMIND_TOKEN   FinMind API token
-#   DATABASE_URL    雲端 Postgres 連線字串；沒設就退回本機 SQLite 並自動 commit 回 repo
 # 需要的 GitHub Variables（選填）：
 #   STOCK_UNIVERSE  逗號分隔的股票代號清單
+#
+# 2026-09-30：不再使用雲端 Postgres（Neon 免費額度被打滿）。一律寫本機
+# SQLite（data/tw_market.db），每次執行完這個 workflow 自己 commit 回
+# repo——repo 本身就是唯一的資料來源，見 tw_quant/storage.py 開頭說明。
 
 on:
   schedule:
@@ -45,7 +48,6 @@ jobs:
       - name: Run ingestion
         env:
           FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           STOCK_UNIVERSE: ${{ vars.STOCK_UNIVERSE }}
           FORCE_BACKFILL: ${{ inputs.force_backfill }}
           # Python 對著非終端機輸出預設是整塊緩衝，print() 的內容可能一直
@@ -59,23 +61,9 @@ jobs:
 
       - name: Show current data status
         if: always()
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python scripts/show_data_status.py
 
-      - name: Determine storage mode
-        id: storage
-        env:
-          DB_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          if [ -n "$DB_URL" ]; then
-            echo "use_git_snapshot=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "use_git_snapshot=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Commit updated local SQLite snapshot
-        if: steps.storage.outputs.use_git_snapshot == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

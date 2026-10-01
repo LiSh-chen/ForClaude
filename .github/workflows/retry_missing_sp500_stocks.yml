@@ -31,7 +31,6 @@ jobs:
 
       - name: Retry missing S&P 500 stocks with period=max
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONUNBUFFERED: "1"
         run: python scripts/retry_missing_sp500_stocks_from_db.py
 
@@ -41,7 +40,6 @@ jobs:
       # 用 -A + glob 一併 git add。
       - name: Export US data snapshot for strategy scripts
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONUNBUFFERED: "1"
         run: python scripts/export_us_data_snapshot.py
 
@@ -51,4 +49,16 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A -- data/us_prices_snapshot*.parquet data/us_index_membership_snapshot.parquet
           git diff --cached --quiet || git commit -m "chore: update US data snapshot after retrying missing S&P 500 stocks $(date -u +%F)"
+          git push
+
+      # 見 backfill_removed_sp500_stocks.yml 同一個步驟的說明：沒有共用的
+      # 雲端資料庫幫忙保留狀態了，這支 workflow 寫入的 data/tw_market.db
+      # 一定要自己 commit 回 repo，否則下次 us_daily_data_ingest.yml 重新
+      # checkout 出來的版本不會有這次補回的資料。
+      - name: Commit updated local SQLite snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/tw_market.db
+          git diff --cached --quiet || git commit -m "chore: persist retried S&P 500 stocks to SQLite $(date -u +%F)"
           git push

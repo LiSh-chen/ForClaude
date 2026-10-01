@@ -7,9 +7,9 @@
 
 環境變數：
   FINMIND_TOKEN          FinMind API token（選填；沒有 token 也能用，但速率限制更嚴）
-  DATABASE_URL           雲端 Postgres 連線字串（選填；沒設就退回本地 SQLite，
-                         見 tw_quant/storage.py 的 get_data_store()）
-  SQLITE_DB_PATH         SQLite 檔案路徑（預設 data/tw_market.db）
+  SQLITE_DB_PATH         SQLite 檔案路徑（預設 data/tw_market.db；2026-09-30
+                         起不再支援雲端 Postgres，見 tw_quant/storage.py
+                         的 get_data_store() 開頭說明）
   STOCK_UNIVERSE         逗號分隔的股票代號清單（選填）
   STOCK_UNIVERSE_FILE    每行一個股票代號的文字檔路徑（選填）
   LOOKBACK_DAYS          增量同步時往回抓幾天，涵蓋補資料與假日（預設 10）
