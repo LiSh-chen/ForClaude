@@ -147,6 +147,19 @@
   .rules-card ul { margin: 6px 0 0; padding-left: 18px; }
   .rules-card li { margin-bottom: 4px; }
 
+  .capital-input-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px;
+    font-size: 12px; color: var(--text-secondary);
+  }
+  .capital-input-row label { font-weight: 600; color: var(--text-primary); }
+  .capital-input-row input {
+    font-size: 13px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-primary); font-family: "IBM Plex Mono", monospace;
+    font-variant-numeric: tabular-nums; width: 130px;
+  }
+  .capital-input-row .hint { font-size: 10.5px; color: var(--muted); flex-basis: 100%; }
+  @media (min-width: 560px) { .capital-input-row .hint { flex-basis: auto; } }
+
   .margin-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 12px; }
   @media (max-width: 620px) { .margin-grid { grid-template-columns: 1fr; } }
   .margin-tile {
@@ -188,6 +201,11 @@
   <div class="strategy-grid" id="strategy-grid"></div>
 
   <h2>保證金與資金需求</h2>
+  <div class="capital-input-row">
+    <label for="capital-input">模擬帳戶起始本金</label>
+    <input type="number" id="capital-input" step="10000" min="0" />
+    <span class="hint">僅供這個頁面換算「總資金」顯示用，可自行調整，數字只存在你自己的瀏覽器裡。</span>
+  </div>
   <div class="margin-grid" id="margin-grid"></div>
   <div class="margin-note" id="margin-note"></div>
   <div class="risk-banner" id="risk-banner" style="margin-bottom:20px;"></div>
@@ -202,7 +220,7 @@
   <div class="chart-card">
     <div class="table-scroll">
       <table class="log">
-        <thead><tr><th>日期</th><th>策略</th><th>事件</th><th>方向</th><th class="num">價位</th><th class="num">損益(點)</th><th class="num">累計損益(TWD)</th><th>備註</th></tr></thead>
+        <thead><tr><th>日期</th><th>策略</th><th>事件</th><th>方向</th><th class="num">口數</th><th class="num">價位</th><th class="num">損益(點)</th><th class="num">累計損益(TWD)</th><th class="num">總資金(TWD)</th><th>備註</th></tr></thead>
         <tbody id="log-body"></tbody>
       </table>
     </div>
@@ -237,11 +255,36 @@
     return n.toLocaleString("zh-TW");
   }
 
+  var CAPITAL_STORAGE_KEY = "paper_trading_capital";
+  var DEFAULT_CAPITAL = 1000000;
+  var CURRENT_DATA = null;
+
+  function loadCapital() {
+    try {
+      var v = window.localStorage.getItem(CAPITAL_STORAGE_KEY);
+      if (v !== null) { var n = parseFloat(v); if (!isNaN(n) && n >= 0) return n; }
+    } catch (e) { /* 私密視窗/封鎖site data時忽略，退回預設值 */ }
+    return DEFAULT_CAPITAL;
+  }
+  function saveCapital(v) {
+    try { window.localStorage.setItem(CAPITAL_STORAGE_KEY, String(v)); } catch (e) { /* 同上，忽略 */ }
+  }
+
   fetch("./data.json").then(function (r) { return r.json(); }).then(render).catch(function (err) {
     document.getElementById("disclaimer-banner").textContent = "資料載入失敗：" + err;
   });
 
   function render(data) {
+    CURRENT_DATA = data;
+    var capitalInput = document.getElementById("capital-input");
+    capitalInput.value = loadCapital();
+    capitalInput.addEventListener("change", function () {
+      var v = Math.max(0, parseFloat(capitalInput.value) || 0);
+      capitalInput.value = v;
+      saveCapital(v);
+      renderMargin(CURRENT_DATA.margin);
+      renderLog(CURRENT_DATA.log);
+    });
     document.getElementById("disclaimer-banner").innerHTML =
       "<span>這是<b>模擬倉（紙上交易）</b>，不涉及真實資金下單，記錄的損益是「假設從 <b>" +
       (data.start_date || "—") + "</b> 起完全照規則機械化操作」會得到的結果，僅供研究與策略前瞻驗證參考，不構成投資建議。</span>";
@@ -318,8 +361,17 @@
 
   function renderMargin(m) {
     if (!m) return;
+    var capital = loadCapital();
+    var lastEq = (CURRENT_DATA.equity.length) ? CURRENT_DATA.equity[CURRENT_DATA.equity.length - 1] : { total: 0 };
+    var totalFunds = capital + lastEq.total;
+    var available = totalFunds - m.current_margin_original;
+
     var gridEl = document.getElementById("margin-grid");
     var tiles = [
+      { k: "目前總資金", v: fmtPlain(Math.round(totalFunds)) + " TWD",
+        sub: "起始本金 " + fmtPlain(capital) + " ＋累積模擬損益 " + fmtSigned(Math.round(lastEq.total)) },
+      { k: "可用餘額", v: fmtPlain(Math.round(available)) + " TWD",
+        sub: "總資金 − 目前佔用保證金" + (available < 0 ? "（已經是負的，本金不夠蓋目前佔用的保證金）" : "") },
       { k: "目前實際佔用", v: m.current_lots + " 口 / " + fmtPlain(m.current_margin_original) + " TWD",
         sub: m.current_lots > 0 ? "跨日策略持倉中，用原始保證金估算" : "收盤後無跨日持倉" },
       { k: "理論最大併發", v: m.theoretical_max_lots + " 口 / " + fmtPlain(m.theoretical_max_margin) + " TWD",
@@ -358,9 +410,10 @@
   function renderLog(log) {
     var body = document.getElementById("log-body");
     if (!log.length) {
-      body.innerHTML = '<tr class="empty-row"><td colspan="8">目前還沒有任何進出場事件。</td></tr>';
+      body.innerHTML = '<tr class="empty-row"><td colspan="10">目前還沒有任何進出場事件。</td></tr>';
       return;
     }
+    var capital = loadCapital();
     // 先依時間正序(舊→新)算每筆事件發生"之後"的累計已實現損益，再倒序顯示
     // （最新在最上面）——open事件本身沒有已實現損益(進場當下還沒賺賠)，
     // 不改變累計值，但仍然顯示「當時」的累計水位，方便對照資金變化。
@@ -369,7 +422,7 @@
     var withCumulative = ascending.map(function (e) {
       var pnl = e.realized_pnl_points;
       if (pnl !== null && pnl !== undefined) running += pnl * 50;
-      return Object.assign({}, e, { cumulative_pnl_twd: running });
+      return Object.assign({}, e, { cumulative_pnl_twd: running, total_funds_twd: capital + running });
     });
     var sorted = withCumulative.slice().reverse();
     var eventLabel = { open: "進場", close: "出場", trade: "當日完成" };
@@ -381,10 +434,13 @@
         '<td class="num mono ' + (pnl > 0 ? "pos" : pnl < 0 ? "neg" : "") + '">' + fmtSigned(pnl, 1) + "</td>";
       var cum = e.cumulative_pnl_twd;
       var cumCell = '<td class="num mono ' + (cum > 0 ? "pos" : cum < 0 ? "neg" : "") + '">' + fmtSigned(cum) + "</td>";
+      var totalCell = '<td class="num mono">' + fmtPlain(Math.round(e.total_funds_twd)) + "</td>";
       var priceCell = e.event === "open" ? fmtPlain(e.sim_entry_price) :
         (e.event === "trade" ? fmtPlain(e.sim_entry_price) + " → " + fmtPlain(e.sim_exit_price) : fmtPlain(e.sim_exit_price));
+      // 口數固定1口——這套模擬倉目前沒有可調整口數的功能，每個策略永遠假設
+      // 單口小型台指期，欄位先留著，之後真的支援多口時才有地方可以改。
       return "<tr><td class=\"mono\">" + e.sim_date + "</td><td>" + e.strategy_id + "</td><td>" + eventText + "</td><td>" + dirText + "</td>" +
-        '<td class="num mono">' + priceCell + "</td>" + pnlCell + cumCell +
+        '<td class="num mono">1</td><td class="num mono">' + priceCell + "</td>" + pnlCell + cumCell + totalCell +
         "<td>" + (e.note || "") + "</td></tr>";
     }).join("");
   }
