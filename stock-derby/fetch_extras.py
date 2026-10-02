@@ -1,6 +1,7 @@
 """Daily top-up for what the repo's S&P 500 snapshot does not cover.
 
-1. Refresh the Nasdaq-100 member list (Wikipedia; falls back to universe.json).
+1. Refresh the Nasdaq-100 member list from Wikipedia's "List of NASDAQ-100 companies" (then slickcharts / nasdaq.com,
+   then the last cached list, then universe.json). Runs on every daily build, so the list follows index changes.
 2. For Nasdaq-100 tickers missing from the snapshot, download OHLCV with yfinance
    into data/extra_prices.csv (long format, incremental, committed to the repo).
 
@@ -53,7 +54,7 @@ def _get(url: str):
 
 
 def _from_wikipedia() -> list[str]:
-    return parse_ndx_tables(_get("https://en.wikipedia.org/wiki/Nasdaq-100").text)
+    return parse_ndx_tables(_get("https://en.wikipedia.org/wiki/List_of_NASDAQ-100_companies").text)
 
 
 def _from_slickcharts() -> list[str]:
