@@ -171,7 +171,10 @@ def scan_all_factors(master: pd.DataFrame, factors: dict[str, pd.Series], eligib
                 {"date": master["date"].to_numpy(), "_sig": sig_masked.to_numpy(), "_fwd": fwd.to_numpy()}
             )
             ic = rank_ic_series(df, "_sig", "_fwd", min_stocks_per_day=MIN_STOCKS_PER_DAY)
-            summary = ic_summary(ic)
+            # nw_lags = F-1：forward return 重疊 F-1 天，Newey-West 用這個
+            # lag 修正逐日 IC 序列的自相關，避免 t_stat 虛高（見
+            # tw_quant/factor_ic.py 開頭 2026-10-02 的說明）。
+            summary = ic_summary(ic, nw_lags=F - 1)
             rows.append({"family": name, "horizon": F, **summary})
     return pd.DataFrame(rows)
 
@@ -211,12 +214,18 @@ def main() -> None:
     print("\n=== 每個因子取最佳 horizon 代表，前 5 名（這就是「影響股價前五名的參數」）===")
     print(fmt_ic_table(best_per_family, top_n=5))
 
-    strong = result[(result["mean_ic"].abs() >= 0.02) & (result["t_stat"].abs() >= 2.0)]
+    naive_strong = result[(result["mean_ic"].abs() >= 0.02) & (result["t_stat"].abs() >= 2.0)]
+    nw_strong = result[(result["mean_ic"].abs() >= 0.02) & (result["t_stat_nw"].abs() >= 2.0)]
     print(
         f"\n=== 總結：{len(result)} 組 (因子, horizon) 中，"
-        f"{len(strong)} 組 |mean IC| >= 0.02 且 |t| >= 2.0（粗略的「有規律」門檻，"
-        f"注意 t 值沒有 Newey-West 修正，重疊窗格會讓 t 值偏樂觀）==="
+        f"未修正 t 值判定「顯著」的有 {len(naive_strong)} 組，"
+        f"Newey-West 修正後只剩 {len(nw_strong)} 組同時滿足 |mean IC| >= 0.02 且 |t_stat_NW| >= 2.0 ==="
     )
+    if not nw_strong.empty:
+        print("\n=== Newey-West 修正後仍然「顯著」的組合 ===")
+        print(fmt_ic_table(nw_strong, top_n=20))
+    else:
+        print("\n沒有任何組合在 Newey-West 修正後還站得住腳。")
 
     print(f"\n（全部計算耗時 {time.time() - t0:.1f} 秒）")
 

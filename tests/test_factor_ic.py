@@ -12,7 +12,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tw_quant.factor_ic import forward_return, ic_summary, rank_ic_series
+from tw_quant.factor_ic import forward_return, ic_summary, newey_west_se, newey_west_t_stat, rank_ic_series
 
 
 def _make_perfectly_momentum_data() -> pd.DataFrame:
@@ -99,3 +99,62 @@ def test_ic_summary_returns_nan_for_too_few_days():
     summary = ic_summary(ic)
     assert np.isnan(summary["mean_ic"])
     assert summary["n_days"] == 0
+
+
+def test_newey_west_se_matches_naive_se_when_lags_zero():
+    rng = np.random.default_rng(0)
+    x = rng.normal(0, 1, 500)
+    nw_se = newey_west_se(x, lags=0)
+    naive_se = x.std(ddof=0) / np.sqrt(len(x))
+    assert np.isclose(nw_se, naive_se, rtol=1e-6)
+
+
+def test_newey_west_se_inflates_for_block_autocorrelated_series():
+    """模擬 overlapping forward return 造成的自相關最極端的情況：每個
+    獨立值連續重複 F 次（完全模擬「F-1 階自相關、F 階以上獨立」的結構）。
+    真正獨立的樣本數只有 n/F 個，天真的 std/sqrt(n) 標準誤把 n 筆都當成
+    獨立觀測值，會嚴重低估真正的不確定性；Newey-West 用 lags=F-1 修正後，
+    標準誤應該要明顯變大（不要求精確倍數，只驗證方向跟量級）。
+    """
+    rng = np.random.default_rng(1)
+    F = 20
+    n_blocks = 100
+    base_values = rng.normal(0, 1, n_blocks)
+    x = np.repeat(base_values, F)
+
+    naive_se = x.std(ddof=0) / np.sqrt(len(x))
+    nw_se = newey_west_se(x, lags=F - 1)
+
+    assert nw_se > naive_se * 2  # 應該要有數倍的差距，不是微幅調整
+
+
+def test_newey_west_t_stat_shrinks_for_autocorrelated_series_with_real_signal():
+    """帶有真實訊號（非零均值）但高度自相關的序列，Newey-West 修正後的
+    |t| 應該明顯小於天真算法的 |t|——自相關修正應該讓看起來「很顯著」的
+    結果變得比較不顯著，而不是反過來。
+    """
+    rng = np.random.default_rng(2)
+    F = 20
+    n_blocks = 100
+    base_values = rng.normal(0.3, 1, n_blocks)  # 真實均值 0.3，不是 0
+    x = np.repeat(base_values, F)
+
+    naive_t = x.mean() / (x.std(ddof=0) / np.sqrt(len(x)))
+    nw_t = newey_west_t_stat(x, lags=F - 1)
+
+    assert abs(nw_t) < abs(naive_t)
+
+
+def test_ic_summary_with_nw_lags_adds_t_stat_nw_key():
+    rng = np.random.default_rng(3)
+    ic = pd.Series(rng.normal(0.02, 0.1, 200))
+    summary = ic_summary(ic, nw_lags=19)
+    assert "t_stat_nw" in summary
+    assert not np.isnan(summary["t_stat_nw"])
+
+
+def test_ic_summary_without_nw_lags_omits_t_stat_nw_key():
+    rng = np.random.default_rng(3)
+    ic = pd.Series(rng.normal(0.02, 0.1, 200))
+    summary = ic_summary(ic)
+    assert "t_stat_nw" not in summary
