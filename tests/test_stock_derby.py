@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import json
 import pandas as pd
 import pytest
 
@@ -57,32 +58,108 @@ def test_merge_long_new_wins():
     assert list(out["close"]) == [1.0, 2.5, 3.0]
 
 
-def test_committed_derby_json_is_consistent():
+def _doc():
     import json
-    d = json.loads((D / "data" / "derby.json").read_text())
-    assert set(d["pools"]) == {"spx", "ndx", "all"}
+    return json.loads((D / "data" / "derby.json").read_text())
+
+
+def _all_races(d):
     for pool in d["pools"].values():
-        for dist, race in pool.items():
-            assert len(race["horses"]) == 10
-            assert sorted(h["result"] for h in race["horses"]) == list(range(1, 11))
-            assert all(len(h["path"]) == race["days"] + 1 for h in race["horses"])
-            assert len(d["key_factors"]) == 5
+        for dist, blk in pool.items():
+            for race in blk["races"]:
+                yield dist, race
+
+
+def test_derby_json_structure():
+    d = _doc()
+    assert set(d["pools"]) == {"spx", "ndx", "all"} and len(d["key_factors"]) == 5
+    for pool in d["pools"].values():
+        assert set(pool) == {"1m", "3m", "6m", "q"}
+        for dist, blk in pool.items():
+            assert 1 <= len(blk["races"]) <= bd.N_RACES
+            assert [r["k"] for r in blk["races"]] == sorted(r["k"] for r in blk["races"])
+    for dist, race in _all_races(d):
+        assert len(race["horses"]) == 10
 
 
 def test_every_horse_has_sprite_sheet_and_name():
-    import json
     pytest.importorskip("PIL")        # Pillow isn't in requirements.txt (only the sprite tools need it)
     from PIL import Image
-    d = json.loads((D / "data" / "derby.json").read_text())
+    d = _doc()
     man = json.loads((D / "assets" / "horses" / "manifest.json").read_text())
-    for pool in d["pools"].values():
-        for race in pool.values():
-            sprites = [h["sprite"] for h in race["horses"]]
-            assert len(set(sprites)) == len(sprites), "no two identical coats in one field"
-            for h in race["horses"]:
-                im = Image.open(D / "assets" / "horses" / f"{h['sprite']}.png")
-                assert im.size == (man["frame_w"] * (man["run_frames"] + 1), man["frame_h"])
-                assert h["horse_zh"] and h["horse_en"]
+    for dist, race in _all_races(d):
+        sprites = [h["sprite"] for h in race["horses"]]
+        assert len(set(sprites)) == len(sprites), "no two identical coats in one field"
+        for h in race["horses"]:
+            im = Image.open(D / "assets" / "horses" / f"{h['sprite']}.png")
+            assert im.size == (man["frame_w"] * (man["run_frames"] + 1), man["frame_h"])
+            assert h["horse_zh"] and h["horse_en"]
+
+
+def test_finished_races_match_real_prices_and_prediction_rules():
+    d = _doc()
+    for dist, race in _all_races(d):
+        hs = race["horses"]
+        assert [h["pred"] for h in hs] == list(range(1, 11))              # numbered by prediction
+        assert [h["total"] for h in hs] == sorted((h["total"] for h in hs), reverse=True)
+        if race["status"] != "done":
+            assert all("ret" not in h and "result" not in h for h in hs), "unknown results must not leak"
+            continue
+        for h in hs:
+            assert abs(h["price_end"] / h["price_start"] - 1 - h["ret"]) < 2e-3
+        by_ret = sorted(hs, key=lambda h: -h["ret"])
+        assert [h["result"] for h in by_ret] == list(range(1, 11))        # result = return rank
+        if "dates" in race:
+            assert race["dates"][0] == race["start"] and race["dates"][-1] == race["end"]
+            assert all(h["path"][0] == 0 and abs(h["path"][-1] - h["ret"]) < 1e-3 for h in hs)
+
+
+def test_quarter_race_is_upcoming_with_sane_odds_and_settlement_data():
+    d = _doc()
+    for pk, pool in d["pools"].items():
+        races = pool["q"]["races"]
+        up = races[0]
+        assert up["status"] == "upcoming" and up["end"] is None and up["planned_end"] > up["start"]
+        assert abs(sum(h["p_win"] for h in up["horses"]) - 1) < 0.01
+        for h in up["horses"]:
+            assert h["odds_win"] >= 1.2 and h["odds_place"] >= 1.1 and h["odds_place"] < h["odds_win"]
+        # the horse the card likes best must not pay more than the one it likes least
+        assert up["horses"][0]["odds_win"] <= up["horses"][-1]["odds_win"]
+        for r in races[1:]:
+            assert r["status"] == "done" and r["id"] in d["settled"]
+            assert sorted(d["settled"][r["id"]]["result"].values()) == list(range(1, 11))
+
+
+def test_key_factors_have_horse_wording_and_params():
+    d = _doc()
+    for f in d["key_factors"]:
+        assert f["horse"] and f["meaning"] and f["param"] and f["avg_ic"] >= 0 and "sign" not in f
+
+
+def test_race_bounds_quarter_and_months():
+    dates = pd.bdate_range("2025-01-01", "2026-10-01")
+    live = dates.get_loc(pd.Timestamp("2026-09-30"))             # data through the quarter-end close -> Q4 is the race in progress
+    q0 = bd.race_bounds(dates, "q", 0, live)
+    assert q0["e"] is None and q0["planned_end"] == "2026-12-31"
+    assert dates[q0["s"]] == pd.Timestamp("2026-09-30")          # starts at the last quarter-end close
+    q1 = bd.race_bounds(dates, "q", 1, live)
+    assert dates[q1["e"]] == dates[q0["s"]] and dates[q1["s"]] <= pd.Timestamp("2026-06-30")
+    m1 = bd.race_bounds(dates, "3m", 1, live)
+    assert m1["e"] == bd.race_bounds(dates, "3m", 0, live)["s"]   # consecutive, non-overlapping races
+
+
+def test_odds_table_is_a_proper_distribution_with_house_edge():
+    sc = pd.Series({"a": 90.0, "b": 60.0, "c": 50.0, "d": 40.0, "e": 30.0, "f": 20.0})
+    od = bd.odds_table(sc)
+    assert abs(od.p_win.sum() - 1) < 1e-6 and abs(od.p_place.sum() - 3) < 1e-6
+    assert od.odds_win.is_monotonic_increasing                    # better score -> lower payout
+    assert (od.p_win * od.odds_win).max() <= 1 - bd.TAKEOUT + 0.1 # house keeps its cut (rounding/floor aside)
+
+
+def test_horse_wording_covers_every_candidate_factor():
+    for fid in F.META:
+        t0, t1 = F.horse_term(fid, False), F.horse_term(fid, True)
+        assert t0["horse"] and t1["horse"] and t0["param"] != t1["param"]
 
 
 def test_sprite_frames_differ_so_gallop_animates():
@@ -113,29 +190,6 @@ def test_total_score_renormalises_missing_factors():
     pct = pd.DataFrame({"a": [100.0, 50.0], "b": [100.0, np.nan]}, index=["x", "y"])
     sc = bd.total_score(pct, np.array([0.5, 0.5]))
     assert sc["x"] == 100.0 and sc["y"] == 50.0           # y's weight moves entirely to factor a
-
-
-def test_all_key_factors_are_higher_is_better():
-    import json
-    kf = json.loads((D / "data" / "key_factors.json").read_text())["key_factors"]
-    assert all(f["avg_ic"] >= 0 and "sign" not in f for f in kf)
-    assert all(("reversed" in f) for f in kf)
-
-
-def test_derby_json_matches_real_prices_and_prediction_rules():
-    import json
-    d = json.loads((D / "data" / "derby.json").read_text())
-    for pool in d["pools"].values():
-        for race in pool.values():
-            hs = race["horses"]
-            assert [h["pred"] for h in hs] == list(range(1, 11))              # numbered by prediction
-            assert [h["total"] for h in hs] == sorted((h["total"] for h in hs), reverse=True)
-            for h in hs:
-                assert abs(h["price_end"] / h["price_start"] - 1 - h["ret"]) < 2e-3
-                assert h["path"][0] == 0 and abs(h["path"][-1] - h["ret"]) < 1e-3
-            by_ret = sorted(hs, key=lambda h: -h["ret"])
-            assert [h["result"] for h in by_ret] == list(range(1, 11))        # result = return rank
-            assert race["dates"][0] == race["start"] and race["dates"][-1] == race["end"]
 
 
 def test_parse_ndx_tables_finds_the_constituents_table_and_reports_what_it_saw():

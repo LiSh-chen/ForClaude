@@ -1,12 +1,15 @@
-"""Build data/derby.json: race card (賽馬報) + race replay for every pool x distance.
+"""Build data/derby.json: race cards (馬報), replays and quarterly betting odds for every pool x distance.
 
 pool     : spx (S&P 500) | ndx (Nasdaq-100) | all (union)
-distance : 1m / 3m / 6m  = calendar months (start = last trading day on/before end - N months)
-race     : the most recent completed window, ending on the latest trading day with price coverage
-field    : the 10 stocks of the pool with the highest return over that window (起跑價 -> 終點價, adjusted closes)
-card     : 近績 / 跑法 / 能力 only use data up to the start date (so the ability ranking is a genuine
-           pre-race "prediction" that can be compared with the result).
-validation: the same prediction replayed over past non-overlapping races (in-sample, see caveats in the UI).
+distance : 1m / 3m / 6m = calendar months, ending on the latest trading day with price coverage;
+           q = calendar quarters (race 0 is the quarter in progress: result unknown, odds only)
+races    : for each distance the latest race plus the 4 before it (N_RACES entries), each with its own card
+field    : 1m/3m/6m -> the 10 stocks with the highest return over the race window (review races);
+           q        -> the 10 stocks with the highest return over the *previous* quarter (entries known before the start)
+card     : 近績 / 跑法 / 能力 only use data up to the start date, so the ability ranking is a genuine pre-race
+           prediction that can be compared with the result.
+odds     : simulated from the card (0.7 ability + 0.3 recent form) with a Plackett-Luce model; virtual points only.
+validation: the same prediction replayed over past races (in-sample, see caveats in the UI).
 """
 from __future__ import annotations
 
@@ -19,8 +22,11 @@ import pandas as pd
 import data_loader as dl
 import factors as F
 
-DIST_MONTHS = {"1m": 1, "3m": 3, "6m": 6}
-STRIDE = {"1m": 21, "3m": 63, "6m": 126}       # trading days between validation races (no overlap)
+DIST_MONTHS = {"1m": 1, "3m": 3, "6m": 6, "q": 3}
+DISTS = list(DIST_MONTHS)
+N_RACES = 5                                    # latest race + the 4 before it
+TAKEOUT = 0.15                                 # house cut in the simulated odds
+ODDS_TEMP = 30.0                               # high on purpose: the ability signal is weak, so odds stay flat
 FIELD = 10
 N_FORM = 4
 N_VALID = 40
@@ -37,9 +43,18 @@ SECTOR_ZH = {"Information Technology": "科技", "Communication Services": "通�
 MARKS = ["◎", "○", "▲", "△", "△"]
 
 
+
+
 def months_back(dates: pd.DatetimeIndex, i: int, m: int) -> int:
     """Index of the last trading day on/before dates[i] - m calendar months (-1 if before the data starts)."""
+    if i <= 0:
+        return -1
     return int(dates.searchsorted(dates[i] - pd.DateOffset(months=m), side="right")) - 1
+
+
+def idx_on(dates: pd.DatetimeIndex, d: pd.Timestamp) -> int:
+    """Index of the last trading day on/before date d (-1 if before the data starts)."""
+    return int(dates.searchsorted(d, side="right")) - 1
 
 
 def style_label(early_rank: float) -> tuple[str, str]:
@@ -72,7 +87,8 @@ def stars(score: float) -> int:
 
 
 def weights_for(kf: list[dict], dk: str) -> np.ndarray:
-    w = np.array([max(f[dk]["ic"], 0.002) for f in kf])      # oriented ICs; floor keeps every factor in play
+    key = "3m" if dk == "q" else dk
+    w = np.array([max(f[key]["ic"], 0.002) for f in kf])      # oriented ICs; floor keeps every factor in play
     return w / w.sum()
 
 
@@ -89,9 +105,56 @@ def total_score(pct: pd.DataFrame, w: np.ndarray) -> pd.Series:
 
 
 def select_field(close: pd.DataFrame, tickers: list[str], s: int, e: int) -> tuple[list[str], pd.Series, list[str]]:
+    """Review races: the FIELD best performers between start s and end e (needs a price on both days)."""
     ok = [t for t in tickers if t in close.columns and pd.notna(close[t].iloc[s]) and pd.notna(close[t].iloc[e])]
     ret = (close[ok].iloc[e] / close[ok].iloc[s] - 1).sort_values(ascending=False)
     return list(ret.index[:FIELD]), ret, ok
+
+
+def select_field_prior(close: pd.DataFrame, tickers: list[str], p0: int, s: int) -> tuple[list[str], pd.Series, list[str]]:
+    """Quarterly races: entries = best performers of the previous window [p0, s] (known before the start)."""
+    ok = [t for t in tickers if t in close.columns and pd.notna(close[t].iloc[p0]) and pd.notna(close[t].iloc[s])]
+    mom = (close[ok].iloc[s] / close[ok].iloc[p0] - 1).sort_values(ascending=False)
+    return list(mom.index[:FIELD]), mom, ok
+
+
+def race_bounds(dates: pd.DatetimeIndex, dist: str, k: int, live_end: int) -> dict:
+    """Window of race k (0 = latest). Returns start index s, end index e (None = not finished yet),
+    the planned end date, and `chain` = [s, start of the window before, ...] used for 近績 / 跑法."""
+    m = DIST_MONTHS[dist]
+    if dist != "q":
+        e = live_end
+        for _ in range(k):
+            e = months_back(dates, e, m)
+        s = months_back(dates, e, m)
+        chain = [s]
+        for _ in range(N_FORM):
+            chain.append(months_back(dates, chain[-1], m))
+        return {"s": s, "e": e, "chain": chain, "planned_end": None}
+    cur = (dates[live_end] + pd.Timedelta(days=1)).to_period("Q") - k          # quarter in progress, minus k
+    ends = [(cur - j).end_time.normalize() for j in range(0, N_FORM + 3)]       # ends[0] = this quarter's end
+    starts = [idx_on(dates, ends[j + 1]) for j in range(0, N_FORM + 2)]         # start of quarter (cur - j)
+    s = starts[0]
+    e = None if k == 0 else idx_on(dates, ends[0])
+    return {"s": s, "e": e, "chain": starts[:N_FORM + 1], "planned_end": str(ends[0].date())}
+
+
+def odds_table(score: pd.Series) -> pd.DataFrame:
+    """Plackett-Luce win / top-3 probabilities from evaluation scores, then simulated payout odds."""
+    strength = np.exp((score - score.mean()) / ODDS_TEMP)
+    rng = np.random.default_rng(20261001)
+    keys = np.log(strength.to_numpy()) + rng.gumbel(size=(20000, len(strength)))
+    place = (-keys).argsort(1).argsort(1)                                     # 0 = winner in each simulation
+    p_win = (place == 0).mean(0)
+    p_top3 = (place < 3).mean(0)
+    return pd.DataFrame({"p_win": p_win, "p_place": p_top3,
+                         "odds_win": np.maximum(1.2, np.round((1 - TAKEOUT) / np.maximum(p_win, 1e-3), 1)),
+                         "odds_place": np.maximum(1.1, np.round((1 - TAKEOUT) / np.maximum(p_top3, 1e-3), 1))}, index=score.index)
+
+
+def form_score(form: list) -> float:
+    done = [x for x in form if x is not None]
+    return float(np.mean([(11 - r) * 10 for r in done])) if done else 55.0
 
 
 def assign_looks(field: list[str], manifest: dict) -> dict[str, dict]:
@@ -119,90 +182,136 @@ def assign_looks(field: list[str], manifest: dict) -> dict[str, dict]:
 
 
 def comment(h: dict, kf: list[dict]) -> str:
-    labels = {f["id"]: f["label"] for f in kf}
+    labels = {f["id"]: f["horse"] for f in kf}
     have = {k: v for k, v in h["ability"].items() if v is not None}
-    parts = [f"{h['horse_zh']}（{h['company']}）" if h["company"] else h["horse_zh"]]
+    parts = []
     done = [x for x in h["form"] if x is not None]
     if done:
         top3 = sum(1 for x in done if x <= 3)
-        parts.append(f"近{len(done)}戰{top3}次進前三" if top3 else f"近{len(done)}戰未進前三")
+        parts.append(f"近{len(done)}戰{top3}次前三" if top3 else f"近{len(done)}戰未進前三")
     parts.append(f"跑法{h['style']}")
     if have:
         ab = sorted(have.items(), key=lambda kv: -kv[1])
         parts.append(f"強項「{labels[ab[0][0]]}」")
         if ab[-1][1] < 35:
-            parts.append(f"弱點「{labels[ab[-1][0]]}」")
+            parts.append(f"弱項「{labels[ab[-1][0]]}」")
     if len(have) < len(kf):
-        parts.append("上市未滿一年，部分能力值無資料")
+        parts.append("新馬，部分能力無資料")
     return "，".join(parts)
 
 
-def build_race(tickers, p, ofac, kf, sector_of, dk, manifest) -> dict:
+def evaluate(close, ofac, kf, tickers, dist, b) -> dict | None:
+    """Field + pre-race scores for one race window b = race_bounds(...). None if the data does not allow it."""
+    s, e, chain = b["s"], b["e"], b["chain"]
+    if s < 0:
+        return None
+    if dist == "q":
+        if chain[1] < 0:
+            return None
+        field, rank_basis, ok = select_field_prior(close, tickers, chain[1], s)
+        if e is not None:
+            field = [t for t in field if pd.notna(close[t].iloc[e])]
+        ret = (close[field].iloc[e] / close[field].iloc[s] - 1) if e is not None else None
+        eligible = [t for t in tickers if t in close.columns and pd.notna(close[t].iloc[s])]
+    else:
+        field, ret_all, ok = select_field(close, tickers, s, e)
+        ret = ret_all.loc[field]
+        eligible = ok
+    if len(field) < FIELD:
+        return None
+    pct = ability_pct(ofac, kf, s, eligible)
+    score = total_score(pct, weights_for(kf, dist)).fillna(50.0)      # newly listed horses: neutral score
+    return {"field": field, "ret": ret, "pct": pct, "score": score, "ok": ok if dist != "q" else eligible}
+
+
+def build_race(tickers, p, ofac, kf, sector_of, dist, k, live_end, manifest, with_path) -> dict | None:
     close = p["close"]
     dates = close.index
-    m, N = DIST_MONTHS[dk], STRIDE[dk]
-    cov = close.reindex(columns=[t for t in tickers if t in close.columns]).notna().mean(axis=1)
-    e = int(dates.get_loc(cov[cov >= 0.9].index[-1]))
-    s = months_back(dates, e, m)
-    field_unsorted, ret, ok = select_field(close, tickers, s, e)
-    pct = ability_pct(ofac, kf, s, ok)
-    score = total_score(pct, weights_for(kf, dk))
-    pred_order = list(score.loc[field_unsorted].sort_values(ascending=False).index)
-    final_rank = ranks_of(ret.loc[field_unsorted])
-
-    # chain of earlier same-length windows for 近績 / 跑法
-    bounds = [s]
-    for _ in range(N_FORM):
-        bounds.append(months_back(dates, bounds[-1], m) if bounds[-1] > 0 else -1)
-    past = [window_ranks(close, pred_order, bounds[k + 1], bounds[k]) if bounds[k + 1] >= 0 else None for k in range(N_FORM)]
-    cum = close.iloc[s:e + 1][pred_order]
-    cum = cum / cum.iloc[0] - 1
-
+    b = race_bounds(dates, dist, k, live_end)
+    ev = evaluate(close, ofac, kf, tickers, dist, b)
+    if ev is None:
+        return None
+    s, e, chain = b["s"], b["e"], b["chain"]
+    pred_order = list(ev["score"].loc[ev["field"]].sort_values(ascending=False).index)
+    past = [window_ranks(close, pred_order, chain[j + 1], chain[j]) if chain[j + 1] >= 0 else None for j in range(N_FORM)]
+    done = e is not None
+    final_rank = ranks_of(ev["ret"].loc[pred_order]) if done else None
     looks = assign_looks(pred_order, manifest)
+
     horses = []
     for no, t in enumerate(pred_order, 1):
         form = [int(q[1][t]) if q and pd.notna(q[1][t]) else None for q in past]
         early = [q[0][t] for q in past[:3] if q and pd.notna(q[0][t])]
         early_avg = float(np.mean(early)) if early else 5.5
         style, style_desc = style_label(early_avg)
+        pct = ev["pct"]
         ability = {f["id"]: (None if pd.isna(pct.loc[t, f["id"]]) else round(float(pct.loc[t, f["id"]]), 1)) for f in kf}
         raw = {f["id"]: (None if pd.isna(ofac[f["id"]].iloc[s][t]) else round(float(ofac[f["id"]].iloc[s][t]), 4)) for f in kf}
-        total = round(float(score[t]), 1)
+        total = round(float(ev["score"][t]), 1)
         h = {"no": no, "ticker": t, "sector": SECTOR_ZH.get(sector_of.get(t, ""), "—"), **looks[t],
              "form": form, "style": style, "style_desc": style_desc, "early_rank": round(early_avg, 1) if early else None,
-             "ability": ability, "raw": raw, "total": total, "stars": stars(total), "pred": no, "mark": MARKS[no - 1] if no <= 5 else "",
-             "price_start": round(float(close[t].iloc[s]), 2), "price_end": round(float(close[t].iloc[e]), 2),
-             "ret": round(float(ret[t]), 4), "result": int(final_rank[t]),
-             "path": [round(float(x), 4) for x in cum[t].values]}
+             "ability": ability, "raw": raw, "total": total, "stars": stars(total), "pred": no,
+             "mark": MARKS[no - 1] if no <= 5 else "", "price_start": round(float(close[t].iloc[s]), 2),
+             "eval": round(0.7 * total + 0.3 * form_score(form), 1)}
+        if dist == "q":
+            h["prior_ret"] = round(float(close[t].iloc[s] / close[t].iloc[chain[1]] - 1), 4)
+        if done:
+            h.update({"price_end": round(float(close[t].iloc[e]), 2), "ret": round(float(ev["ret"][t]), 4),
+                      "result": int(final_rank[t])})
         h["comment"] = comment(h, kf)
         horses.append(h)
-    return {"start": str(dates[s].date()), "end": str(dates[e].date()), "months": m, "days": e - s,
-            "dates": [str(d.date()) for d in dates[s:e + 1]], "horses": horses,
-            "weights": [{"id": f["id"], "label": f["label"], "w": round(float(w), 3)} for f, w in zip(kf, weights_for(kf, dk))],
-            "coverage": {"pool_size": len(tickers), "with_prices": len(ok),
-                         "missing": sorted(t for t in tickers if t not in ok)[:40]},
-            "validation": validate(tickers, p, ofac, kf, dk, e)}
+
+    race = {"id": f"{ev_pool_id(tickers)}|{dist}|{dates[s].date()}", "k": k, "dist": dist,
+            "status": "done" if done else "upcoming",
+            "start": str(dates[s].date()), "end": str(dates[e].date()) if done else None,
+            "planned_end": b["planned_end"], "months": DIST_MONTHS[dist], "days": (e - s) if done else None,
+            "horses": horses,
+            "weights": [{"id": f["id"], "w": round(float(w), 3)} for f, w in zip(kf, weights_for(kf, dist))],
+            "coverage": {"pool_size": len(tickers), "with_prices": len(ev["ok"]),
+                         "missing": sorted(t for t in tickers if t not in ev["ok"])[:40]}}
+    if dist == "q":
+        race["momentum_window"] = [str(dates[chain[1]].date()), str(dates[s].date())]
+        if not done:
+            race["trading_days_so_far"] = int(live_end - s)
+    if with_path and done:
+        cum = close.iloc[s:e + 1][pred_order]
+        cum = cum / cum.iloc[0] - 1
+        race["dates"] = [str(d.date()) for d in dates[s:e + 1]]
+        for h in horses:
+            h["path"] = [round(float(x), 4) for x in cum[h["ticker"]].values]
+    if dist == "q":                                              # betting odds, from the card only
+        od = odds_table(pd.Series({h["ticker"]: h["eval"] for h in horses}))
+        for h in horses:
+            r = od.loc[h["ticker"]]
+            h.update({"p_win": round(float(r.p_win), 3), "p_place": round(float(r.p_place), 3),
+                      "odds_win": float(r.odds_win), "odds_place": float(r.odds_place)})
+    return race
 
 
-def validate(tickers, p, ofac, kf, dk, live_end: int) -> dict:
-    """Replay the same method over earlier non-overlapping races ending before the live one."""
+_POOL_ID: dict[int, str] = {}
+
+
+def ev_pool_id(tickers) -> str:
+    return _POOL_ID[id(tickers)]
+
+
+def validate(tickers, p, ofac, kf, dist, live_end: int) -> dict:
+    """Replay the same method over earlier finished races (consecutive, non-overlapping windows)."""
     close = p["close"]
     dates = close.index
-    m, N = DIST_MONTHS[dk], STRIDE[dk]
-    w = weights_for(kf, dk)
+    w = weights_for(kf, dist)
     rhos, top1, top3 = [], [], []
     for k in range(1, N_VALID + 1):
-        e = live_end - k * N
-        s = months_back(dates, e, m) if e > 0 else -1
-        if s < 300:                                   # need >1y of history for the factors
+        b = race_bounds(dates, dist, k, live_end)
+        if b["s"] < 300 or b["e"] is None or b["e"] <= b["s"]:      # need >1y of history for the factors
             break
-        field, ret, ok = select_field(close, tickers, s, e)
-        if len(field) < FIELD:
+        ev = evaluate(close, ofac, kf, tickers, dist, b)
+        if ev is None:
             continue
-        score = total_score(ability_pct(ofac, kf, s, ok), w).loc[field].dropna()
+        score = ev["score"].loc[ev["field"]].dropna()
         if len(score) < FIELD:
             continue
-        actual = ranks_of(ret.loc[score.index])
+        actual = ranks_of(ev["ret"].loc[score.index])
         pred = ranks_of(score)
         rhos.append(float(np.corrcoef(pred, actual)[0, 1]))
         order = pred.sort_values()
@@ -214,12 +323,13 @@ def validate(tickers, p, ofac, kf, dk, live_end: int) -> dict:
     r = np.array(rhos)
     return {"n": n, "mean_rho": round(float(r.mean()), 3), "t": round(float(r.mean() / (r.std(ddof=1) / np.sqrt(n))), 2),
             "top1_avg_rank": round(float(np.mean(top1)), 2), "top3_avg_rank": round(float(np.mean(top3)), 2),
-            "first": str(dates[months_back(dates, live_end - n * N, m)].date()), "last": str(dates[live_end - N].date())}
+            "first": str(dates[race_bounds(dates, dist, n, live_end)["s"]].date()),
+            "last": str(dates[race_bounds(dates, dist, 1, live_end)["e"]].date())}
 
 
 def main() -> None:
     kf_doc = json.loads(KEY_FACTORS.read_text())
-    kf = kf_doc["key_factors"]
+    kf = [{**f, **F.horse_term(f["id"], f["reversed"])} for f in kf_doc["key_factors"]]
     df = dl.load_long("2009-01-01")
     p = dl.panels(df)
     fac = F.compute_all(p, dl.earnings())
@@ -229,18 +339,35 @@ def main() -> None:
     spx, ndx = set(dl.sp500_members()), set(dl.ndx_members())
     spx.discard("GOOG"); ndx.discard("GOOG")           # same company as GOOGL
     pools = {"spx": sorted(spx), "ndx": sorted(ndx), "all": sorted(spx | ndx)}
-    pools_out = {pk: {dk: build_race(pt, p, ofac, kf, sector_of, dk, manifest) for dk in DIST_MONTHS} for pk, pt in pools.items()}
-    out = {"asof": pools_out["all"]["1m"]["end"], "key_factors": kf,
-           "study": {k: kf_doc[k] for k in ("universe_size", "period", "months")},
-           "ndx_status": dl.ndx_status(),
-           "pools": pools_out}
+    close = p["close"]
+    pools_out, settled = {}, {}
+    for pk, pt in pools.items():
+        _POOL_ID[id(pt)] = pk
+        cov = close.reindex(columns=[t for t in pt if t in close.columns]).notna().mean(axis=1)
+        live_end = int(close.index.get_loc(cov[cov >= 0.9].index[-1]))
+        pools_out[pk] = {}
+        for dk in DISTS:
+            races = [r for k in range(N_RACES) if (r := build_race(pt, p, ofac, kf, sector_of, dk, k, live_end, manifest,
+                                                                  with_path=(k == 0 and dk != "q") or (k == 1 and dk == "q"))) is not None]
+            pools_out[pk][dk] = {"races": races, "validation": validate(pt, p, ofac, kf, dk, live_end)}
+            if dk == "q":                                # everything a stored bet needs to be settled later
+                for r in races:
+                    if r["status"] == "done":
+                        settled[r["id"]] = {"end": r["end"], "result": {h["ticker"]: h["result"] for h in r["horses"]},
+                                            "odds_win": {h["ticker"]: h["odds_win"] for h in r["horses"]},
+                                            "odds_place": {h["ticker"]: h["odds_place"] for h in r["horses"]}}
+    asof = pools_out["all"]["1m"]["races"][0]["end"]
+    out = {"asof": asof, "key_factors": kf, "study": {k: kf_doc[k] for k in ("universe_size", "period", "months")},
+           "ndx_status": dl.ndx_status(), "pools": pools_out, "settled": settled}
     OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
-    print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB), asof {out['asof']}, NDX list: {out['ndx_status']['source']}")
+    print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB), asof {asof}, NDX list: {out['ndx_status']['source']}")
     for pk in pools:
-        for dk in DIST_MONTHS:
-            r = out["pools"][pk][dk]
-            print(pk, dk, r["start"], "->", r["end"], [(h["ticker"], f"{h['ret']:+.1%}") for h in sorted(r["horses"], key=lambda h: h["result"])[:10]],
-                  r["validation"])
+        for dk in DISTS:
+            r0 = pools_out[pk][dk]["races"][0]
+            top = sorted(r0["horses"], key=lambda h: h.get("result", h["pred"]))
+            print(pk, dk, r0["status"], r0["start"], "->", r0["end"] or r0["planned_end"], len(pools_out[pk][dk]["races"]), "races |",
+                  ", ".join(f"{h['ticker']}" + (f" {h['ret']:+.0%}" if "ret" in h else f" @{h['odds_win']}") for h in top[:5]),
+                  "|", pools_out[pk][dk]["validation"].get("mean_rho"))
 
 
 if __name__ == "__main__":

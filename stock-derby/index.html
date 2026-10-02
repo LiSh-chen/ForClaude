@@ -5,95 +5,124 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Stock Derby 美股賽馬</title>
 <style>
-  :root { --bg:#f6f4ee; --fg:#1d2b1f; --track:#c9a66b; --track2:#bd9a5e; --grass:#4c8a4a; --card:#fffdf7; --muted:#6b7367; --up:#1a8f4c; --down:#d23b3b; --line:rgba(128,128,128,.25); --gold:#d4a017; --accent:#2f6b3a; }
+  :root { --bg:#f6f4ee; --fg:#1d2b1f; --track:#c9a66b; --track2:#bd9a5e; --grass:#4c8a4a; --card:#fffdf7; --muted:#6b7367; --up:#1a8f4c; --down:#d23b3b; --line:rgba(128,128,128,.28); --gold:#d4a017; --accent:#2f6b3a; }
   @media (prefers-color-scheme: dark) { :root { --bg:#14181a; --fg:#e8ece6; --track:#7d6638; --track2:#725d33; --grass:#2f5a2e; --card:#1d2326; --muted:#98a39a; --accent:#6fbf7a; } }
   * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
   body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,-apple-system,"Noto Sans TC",sans-serif; }
-  main { max-width:1000px; margin:0 auto; padding:16px; }
-  h1 { margin:0 0 4px; font-size:1.5rem; } h2 { font-size:1.15rem; margin:24px 0 8px; }
-  .sub { color:var(--muted); margin:0 0 12px; }
-  .controls { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin:8px 0; }
+  main { max-width:960px; margin:0 auto; padding:10px 12px 24px; }
+  h1 { margin:0; font-size:1.25rem; }
+  .muted { color:var(--muted); font-size:13px; }
+  .tabs { display:flex; gap:4px; margin:8px 0; position:sticky; top:0; z-index:20; background:var(--bg); padding:4px 0; }
+  .tabs button { flex:1; padding:7px 4px; border-radius:10px; font-weight:600; }
+  @media (max-width:560px) { main { padding:6px 8px 16px; } h1 { font-size:1.05rem; } .tabs { margin:4px 0; } .controls { margin:3px 0; } .box { margin:5px 0; padding:6px 10px; } }
+  .tabs button.on, .seg button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .controls { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; margin:6px 0; }
   .seg { display:inline-flex; border:1px solid var(--muted); border-radius:8px; overflow:hidden; }
-  .seg button { border:0; border-radius:0; border-right:1px solid var(--line); }
+  .seg button { border:0; border-radius:0; border-right:1px solid var(--line); padding:5px 10px; }
   .seg button:last-child { border-right:0; }
-  .seg button.on { background:var(--accent); color:#fff; }
   button, select { font:inherit; padding:6px 12px; border:1px solid var(--muted); border-radius:8px; background:var(--card); color:var(--fg); cursor:pointer; }
   button.primary { background:var(--grass); color:#fff; border-color:var(--grass); }
-  input[type=range] { flex:1; min-width:140px; }
-  .date { font-variant-numeric:tabular-nums; font-weight:600; min-width:7em; }
-  /* race card */
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin:10px 0; display:grid; grid-template-columns:auto 1fr; gap:4px 12px; }
-  .cardsp { display:flex; flex-direction:column; align-items:center; gap:2px; }
-  .no { width:36px; height:24px; border-radius:8px; color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; font-size:18px; }
-  .head { display:flex; flex-wrap:wrap; gap:4px 12px; align-items:baseline; }
-  .tk { font-size:1.15rem; font-weight:700; } .muted { color:var(--muted); font-size:13px; }
-  .mark { font-size:1.3rem; color:var(--gold); font-weight:700; }
-  .body { grid-column:1 / -1; display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:8px 20px; }
-  .lbl { font-size:12px; color:var(--muted); margin-bottom:2px; }
-  .chips { display:flex; gap:4px; }
-  .chip { min-width:28px; text-align:center; padding:1px 6px; border-radius:6px; background:var(--line); font-weight:600; font-variant-numeric:tabular-nums; }
-  .chip.g1 { background:var(--gold); color:#fff; } .chip.g2 { background:#9aa3ab; color:#fff; } .chip.g3 { background:#b87333; color:#fff; }
-  .badge { display:inline-block; padding:1px 8px; border-radius:10px; background:var(--accent); color:#fff; font-size:13px; font-weight:600; }
-  .abil { display:grid; grid-template-columns:minmax(120px,auto) 1fr 32px; gap:2px 8px; align-items:center; font-size:13px; }
-  .bar { height:8px; border-radius:4px; background:var(--line); overflow:hidden; } .bar i { display:block; height:100%; background:var(--accent); }
-  .stars { color:var(--gold); letter-spacing:1px; }
-  .cmt { grid-column:1 / -1; font-size:14px; }
-  /* track */
-  .track { background:var(--grass); border-radius:12px; padding:8px 0; position:relative; overflow:hidden; }
-  .lane { position:relative; height:62px; margin:2px 0; background:var(--track); border-top:2px dashed rgba(255,255,255,.35); }
+  button.i { padding:0 6px; border-radius:50%; font-size:12px; line-height:18px; margin-left:4px; color:var(--muted); }
+  .tt { display:block; margin:4px 0; padding:6px 10px; background:var(--card); border:1px solid var(--line); border-radius:8px; font-size:13px; color:var(--fg); }
+  input[type=range] { flex:1; min-width:100px; }
+  .date { font-variant-numeric:tabular-nums; font-weight:600; }
+  .up { color:var(--up); } .down { color:var(--down); } .warn { color:#b45309; } @media (prefers-color-scheme: dark) { .warn { color:#fbbf24; } }
+  .box { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:8px 12px; margin:8px 0; font-size:14px; }
+  details.box summary { cursor:pointer; font-weight:600; } details.box > *:not(summary) { font-size:13px; }
+  details.box ol, details.box ul { margin:6px 0 6px 18px; padding:0; }
+  /* ---- track ---- */
+  .trackwrap { background:var(--grass); border-radius:12px; padding:4px 0 6px; position:relative; overflow:hidden; margin-top:6px; }
+  .tlabels { position:relative; height:16px; font-size:11px; color:#fff; font-weight:600; }
+  .tlabels span { position:absolute; top:0; white-space:nowrap; text-shadow:0 1px 2px #0008; }
+  .lane { display:flex; height:var(--lane-h,50px); margin:1px 0; background:var(--track); }
   .lane:nth-child(even) { background:var(--track2); }
-  .name { position:absolute; left:8px; top:2px; font-size:12px; font-weight:600; color:#fff; text-shadow:0 1px 2px #0008; z-index:2; pointer-events:none; }
-  .horse { position:absolute; top:4px; left:0; will-change:transform; z-index:1; white-space:nowrap; display:flex; align-items:flex-end; }
-  .horse .tag { font-size:11px; font-weight:700; color:#fff; padding:1px 6px; border-radius:10px; margin-left:4px; margin-bottom:6px; }
-  /* 48x36 px pixel sprites, 7 frames per sheet (6 gallop + 1 standing), shown at 1.5x */
-  .sprite { width:72px; height:54px; background-size:504px 54px; background-position:-432px 0; image-rendering:pixelated; flex:none; }
+  .gut { flex:none; width:var(--gut,62px); display:flex; align-items:center; gap:4px; padding-left:4px; overflow:hidden; background:rgba(0,0,0,.18); color:#fff; font-size:11px; font-weight:600; text-shadow:0 1px 2px #0008; }
+  .gut b { flex:none; min-width:16px; height:16px; border-radius:8px; text-align:center; line-height:16px; font-size:11px; }
+  .gut span { font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .field { position:relative; flex:1; }
+  .horse { position:absolute; top:2px; left:0; will-change:transform; z-index:2; display:flex; align-items:flex-end; }
+  .horse .sprite { flex:none; image-rendering:pixelated; }
+  .tag { position:absolute; left:100%; bottom:1px; margin-left:3px; font-size:10px; font-weight:700; color:#fff; padding:0 5px; border-radius:8px; white-space:nowrap; }
+  .vline { position:absolute; top:0; bottom:0; width:3px; z-index:1; }
+  .vline.start { background:rgba(255,255,255,.7); }
+  .vline.finish { width:8px; background:repeating-conic-gradient(#fff 0 25%,#222 0 50%) 0 0/8px 8px; }
   .sprite.live { animation:gallop var(--spd,.55s) steps(6) infinite; }
+  .cardsp .sprite { width:72px; height:54px; background-size:504px 54px; background-position:-432px 0; image-rendering:pixelated; }
   @keyframes gallop { from { background-position:0 0; } to { background-position:-432px 0; } }
-  details.box { margin:10px 0; } details summary { cursor:pointer; font-weight:600; color:var(--fg); }
-  .box ol, .box ul { margin:6px 0 6px 18px; padding:0; } .box table { margin-top:8px; font-size:13px; }
-  .warn { color:#b45309; } @media (prefers-color-scheme: dark) { .warn { color:#fbbf24; } }
-  .swatch { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:3px; border:1px solid var(--line); }
-  .finish { position:absolute; right:12px; top:0; bottom:0; width:10px; z-index:1; background:repeating-conic-gradient(#fff 0 25%,#222 0 50%) 0 0/10px 10px; opacity:.85; }
-  table { width:100%; border-collapse:collapse; background:var(--card); border-radius:12px; overflow:hidden; margin-top:12px; }
-  th, td { padding:6px 10px; text-align:right; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
+  /* ---- tables ---- */
+  table { width:100%; border-collapse:collapse; background:var(--card); border-radius:12px; overflow:hidden; margin-top:8px; font-size:14px; }
+  th, td { padding:5px 8px; text-align:right; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
   th:nth-child(-n+2), td:nth-child(-n+2) { text-align:left; }
-  .up { color:var(--up); } .down { color:var(--down); }
-  .box { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 14px; font-size:13px; color:var(--muted); }
-  .box b { color:var(--fg); }
+  .hide-narrow { } @media (max-width:560px) { .hide-narrow { display:none; } td, th { padding:4px 5px; font-size:13px; } }
+  .odds { padding:3px 8px; min-width:52px; } .odds.sel { background:var(--accent); color:#fff; }
+  /* ---- race card ---- */
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px; margin:8px 0; display:grid; grid-template-columns:auto 1fr; gap:4px 10px; }
+  .cardsp { display:flex; flex-direction:column; align-items:center; gap:2px; }
+  .no { min-width:34px; height:22px; border-radius:8px; color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; }
+  .head { display:flex; flex-wrap:wrap; gap:2px 10px; align-items:baseline; }
+  .tk { font-size:1.1rem; font-weight:700; }
+  .mark { font-size:1.2rem; color:var(--gold); font-weight:700; } .stars { color:var(--gold); letter-spacing:1px; }
+  .body { grid-column:1 / -1; display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:6px 18px; }
+  .lbl { font-size:12px; color:var(--muted); }
+  .chips { display:flex; gap:4px; margin:2px 0; }
+  .chip { min-width:26px; text-align:center; padding:0 6px; border-radius:6px; background:var(--line); font-weight:600; }
+  .chip.g1 { background:var(--gold); color:#fff; } .chip.g2 { background:#9aa3ab; color:#fff; } .chip.g3 { background:#b87333; color:#fff; }
+  .badge { display:inline-block; padding:0 8px; border-radius:10px; background:var(--accent); color:#fff; font-size:13px; font-weight:600; }
+  .arow { display:grid; grid-template-columns:76px 1fr 30px; gap:6px; align-items:center; font-size:13px; cursor:pointer; padding:1px 0; }
+  .bar { height:8px; border-radius:4px; background:var(--line); overflow:hidden; } .bar i { display:block; height:100%; background:var(--accent); }
+  .cmt { grid-column:1 / -1; font-size:13px; }
+  .swatch { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:3px; border:1px solid var(--line); }
+  /* ---- gallery ---- */
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
+  .gc { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:6px; font-size:13px; }
+  .stage { background:var(--grass); border-radius:8px; display:flex; justify-content:center; padding:4px 0; }
+  .stage .sprite { width:96px; height:72px; background-size:672px 72px; background-position:-576px 0; image-rendering:pixelated; }
+  .gc:hover .sprite, .gc.on .sprite { animation:g2 .55s steps(6) infinite; }
+  @keyframes g2 { from { background-position:0 0; } to { background-position:-576px 0; } }
   #msg { padding:24px; text-align:center; color:var(--muted); }
-  footer { color:var(--muted); font-size:12px; margin:20px 0; }
+  footer { color:var(--muted); font-size:12px; margin:16px 0; }
+  .slip { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; }
+  h2 { font-size:1.05rem; margin:14px 0 4px; }
 </style>
 </head>
 <body>
 <main>
   <h1>🏇 Stock Derby 美股賽馬</h1>
-  <p class="sub">股票當賽馬：看賽馬報選馬，再看誰先衝線。<a href="gallery.html">🎨 馬匹圖鑑</a></p>
-
-  <div class="controls">
-    <span>參賽馬群
-      <span class="seg" id="pool"><button data-v="spx">S&amp;P 500</button><button data-v="ndx">Nasdaq-100</button><button data-v="all">兩者合併</button></span></span>
-    <span>賽程
-      <span class="seg" id="dist"><button data-v="1m">1 個月</button><button data-v="3m">3 個月</button><button data-v="6m">6 個月</button></span></span>
-  </div>
+  <nav class="tabs" id="tabs"><button data-t="race">🏁 賽馬</button><button data-t="card">📋 馬報</button><button data-t="gallery">🎨 圖鑑</button></nav>
   <div id="msg">載入資料中…</div>
   <div id="app" hidden>
-    <div class="box" id="info"></div>
-    <details class="box" id="truth"></details>
-
-    <h2>📋 賽馬報</h2>
-    <details class="box" id="method" open></details>
-    <div id="cards"></div>
-
-    <h2>🏁 賽事</h2>
-    <div class="controls">
-      <button id="play" class="primary">▶ 開跑</button>
-      <button id="reset">⏮ 重來</button>
-      <label>速度 <select id="speed"><option value="slow">慢</option><option value="mid" selected>中</option><option value="fast">快</option></select></label>
-      <span class="date" id="date"></span>
-      <input type="range" id="scrub" min="0" max="0" value="0">
+    <div class="controls" id="sel">
+      <span class="seg" id="pool"><button data-v="spx">S&amp;P 500</button><button data-v="ndx">Nasdaq-100</button><button data-v="all">合併</button></span>
+      <span class="seg" id="dist"><button data-v="1m">1個月</button><button data-v="3m">3個月</button><button data-v="6m">6個月</button><button data-v="q">本季</button></span>
     </div>
-    <div class="track" id="track"></div>
-    <table id="board"><thead><tr><th>名次</th><th>馬匹</th><th>起跑價</th><th>現價/終點價</th><th>漲幅</th><th>賽前預測</th><th>預測差</th></tr></thead><tbody></tbody></table>
+
+    <section id="tab-race">
+      <div id="rinfo"></div>
+      <div class="controls" id="qmode" hidden><span class="seg" id="qseg"><button data-v="bet">本季下注</button><button data-v="replay">上季重播</button></span></div>
+      <div id="raceview">
+        <div class="controls"><button id="play" class="primary">▶ 開跑</button><button id="reset">⏮</button>
+          <select id="speed"><option value="slow">慢</option><option value="mid" selected>中</option><option value="fast">快</option></select>
+          <span class="date" id="date"></span><input type="range" id="scrub" min="0" max="0" value="0" step="any"></div>
+        <div class="trackwrap"><div class="tlabels" id="tlabels"></div><div id="track"></div></div>
+        <table id="board"><thead><tr><th>名次</th><th>馬匹</th><th>漲幅</th><th>預測</th><th class="hide-narrow">起跑價</th><th class="hide-narrow">終點價</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div id="betview" hidden></div>
+    </section>
+
+    <section id="tab-card" hidden>
+      <div class="controls"><label>場次 <select id="raceSel"></select></label></div>
+      <div id="cinfo"></div>
+      <div id="cards"></div>
+      <details class="box"><summary>🔮 預測怎麼算</summary><div id="method"></div></details>
+      <details class="box"><summary>🔎 資料來源與真實性</summary><div id="truth"></div></details>
+    </section>
+
+    <section id="tab-gallery" hidden>
+      <p class="muted">滑鼠移上去／手機點一下，馬會奔跑。毛色與花紋只參考公司 logo 的配色與大致樣式，不是 logo 本身。</p>
+      <h2>公司專屬馬</h2><div class="grid" id="brands"></div>
+      <h2>通用毛色</h2><div class="grid" id="generic"></div>
+    </section>
   </div>
   <footer id="foot"></footer>
 </main>
@@ -102,138 +131,166 @@
 "use strict";
 const $ = id => document.getElementById(id);
 const COLORS = ["#e5484d","#4f8df7","#76b900","#f5a623","#a855f7","#14b8a6","#ec4899","#6b7280","#0ea5e9","#84cc16"];
-const POOL_NAME = { spx: "S&P 500", ndx: "Nasdaq-100", all: "S&P 500 + Nasdaq-100" };
-const DIST_NAME = { "1m": "1個月", "3m": "3個月", "6m": "6個月" };
-const DURATION = { slow: 45, mid: 25, fast: 12 };           // seconds for the whole race
-let D, pool = "all", dist = "3m", race, T = 0, playing = false, lastTs = 0, raf = 0, shownDay = -1, lo = 0, span = 1;
-let st = [];                                                // per-horse physics: {pos, vel, phase, frame}
+const POOL_NAME = { spx: "S&P 500", ndx: "Nasdaq-100", all: "合併" };
+const DIST_NAME = { "1m": "1個月", "3m": "3個月", "6m": "6個月", q: "季" };
+const DURATION = { slow: 45, mid: 25, fast: 12 };
+const HELP = {
+  review: "參賽＝這段期間漲幅最高的 10 檔（已還原股利與分割）。起跑線＝起跑日收盤價（0%）；終點線＝冠軍的最終漲幅：馬越靠近終點，代表漲幅越接近冠軍；落在起跑線後面＝這段期間是虧損。時間到後，各馬依實際名次衝線。",
+  quarter: "參賽＝上一季漲幅最高的 10 檔（開跑前就已知的名單）。賽果要等本季收盤才揭曉，所以只能下注，不能重播。「上季重播」是上一季的實際賽果。",
+  odds: "賠率＝依馬報評估分（能力 70% ＋ 近績 30%）模擬抽樣推算勝率，再扣 15% 抽水。預測力有限，所以賠率偏平。點數是虛擬的，沒有任何金錢價值。獨贏＝猜第 1 名；位置＝猜前 3 名（賠率含本金）。",
+  form: "近 4 戰名次：在這 10 匹馬之間比，新→舊。金／銀／銅＝第 1／2／3 名。",
+  style: "看前 3 戰「前 1/3 段」的平均排名：≤2.5 領放、≤4.5 跟前、≤7 居中、>7 後上。",
+  ability: "五項能力是這匹馬在整個馬群中的百分位（0–100，越高越好）。點能力名稱可看實際參數。",
+  total: "能力指數＝五項能力依歷史相關性加權平均；馬號依能力指數排序，1 號＝◎本命，◎○▲△△ 為前 5 名。",
+};
+let D, pool = "all", dist = "3m", tab = "race", qmode = "bet", raceK = 0;
+let race, T = 0, phase = "idle", raf = 0, lastTs = 0, shownDay = -1, st = [], G = {};
+let bank = { balance: 1000, bets: [] }, slip = null;
 try { pool = localStorage.getItem("derby.pool") || pool; dist = localStorage.getItem("derby.dist") || dist; } catch (e) {}
+try { const b = JSON.parse(localStorage.getItem("derby.bank.v1")); if (b && Array.isArray(b.bets)) bank = b; } catch (e) {}
 
 const pct = (v, d = 2) => (v >= 0 ? "+" : "") + (v * 100).toFixed(d) + "%";
 const cls = v => v >= 0 ? "up" : "down";
 const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 const squash = v => Math.sign(v) * Math.sqrt(Math.abs(v));
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-const swatch = h => h.silks ? `<span class="swatch" style="background:${h.silks.primary}"></span><span class="swatch" style="background:${h.silks.secondary}"></span>` : "";
+const tip = text => `<button class="i" type="button" aria-label="說明">ⓘ</button><span class="tt" hidden>${text}</span>`;
 const fmtRaw = (f, v) => v == null ? "—" : f.fmt === "pct" ? pct(v, 1) : v.toFixed(2);
+const swatch = h => h.silks ? `<span class="swatch" style="background:${h.silks.primary}"></span><span class="swatch" style="background:${h.silks.secondary}"></span>` : "";
+const md = d => d ? d.slice(5) : "";
+const saveBank = () => { try { localStorage.setItem("derby.bank.v1", JSON.stringify(bank)); } catch (e) {} };
+const races = () => D.pools[pool][dist].races;
+const val = () => D.pools[pool][dist].validation;
 
+/* ================= tabs & selectors ================= */
+function showTab(t) {
+  stop(); tab = t;
+  for (const id of ["race", "card", "gallery"]) $("tab-" + id).hidden = id !== t;
+  $("tabs").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.t === t));
+  $("sel").hidden = t === "gallery";
+  try { history.replaceState(null, "", "#" + t); } catch (e) {}
+  render();
+}
 function segs() {
-  for (const [id, cur] of [["pool", pool], ["dist", dist]])
+  for (const [id, cur] of [["pool", pool], ["dist", dist], ["qseg", qmode]])
     $(id).querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === cur));
+  $("dist").querySelector('[data-v="q"]').textContent = "本季";
+}
+function render() {
+  segs(); stop();
+  try { localStorage.setItem("derby.pool", pool); localStorage.setItem("derby.dist", dist); } catch (e) {}
+  if (tab === "race") renderRace(); else if (tab === "card") renderCard(); else renderGallery();
 }
 
-/* ---------------- race card ---------------- */
-function renderInfo() {
-  const cv = race.coverage, ns = D.ndx_status, v = race.validation;
-  $("info").innerHTML = `<b>${POOL_NAME[pool]}・${DIST_NAME[dist]}賽</b>｜起跑 ${race.start} → 終點 ${race.end}（${race.days} 個交易日）<br>` +
-    `參賽陣容：<b>${POOL_NAME[pool]}成分股在這段期間漲幅最高的 10 檔</b>（起跑日收盤價 → 終點日收盤價，已還原股利與分割）。` +
-    `馬號依賽前預測排序（1 號＝◎本命）。賽馬報的近績、跑法、能力只用<b>起跑日以前</b>的資料。`;
-  const ndxWarn = ns.source === "fallback" ? `<li class="warn">⚠️ Nasdaq-100 成分股名單<b>下載失敗，目前用的是內建後備名單</b>，可能不是最新（失敗原因：${esc((ns.errors || []).join("；"))}）。Nasdaq-100 與合併馬群的陣容可能因此與實際不同。</li>`
-    : ns.source === "cache" ? `<li class="warn">⚠️ Nasdaq-100 名單本次更新失敗，沿用 ${esc(ns.fetched_at || "舊")} 的快取名單。</li>`
-    : `<li>Nasdaq-100 成分股名單來自 ${esc(ns.source)}（${esc(ns.fetched_at)}，共 ${ns.count} 檔）。</li>`;
-  $("truth").innerHTML = `<summary>🔎 資料來源與真實性說明（點開）</summary><ul>
-    <li>股價：Yahoo Finance 日收盤價（還原股利與分割），每日由 GitHub Actions 更新；本頁資料截至 <b>${esc(D.asof)}</b>。與看盤網站的數字可能因「是否還原股利」「期間起訖日」有小差異（本頁以月曆計：終點日往前推 ${race.months} 個月後最近的交易日為起跑日）。</li>
-    <li>S&amp;P 500 成分股名單來自維基百科的現任成分股。${ndxWarn}</li>
-    <li>本賽事納入 ${cv.with_prices} / ${cv.pool_size} 檔（起跑與終點都有報價的才納入${cv.missing.length ? "；無報價：" + esc(cv.missing.join("、")) : ""}）。</li>
-    <li>馬名、毛色、花紋與「靈感」說明是創作（參考公司 logo 配色的藝術設計），不是公司官方資訊；其餘數字（漲幅、名次、近績、跑法、能力）都由上述資料計算而來。</li></ul>`;
+/* ================= race tab ================= */
+function replayRace() {
+  const rs = races();
+  if (dist !== "q") return rs[0];
+  return qmode === "replay" ? rs.find(r => r.status === "done" && r.horses[0].path) : null;
+}
+function upcomingRace() { return dist === "q" ? races().find(r => r.status === "upcoming") : null; }
+
+function renderRace() {
+  const isQ = dist === "q";
+  $("qmode").hidden = !isQ;
+  const r0 = isQ && qmode === "bet" ? upcomingRace() : replayRace();
+  if (!r0) { $("rinfo").innerHTML = `<div class="box">這個馬群目前沒有可用的賽事資料。</div>`; $("raceview").hidden = true; $("betview").hidden = true; return; }
+  if (isQ && qmode === "bet") {
+    $("raceview").hidden = true; $("betview").hidden = false;
+    $("rinfo").innerHTML = `<div class="box"><b>${POOL_NAME[pool]}・本季賽</b>｜${r0.start} → 預計 ${r0.planned_end}｜<b>結果未知</b>${tip(HELP.quarter)}</div>`;
+    renderBets(r0); return;
+  }
+  race = r0; $("betview").hidden = true; $("raceview").hidden = false;
+  const kind = isQ ? "上季賽" : DIST_NAME[dist] + "賽";
+  $("rinfo").innerHTML = `<div class="box"><b>${POOL_NAME[pool]}・${kind}</b>｜${race.start} → ${race.end}｜漲幅前 10 名${tip(HELP.review)}</div>`;
+  setupTrack(); paintBoard(0); paint(false);
 }
 
-function renderMethod() {
-  const kf = D.key_factors, v = race.validation, wt = Object.fromEntries(race.weights.map(w => [w.id, w.w]));
-  const verdict = v.n >= 3
-    ? `<li><b>歷史回測（樣本內）</b>：用同一方法重跑過去 ${v.n} 場互不重疊的${DIST_NAME[dist]}賽（${v.first} ~ ${v.last}），預測名次與實際名次的平均等級相關為 <b>${v.mean_rho >= 0 ? "+" : ""}${v.mean_rho}</b>（t=${v.t}；0＝沒有預測力、+1＝完全準確）；◎本命平均實際名次 <b>${v.top1_avg_rank}</b>、預測前三名平均實際名次 <b>${v.top3_avg_rank}</b>（隨機亂猜約 5.5）。`
-      + `<br><span class="warn">注意：①五項參數是用同一段歷史挑的，屬樣本內結果，樣本外會更差；②名單用現任成分股，有存活者偏差；③馬群是事後漲幅前 10 名，其中波動大的股票容易衝到最前面，能力指數會因此偏愛高波動股。請當成遊戲參考，不是投資建議。</span></li>`
-    : `<li>歷史資料不足以回測。</li>`;
-  $("method").innerHTML = `<summary>🔮 賽前預測是怎麼算的（點開/收合）</summary><ol>
-    <li><b>只看起跑日 ${race.start} 以前的資料</b>：對 ${POOL_NAME[pool]}所有有報價的成分股，各自算出下列五項參數。</li>
-    <li><b>全部統一成「越高越好」</b>：歷史統計上與未來漲幅呈負相關的參數，已改用<b>反向</b>定義（例如「距52週高點回檔幅度」＝跌得越深數值越大），所以每一項分數越高都代表越有利。</li>
-    <li>每項參數換成在整個馬群中的<b>百分位（0–100，100＝最強）</b>，就是卡片上的能力長條。</li>
-    <li><b>能力指數＝五項百分位的加權平均</b>，權重依該參數在${DIST_NAME[dist]}賽程的歷史 IC（與未來報酬的相關性）決定：${kf.map(f => `${esc(f.label)} ${(wt[f.id] * 100).toFixed(0)}%`).join("、")}。缺資料的參數不計入並重新分配權重。</li>
-    <li><b>預測名次＝能力指數由高到低排序</b>，◎○▲△△ 標示前五名；賽後與實際漲幅名次比較（下方「預測差」：▲表示實際跑得比預測好）。</li>
-    ${verdict}</ol>
-    <table><thead><tr><th>參數</th><th>類別</th><th>1M IC</th><th>3M IC</th><th>6M IC</th><th>顯著性(t, 3M)</th></tr></thead><tbody>${kf.map(f =>
-      `<tr><td>${esc(f.label)}${f.reversed ? "（反向）" : ""}</td><td>${f.group}</td><td>${f["1m"].ic.toFixed(3)}</td><td>${f["3m"].ic.toFixed(3)}</td><td>${f["6m"].ic.toFixed(3)}</td><td>${f["3m"].t.toFixed(1)}${Math.abs(f["3m"].t) >= 2 ? " ✓" : ""}</td></tr>`).join("")}</tbody></table>
-    <p class="muted">IC＝參數與未來報酬的逐月等級相關（${D.study.period[0]}～${D.study.period[1]}，${D.study.universe_size} 檔）。✓＝t 值≥2。相關性普遍很弱（約 0.01–0.06），多數參數統計上並不顯著；美股沒有免費的法人籌碼資料，籌碼面以量價資金流向代替，本次研究中未入選。完整 12 項比較見 <code>data/key_factors.json</code>。</p>`;
+function layout() {
+  const W = $("track").clientWidth || 320, narrow = W < 560;
+  const gut = narrow ? 62 : 132;
+  const top = $("track").getBoundingClientRect().top + scrollY;             // lanes must fit between here and the bottom of the screen
+  const laneH = clamp(Math.floor((innerHeight - top - 28) / 10), narrow ? 24 : 34, 56);
+  const scale = (laneH - 4) / 36, spW = 48 * scale, spH = 36 * scale;
+  const Wf = W - gut;
+  const xf = Wf - Math.max(0.1 * Wf, spW * 1.05);                 // finish line (nose position)
+  G = { W, narrow, gut, laneH, scale, spW, spH, Wf, xf, nose: 46 * scale };
+  const tr = $("track").style; tr.setProperty("--lane-h", laneH + "px"); tr.setProperty("--gut", gut + "px");
+}
+function mapping() {                                              // progress p -> nose x. p=0 start line, p=1 finish line
+  const noseMin = G.spW * 0.95, B = (G.xf - noseMin) / (1 - G.pmin);
+  G.B = B; G.A = G.xf - B; G.pcap = (G.Wf - 3 - G.A) / B;
+  G.rankStep = (0.8 * (G.Wf - 3 - G.xf) / 9) / B;                  // finishing order spacing, all of it past the line
 }
 
-function renderCards() {
-  const kf = D.key_factors;
-  $("cards").innerHTML = race.horses.map(h => {
-    const form = h.form.map(r => `<span class="chip ${r && r <= 3 ? "g" + r : ""}">${r ?? "–"}</span>`).join("");
-    const abil = kf.map(f => { const a = h.ability[f.id];
-      return `<span title="${esc(f.label)}：${fmtRaw(f, h.raw[f.id])}">${esc(f.label)}</span><div class="bar"><i style="width:${a ?? 0}%"></i></div><span>${a == null ? "—" : Math.round(a)}</span>`; }).join("");
-    return `<div class="card"><div class="cardsp"><div class="sprite live" style="background-image:url(assets/horses/${h.sprite}.png);--spd:${(.5 + h.no * .03).toFixed(2)}s"></div><div class="no" style="background:${COLORS[h.no - 1]}">${h.no}</div></div>
-      <div class="head"><span class="tk">${esc(h.horse_zh)}</span><span class="muted">${esc(h.horse_en)}・${esc(h.ticker)}${h.company ? " " + esc(h.company) : ""}・${esc(h.sector)}</span>
-        <span class="mark">${h.mark}</span><span class="stars">${"★".repeat(h.stars)}${"☆".repeat(5 - h.stars)}</span><span class="muted">能力指數 ${h.total}</span></div>
-      <div class="body">
-        <div><div class="lbl">近績（近 4 場同賽程名次，新→舊；在這 10 匹馬之間比）</div><div class="chips">${form}</div>
-          <div class="lbl" style="margin-top:8px">跑法</div><span class="badge">${h.style}</span> <span class="muted">${h.style_desc}${h.early_rank != null ? `（前 1/3 段平均第 ${h.early_rank} 名）` : "（資料不足，視為居中）"}</span></div>
-        <div><div class="lbl">能力（五大關鍵參數，0–100 為馬群內百分位，越高越好）</div><div class="abil">${abil}</div></div>
-      </div>
-      <div class="cmt">🎨 花色：${swatch(h)}${esc(h.coat)}${h.inspired_by ? "（靈感：" + esc(h.inspired_by) + "）" : ""}<br>📝 ${esc(h.comment)}</div></div>`;
-  }).join("");
+function setupTrack() {
+  layout();
+  const hs = race.horses, sigma = Math.max(1.5, race.days / 25);
+  hs.forEach(h => { h.sp = smooth(h.path, sigma); });
+  G.R = Math.max(...hs.map(h => h.ret)); G.sR = squash(G.R) || 1;
+  hs.forEach(h => { h.pEnd = squash(h.ret) / G.sR; h.sp = h.sp.map(v => squash(v) / G.sR); });
+  G.pmin = Math.min(0, ...hs.map(h => Math.min(...h.sp)));
+  mapping();
+  $("track").innerHTML = hs.map(h =>
+    `<div class="lane" data-n="${h.no}"><div class="gut"><b style="background:${COLORS[h.no - 1]}">${h.no}</b><span>${G.narrow ? esc(h.ticker) : esc(h.horse_zh) + " " + esc(h.ticker)}</span></div>` +
+    `<div class="field"><div class="horse"><div class="sprite" style="background-image:url(assets/horses/${h.sprite}.png);width:${G.spW}px;height:${G.spH}px;background-size:${7 * G.spW}px ${G.spH}px"></div>${G.narrow ? "" : `<span class="tag" style="background:${COLORS[h.no - 1]}"></span>`}</div></div></div>`).join("");
+  const mark = (x, cls_) => { const f = document.createElement("div"); f.className = "vline " + cls_; f.style.left = x + "px"; return f; };
+  $("track").style.position = "relative";
+  // start / finish lines live inside the first lane's field coordinate system, spanning all lanes
+  const over = document.createElement("div");
+  over.style.cssText = `position:absolute;top:0;bottom:0;left:${G.gut}px;right:0;pointer-events:none`;
+  over.append(mark(G.A, "start"), mark(G.xf - 4, "finish"));
+  $("track").append(over);
+  $("tlabels").innerHTML = `<span style="left:${G.gut + G.A - 8}px">起跑</span><span style="left:${G.gut + G.xf - 30}px">終點 ${pct(G.R, 0)}</span>`;
+  $("scrub").max = race.days;
+  resetPhysics(0);
 }
 
-/* ---------------- race physics + animation ---------------- */
-// cubic Catmull-Rom through the daily values -> smooth path instead of day-to-day jumps
-function sample(path, t) {
+// Gaussian-smooth the daily series (edges replicated) so one-day jumps become gentle surges
+function smooth(path, sigma) {
+  const r = Math.ceil(3 * sigma), ker = []; let sum = 0;
+  for (let j = -r; j <= r; j++) { const w = Math.exp(-(j * j) / (2 * sigma * sigma)); ker.push(w); sum += w; }
+  const sm = path.map((_, i) => ker.reduce((a, w, j) => a + w * path[clamp(i + j - r, 0, path.length - 1)], 0) / sum);
+  const n = path.length - 1, e0 = path[0] - sm[0], e1 = path[n] - sm[n];   // pin both ends so the start line / final result stay exact
+  return sm.map((v, i) => v + e0 * (1 - i / n) + e1 * (i / n));
+}
+function sample(path, t) {                                       // cubic Catmull-Rom between days
   const n = path.length - 1, i = clamp(Math.floor(t), 0, n - 1), f = clamp(t - i, 0, 1);
   const p0 = path[Math.max(0, i - 1)], p1 = path[i], p2 = path[i + 1], p3 = path[Math.min(n, i + 2)];
   return 0.5 * ((2 * p1) + (-p0 + p2) * f + (2 * p0 - 5 * p1 + 4 * p2 - p3) * f * f + (-p0 + 3 * p1 - 3 * p2 + p3) * f * f * f);
 }
-const frac = (h, t) => (squash(sample(h.sp, t)) - lo) / span;
-// Gaussian-smooth the daily series (edges replicated) so single-day jumps become gentle surges
-function smooth(path, sigma) {
-  const r = Math.ceil(3 * sigma), ker = []; let sum = 0;
-  for (let j = -r; j <= r; j++) { const w = Math.exp(-(j * j) / (2 * sigma * sigma)); ker.push(w); sum += w; }
-  return path.map((_, i) => ker.reduce((a, w, j) => a + w * path[clamp(i + j - r, 0, path.length - 1)], 0) / sum);
-}
-
-function drawTrack() {
-  $("track").innerHTML = race.horses.map(h =>
-    `<div class="lane" data-n="${h.no}"><span class="name">${h.no} ${esc(h.horse_zh)} ${esc(h.ticker)}</span>` +
-    `<div class="horse"><div class="sprite" style="background-image:url(assets/horses/${h.sprite}.png)"></div><span class="tag" style="background:${COLORS[h.no - 1]}"></span></div></div>`).join("") + '<div class="finish"></div>';
-  const sigma = Math.max(1.5, race.days / 25);
-  race.horses.forEach(h => { h.sp = smooth(h.path, sigma); });
-  lo = 0; let hi = 0;                       // sqrt-compress so one runaway horse doesn't squash the pack
-  race.horses.forEach(h => h.sp.forEach(v => { lo = Math.min(lo, squash(v)); hi = Math.max(hi, squash(v)); }));
-  span = (hi - lo) || 1;
-  $("scrub").max = race.days; $("scrub").step = "any";
-  resetPhysics(0);
-}
+const pAt = (h, t) => sample(h.sp, t);
+const rankOf = h => [...race.horses].sort((a, b) => b.ret - a.ret).indexOf(h);
 
 function resetPhysics(t) {
-  T = t; shownDay = -1;
-  st = race.horses.map((h, i) => ({ pos: frac(h, t), vel: 0, phase: i * 0.37, frame: 6 }));
+  T = t; phase = "idle"; shownDay = -1;
+  st = race.horses.map((h, i) => ({ pos: t >= race.days ? h.pEnd : pAt(h, t), vel: 0, phase: i * 0.37, frame: 6 }));
 }
 
-// critically-damped-ish spring: the horse *follows* the target position with inertia, so it accelerates and
-// brakes smoothly instead of teleporting; stride rate follows its speed (leaders & surging horses stride faster).
+// Spring-damper: each horse *follows* its target with inertia -> smooth acceleration and braking.
+// Stride rate follows speed (leaders and surging horses stride faster).
 function stepPhysics(dt) {
-  const dur = DURATION[$("speed").value];
-  const k = 9, c = 2 * Math.sqrt(k) * 1.1;
+  const dur = DURATION[$("speed").value], sprint = phase === "sprint";
+  const k = sprint ? 30 : 9, c = 2 * Math.sqrt(k) * 1.1;
   race.horses.forEach((h, i) => {
-    const s = st[i], target = frac(h, T);
-    const sub = 3, d = dt / sub;
-    for (let j = 0; j < sub; j++) { s.vel += (k * (target - s.pos) - c * s.vel) * d; s.pos += s.vel * d; }
-    const stride = clamp(2.2 + 6 * s.vel * dur + 1.5 * s.pos, 1.1, 5.4);   // strides per second
-    s.phase += stride * dt;
-    s.frame = Math.floor(s.phase * 6) % 6;
+    const s = st[i];
+    const target = sprint ? Math.min(h.pEnd + 0.62 * G.sprintT, G.pcap - G.rankStep * rankOf(h)) : pAt(h, T);
+    for (let j = 0; j < 3; j++) { const d = dt / 3; s.vel += (k * (target - s.pos) - c * s.vel) * d; s.pos += s.vel * d; }
+    const stride = sprint ? clamp(2.2 + 4.2 * Math.min(1, Math.abs(s.vel) / 0.5), 1.1, 5.4) : clamp(2.2 + 6 * s.vel * dur + 1.5 * clamp(s.pos, 0, 1), 1.1, 5.4);
+    s.phase += stride * dt; s.frame = Math.floor(s.phase * 6) % 6;
   });
 }
 
 function paint(running) {
-  const w = $("track").clientWidth, maxX = w - 8 - 150;
   race.horses.forEach((h, i) => {
-    const lane = document.querySelector(`.lane[data-n="${h.no}"]`), s = st[i];
-    const horse = lane.firstElementChild.nextElementSibling;
-    horse.style.transform = `translateX(${8 + clamp(s.pos, -0.02, 1.02) * maxX}px)`;
-    horse.firstElementChild.style.backgroundPositionX = (running ? -s.frame * 72 : -6 * 72) + "px";
-    horse.lastElementChild.textContent = pct(sample(h.path, T));
+    const s = st[i], el = $("track").querySelector(`.lane[data-n="${h.no}"] .horse`), x = G.A + s.pos * G.B - G.nose;
+    el.style.transform = `translateX(${x}px)`;
+    el.firstElementChild.style.backgroundPositionX = (running ? -s.frame * G.spW : -6 * G.spW) + "px";
+    const tag = el.querySelector(".tag"); if (tag) tag.textContent = pct(phase === "idle" && T >= race.days ? h.ret : sample(h.path, T));
   });
-  const day = Math.round(T);
+  const day = Math.min(race.days, Math.round(T));
   if (day !== shownDay) { shownDay = day; paintBoard(day); }
-  $("date").textContent = race.dates[Math.min(day, race.days)];
+  $("date").textContent = md(race.dates[day]);
   $("scrub").value = T;
 }
 
@@ -242,53 +299,155 @@ function paintBoard(day) {
   const cur = race.horses.map(h => ({ h, r: h.path[day] })).sort((a, b) => b.r - a.r);
   $("board").querySelector("tbody").innerHTML = cur.map(({ h, r }, i) => {
     const diff = h.pred - (i + 1);
-    return `<tr><td>${last && i === 0 ? "🏆" : i + 1}</td><td>${h.no} ${esc(h.horse_zh)} <small class="muted">${esc(h.ticker)}</small> <small class="muted">${h.mark}</small></td>` +
-      `<td>$${h.price_start.toFixed(2)}</td><td>${last ? "$" + h.price_end.toFixed(2) : "—"}</td>` +
-      `<td class="${cls(r)}">${pct(r)}</td><td>${h.pred}</td>` +
-      `<td class="${diff >= 0 ? "up" : "down"}">${last ? (diff > 0 ? "▲" + diff : diff < 0 ? "▼" + -diff : "＝") : ""}</td></tr>`;
+    return `<tr><td>${last && i === 0 ? "🏆" : i + 1}</td><td>${h.no} ${esc(h.horse_zh)} <small class="muted">${esc(h.ticker)}</small></td>` +
+      `<td class="${cls(r)}">${pct(r)}</td><td>${h.pred}${h.mark} ${last ? `<small class="${diff >= 0 ? "up" : "down"}">${diff > 0 ? "▲" + diff : diff < 0 ? "▼" + -diff : "＝"}</small>` : ""}</td>` +
+      `<td class="hide-narrow">$${h.price_start.toFixed(2)}</td><td class="hide-narrow">${last ? "$" + h.price_end.toFixed(2) : "—"}</td></tr>`;
   }).join("");
 }
 
 function tick(ts) {
-  if (!playing) return;
+  if (phase === "idle" || phase === "done") return;
   const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0); lastTs = ts;
-  // ease-in at the gate and ease-out at the line: playback speed follows a smooth bell, not a constant rate
-  const dur = DURATION[$("speed").value], u = T / race.days, ease = 0.55 + 0.9 * Math.sin(Math.PI * clamp(u, 0, 1));
-  T = Math.min(race.days, T + dt * (race.days / dur) * ease);
-  stepPhysics(dt); paint(true);
-  if (T >= race.days) {                      // let the spring settle, then stand
-    let settle = 0; const wait = () => { stepPhysics(1 / 60); paint(true); if (++settle < 90) raf = requestAnimationFrame(wait); else stop(); };
-    playing = false; raf = requestAnimationFrame(wait); return;
+  if (phase === "run") {
+    const dur = DURATION[$("speed").value], u = T / race.days, ease = 0.55 + 0.9 * Math.sin(Math.PI * clamp(u, 0, 1));
+    T = Math.min(race.days, T + dt * (race.days / dur) * ease);
+    if (T >= race.days) { phase = "sprint"; G.sprintT = 0; G.sprintDur = (1 - Math.min(...race.horses.map(h => h.pEnd))) / 0.62 + 1.4; }
+  } else {                                                   // sprint: everyone runs on and crosses the line in finishing order
+    G.sprintT += dt;
+    if (G.sprintT > G.sprintDur) { phase = "done"; paint(false); $("play").textContent = "▶ 再跑一次"; return; }
   }
+  stepPhysics(dt); paint(true);
   raf = requestAnimationFrame(tick);
 }
-
-function stop() { playing = false; cancelAnimationFrame(raf); $("play").textContent = "▶ 開跑"; if (race) paint(false); }
+function stop() { cancelAnimationFrame(raf); if (phase === "run" || phase === "sprint") phase = "idle"; const p = $("play"); if (p) p.textContent = "▶ 開跑"; if (race && tab === "race" && !$("raceview").hidden) paint(false); }
 function play() {
-  if (T >= race.days) resetPhysics(0);
-  playing = true; lastTs = performance.now(); $("play").textContent = "⏸ 暫停";
-  raf = requestAnimationFrame(tick);
+  if (!race) return;
+  if (T >= race.days || phase === "done") { resetPhysics(0); }
+  phase = "run"; lastTs = performance.now(); $("play").textContent = "⏸ 暫停"; raf = requestAnimationFrame(tick);
 }
 
-function select() {
-  stop(); segs();
-  race = D.pools[pool][dist];
-  renderInfo(); renderMethod(); renderCards(); drawTrack(); paint(false);
-  try { localStorage.setItem("derby.pool", pool); localStorage.setItem("derby.dist", dist); } catch (e) {}
+/* ================= betting (virtual points) ================= */
+function settleBets() {
+  let changed = false;
+  for (const b of bank.bets) {
+    if (b.status !== "pending") continue;
+    const s = D.settled[b.raceId]; if (!s) continue;
+    const rank = s.result[b.ticker], win = b.type === "win" ? rank === 1 : rank != null && rank <= 3;
+    b.status = win ? "won" : "lost"; b.rank = rank ?? null; b.settledOn = s.end;
+    b.payout = win ? Math.round(b.stake * b.odds) : 0; bank.balance += b.payout; changed = true;
+  }
+  if (changed) saveBank();
+}
+function renderBets(r) {
+  const mine = bank.bets.filter(b => b.raceId === r.id), mineAll = bank.bets.filter(b => b.raceId !== r.id && b.status === "pending");
+  const typeName = t => t === "win" ? "獨贏" : "位置";
+  const stateTxt = b => b.status === "pending" ? "待開獎" : b.status === "won" ? `🎉 中獎 +${b.payout}` : `未中（第${b.rank ?? "—"}名）`;
+  const rows = r.horses.map(h => `<tr><td>${h.no} ${esc(h.horse_zh)} <small class="muted">${esc(h.ticker)}</small></td><td>${h.mark}${"★".repeat(h.stars)}</td>` +
+    `<td><button class="odds ${slip && slip.ticker === h.ticker && slip.type === "win" ? "sel" : ""}" data-b="win" data-t="${h.ticker}">${h.odds_win.toFixed(1)}</button></td>` +
+    `<td><button class="odds ${slip && slip.ticker === h.ticker && slip.type === "place" ? "sel" : ""}" data-b="place" data-t="${h.ticker}">${h.odds_place.toFixed(1)}</button></td></tr>`).join("");
+  const sl = slip && r.horses.find(h => h.ticker === slip.ticker);
+  $("betview").innerHTML = `
+    <div class="box">💰 虛擬點數 <b>${bank.balance}</b>　<button id="resetBank" class="i" style="font-size:11px">重設</button>${tip(HELP.odds)}</div>
+    <div class="box muted">已開賽 ${r.trading_days_so_far} 個交易日・參賽＝上一季（${md(r.momentum_window[0])}→${md(r.momentum_window[1])}）漲幅前 10 名・點賠率下注</div>
+    <table><thead><tr><th>馬匹</th><th>馬報</th><th>獨贏</th><th>位置</th></tr></thead><tbody>${rows}</tbody></table>
+    ${sl ? `<div class="box slip"><span>${sl.no} ${esc(sl.horse_zh)}　${typeName(slip.type)} @${(slip.type === "win" ? sl.odds_win : sl.odds_place).toFixed(1)}</span>
+      <select id="stake">${[10, 50, 100, 200].map(v => `<option>${v}</option>`).join("")}</select><button id="confirmBet" class="primary">下注</button><button id="cancelBet">取消</button></div>` : ""}
+    <h2>我的注單</h2>
+    ${mine.length ? `<table><thead><tr><th>馬匹</th><th>玩法</th><th>金額</th><th>賠率</th><th>狀態</th></tr></thead><tbody>${mine.map(b => `<tr><td>${esc(b.horse)}</td><td>${typeName(b.type)}</td><td>${b.stake}</td><td>${b.odds.toFixed(1)}</td><td>${stateTxt(b)}</td></tr>`).join("")}</tbody></table>` : `<div class="muted">還沒有注單。結果在本季收盤後揭曉，下次開啟頁面時自動結算。</div>`}
+    ${mineAll.length ? `<div class="muted">另有 ${mineAll.length} 張其他馬群的待開獎注單。</div>` : ""}
+    ${bank.bets.some(b => b.status !== "pending") ? `<h2>已開獎</h2><table><tbody>${bank.bets.filter(b => b.status !== "pending").slice(-6).reverse().map(b => `<tr><td>${esc(b.horse)}</td><td>${typeName(b.type)} ${b.stake}@${b.odds.toFixed(1)}</td><td>${stateTxt(b)}</td></tr>`).join("")}</tbody></table>` : ""}`;
+}
+$("betview").addEventListener("click", e => {
+  const r = upcomingRace(); if (!r) return;
+  const bt = e.target.closest("[data-b]");
+  if (bt) { slip = { ticker: bt.dataset.t, type: bt.dataset.b }; renderBets(r); return; }
+  if (e.target.id === "cancelBet") { slip = null; renderBets(r); }
+  if (e.target.id === "resetBank") { if (confirm("重設虛擬點數為 1000 並清除所有注單？")) { bank = { balance: 1000, bets: [] }; saveBank(); slip = null; renderBets(r); } }
+  if (e.target.id === "confirmBet" && slip) {
+    const h = r.horses.find(x => x.ticker === slip.ticker), stake = +$("stake").value;
+    if (stake > bank.balance) { alert("點數不足"); return; }
+    bank.balance -= stake;
+    bank.bets.push({ raceId: r.id, ticker: h.ticker, horse: h.horse_zh, type: slip.type, stake, odds: slip.type === "win" ? h.odds_win : h.odds_place, status: "pending", placedOn: D.asof });
+    saveBank(); slip = null; renderBets(r);
+  }
+});
+
+/* ================= card tab ================= */
+function renderCard() {
+  const rs = races(), kf = D.key_factors;
+  if (raceK >= rs.length) raceK = 0;
+  const lab = r => r.status === "upcoming" ? `本季・即將開賽（${md(r.start)}→${md(r.planned_end)}）` : `${r.k === 0 || (dist === "q" && r.k === 1) ? "最新一戰" : "前" + (dist === "q" ? r.k - 1 : r.k) + "戰"}（${md(r.start)}→${md(r.end)}）`;
+  $("raceSel").innerHTML = rs.map((r, i) => `<option value="${i}" ${i === raceK ? "selected" : ""}>${lab(r)}</option>`).join("");
+  const r = rs[raceK];
+  $("cinfo").innerHTML = `<div class="box"><b>${POOL_NAME[pool]}・${dist === "q" ? "季賽" : DIST_NAME[dist] + "賽"}</b>｜${r.start} → ${r.end || "預計 " + r.planned_end}｜${r.status === "upcoming" ? "結果未知" : "已開獎"}${tip(r.status === "upcoming" ? HELP.quarter : HELP.review)}　<span class="muted">馬號＝預測名次${tip(HELP.total)}</span></div>`;
+  $("cards").innerHTML = r.horses.map(h => {
+    const form = h.form.map(x => `<span class="chip ${x && x <= 3 ? "g" + x : ""}">${x ?? "–"}</span>`).join("");
+    const abil = kf.map(f => { const a = h.ability[f.id];
+      return `<div class="arow"><span>${esc(f.horse)}</span><div class="bar"><i style="width:${a ?? 0}%"></i></div><span>${a == null ? "—" : Math.round(a)}</span></div>` +
+        `<div class="tt" hidden><b>${esc(f.horse)}</b>：${esc(f.meaning)}。<br>參數：${esc(f.param)}。本馬：${fmtRaw(f, h.raw[f.id])}（馬群百分位 ${a ?? "—"}）</div>`; }).join("");
+    const res = h.result != null ? `<span class="muted">賽果 第${h.result}名 <span class="${cls(h.ret)}">${pct(h.ret)}</span></span>` : (h.odds_win ? `<span class="muted">獨贏 ${h.odds_win.toFixed(1)}・位置 ${h.odds_place.toFixed(1)}</span>` : "");
+    return `<div class="card"><div class="cardsp"><div class="sprite live" style="background-image:url(assets/horses/${h.sprite}.png);--spd:${(.5 + h.no * .03).toFixed(2)}s"></div><div class="no" style="background:${COLORS[h.no - 1]}">${h.no}</div></div>
+      <div class="head"><span class="tk">${esc(h.horse_zh)}</span><span class="mark">${h.mark}</span><span class="stars">${"★".repeat(h.stars)}${"☆".repeat(5 - h.stars)}</span>
+        <span class="muted">${esc(h.ticker)}${h.company ? " " + esc(h.company) : ""}・${esc(h.sector)}</span> ${res}</div>
+      <div class="body">
+        <div><div class="lbl">近績（新→舊）${tip(HELP.form)}</div><div class="chips">${form}</div>
+          <div class="lbl">跑法${tip(HELP.style)}</div><span class="badge">${h.style}</span> <span class="muted">${esc(h.style_desc)}</span></div>
+        <div><div class="lbl">能力（點名稱看參數）${tip(HELP.ability)}</div>${abil}</div>
+      </div>
+      <div class="cmt">📝 ${esc(h.comment)}　<details style="display:inline"><summary style="display:inline;cursor:pointer;color:var(--muted)">🎨 花色</summary>${swatch(h)}${esc(h.coat)}${h.inspired_by ? "（靈感：" + esc(h.inspired_by) + "）" : ""}</details></div></div>`;
+  }).join("");
+  renderMethod(r); renderTruth(r);
+}
+function renderMethod(r) {
+  const kf = D.key_factors, v = val(), wt = Object.fromEntries(r.weights.map(w => [w.id, w.w]));
+  const verdict = v.n >= 3 ? `<li><b>回測</b>：同一方法重跑過去 ${v.n} 場（${v.first}～${v.last}），預測與實際名次的平均相關 <b>${v.mean_rho >= 0 ? "+" : ""}${v.mean_rho}</b>（t=${v.t}；0＝無預測力）；◎平均實際名次 ${v.top1_avg_rank}、預測前三平均 ${v.top3_avg_rank}（亂猜約 5.5）。<br><span class="warn">樣本內、存活者偏差；波動大的股票容易衝到最前面，能力指數因此偏愛高波動股。僅供參考。</span></li>` : "";
+  $("method").innerHTML = `<ol><li>只用起跑日以前的資料，對馬群所有成分股算出五項能力；<b>一律越高越好</b>（歷史上負相關的參數已反向）。</li>
+    <li>各項換成馬群內百分位（0–100）；<b>能力指數＝加權平均</b>，權重：${kf.map(f => `${esc(f.horse)} ${(wt[f.id] * 100).toFixed(0)}%`).join("、")}。</li>
+    <li>預測名次＝能力指數排序；賽後比對實際名次。${r.status === "upcoming" ? "賠率另依「能力 70% ＋ 近績 30%」推算。" : ""}</li>${verdict}</ol>
+    <table><thead><tr><th>能力</th><th>實際參數</th><th>3M IC</th><th>t</th></tr></thead><tbody>${kf.map(f => `<tr><td>${esc(f.horse)}</td><td style="text-align:left">${esc(f.param)}</td><td>${f["3m"].ic.toFixed(3)}</td><td>${f["3m"].t.toFixed(1)}${Math.abs(f["3m"].t) >= 2 ? " ✓" : ""}</td></tr>`).join("")}</tbody></table>
+    <p class="muted">IC＝參數與未來報酬的逐月相關（${D.study.period[0]}～${D.study.period[1]}，${D.study.universe_size} 檔）。相關性普遍很弱，✓＝t≥2。美股沒有免費的法人籌碼資料，籌碼面以量價資金流向代替，未入選。</p>`;
+}
+function renderTruth(r) {
+  const cv = r.coverage, ns = D.ndx_status;
+  const nw = ns.source === "fallback" ? `<li class="warn">⚠️ Nasdaq-100 名單下載失敗，使用內建後備名單，可能不是最新。</li>` : ns.source === "cache" ? `<li class="warn">⚠️ Nasdaq-100 名單本次更新失敗，沿用 ${esc(ns.fetched_at || "舊")} 的名單。</li>` : `<li>Nasdaq-100 名單：${esc(ns.source)}（${esc(ns.fetched_at)}，${ns.count} 檔）。</li>`;
+  $("truth").innerHTML = `<ul><li>股價：Yahoo Finance 日收盤價（還原股利與分割），每個交易日由 GitHub Actions 更新，資料至 <b>${esc(D.asof)}</b>。</li><li>S&amp;P 500 名單：維基百科現任成分股。</li>${nw}
+    <li>本場納入 ${cv.with_prices} / ${cv.pool_size} 檔${cv.missing.length ? "（無報價：" + esc(cv.missing.join("、")) + "）" : ""}。</li>
+    <li>馬名、毛色、靈感說明是創作；漲幅、名次、近績、跑法、能力、賠率都由上述資料計算。</li></ul>`;
 }
 
-$("pool").onclick = e => { if (e.target.dataset.v) { pool = e.target.dataset.v; select(); } };
-$("dist").onclick = e => { if (e.target.dataset.v) { dist = e.target.dataset.v; select(); } };
-$("play").onclick = () => playing ? stop() : play();
+/* ================= gallery tab ================= */
+let galleryLoaded = false;
+function renderGallery() {
+  if (galleryLoaded) return; galleryLoaded = true;
+  fetch("assets/horses/manifest.json").then(r => r.json()).then(m => {
+    const c = (file, title, sub, extra) => `<div class="gc" onclick="this.classList.toggle('on')"><div class="stage"><div class="sprite" style="background-image:url(assets/horses/${file}.png)"></div></div><b>${esc(title)}</b><div class="muted">${esc(sub)}</div><div class="muted">${extra}</div></div>`;
+    $("brands").innerHTML = Object.entries(m.brands).map(([t, b]) => c(t, b.zh, `${b.en}・${t}`, `<span class="swatch" style="background:${b.silks.primary}"></span><span class="swatch" style="background:${b.silks.secondary}"></span>${esc(b.inspired_by)}`)).join("");
+    $("generic").innerHTML = Object.entries(m.generic).map(([k, g]) => c("generic_" + k, g.zh, k, esc(g.features))).join("");
+  });
+}
+
+/* ================= wiring ================= */
+document.addEventListener("click", e => {
+  const i = e.target.closest("button.i"); if (i && i.nextElementSibling && i.nextElementSibling.classList.contains("tt")) { i.nextElementSibling.hidden = !i.nextElementSibling.hidden; return; }
+  const a = e.target.closest(".arow"); if (a) { const d = a.nextElementSibling; if (d && d.classList.contains("tt")) d.hidden = !d.hidden; }
+});
+$("tabs").onclick = e => { if (e.target.dataset.t) showTab(e.target.dataset.t); };
+$("pool").onclick = e => { if (e.target.dataset.v) { pool = e.target.dataset.v; slip = null; render(); } };
+$("dist").onclick = e => { if (e.target.dataset.v) { dist = e.target.dataset.v; raceK = 0; slip = null; render(); } };
+$("qseg").onclick = e => { if (e.target.dataset.v) { qmode = e.target.dataset.v; render(); } };
+$("raceSel").onchange = e => { raceK = +e.target.value; renderCard(); };
+$("play").onclick = () => (phase === "run" || phase === "sprint") ? stop() : play();
 $("reset").onclick = () => { stop(); resetPhysics(0); paint(false); };
-$("scrub").oninput = e => { if (playing) stop(); resetPhysics(+e.target.value); paint(false); };
-window.addEventListener("resize", () => race && paint(playing));
+$("scrub").oninput = e => { stop(); resetPhysics(+e.target.value); paint(false); };
+$("speed").onchange = () => {};
+let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { if (tab === "race" && race && !$("raceview").hidden) { const t = T; setupTrack(); resetPhysics(t); paint(false); } }, 150); });
 
 fetch("data/derby.json").then(r => r.json()).then(d => {
   D = d; if (!D.pools[pool]) pool = "all"; if (!D.pools[pool][dist]) dist = "3m";
+  settleBets();
   $("msg").hidden = true; $("app").hidden = false;
-  $("foot").textContent = `資料更新至 ${D.asof}（每個交易日由 GitHub Actions 自動更新）。僅供娛樂，非投資建議。`;
-  select();
+  $("foot").textContent = `資料更新至 ${D.asof}（每個交易日自動更新）。僅供娛樂，非投資建議；下注使用虛擬點數。`;
+  const h = (location.hash || "").slice(1); showTab(["race", "card", "gallery"].includes(h) ? h : "race");
 }).catch(e => { $("msg").textContent = "資料載入失敗：" + e.message; });
 </script>
 </body>
