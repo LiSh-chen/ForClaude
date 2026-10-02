@@ -92,7 +92,9 @@ def test_every_horse_has_sprite_sheet_and_name():
         assert len(set(sprites)) == len(sprites), "no two identical coats in one field"
         for h in race["horses"]:
             im = Image.open(D / "assets" / "horses" / f"{h['sprite']}.png")
-            assert im.size == (man["frame_w"] * (man["run_frames"] + 1), man["frame_h"])
+            fh = man["frame_h"] if h["art"] == "pixel" else round(man["frame_h"] * 2.5)       # smooth styles are drawn at 2.5x
+            assert im.height == fh and im.width == fh * 4 // 3 * (man["run_frames"] + 1)
+            assert h["art"] in ("pixel", "flat", "sketch", "neon")
             assert h["horse_zh"] and h["horse_en"]
 
 
@@ -166,7 +168,8 @@ def test_sprite_frames_differ_so_gallop_animates():
     pytest.importorskip("PIL")
     from PIL import Image, ImageChops
     im = Image.open(D / "assets" / "horses" / "NVDA.png")
-    fr = [im.crop((i * 48, 0, i * 48 + 48, 36)) for i in range(6)]
+    fw = im.height * 4 // 3
+    fr = [im.crop((i * fw, 0, i * fw + fw, im.height)) for i in range(6)]
     assert all(ImageChops.difference(fr[i], fr[(i + 1) % 6]).getbbox() for i in range(6))
 
 
@@ -201,3 +204,34 @@ def test_parse_ndx_tables_finds_the_constituents_table_and_reports_what_it_saw()
     import pytest as _pt
     with _pt.raises(ValueError, match="saw 1 tables"):
         fe.parse_ndx_tables("<table><tr><th>A</th></tr><tr><td>1</td></tr></table>")
+
+
+def test_nyse_calendar_and_quarter_length():
+    hol = {h.date().isoformat() for h in bd.nyse_holidays(2026)}
+    assert {"2026-11-26", "2026-12-25", "2026-07-03", "2026-04-03"} <= hol      # Thanksgiving, Christmas, July 4 observed, Good Friday
+    assert bd.trading_days_between(pd.Timestamp("2026-09-30"), pd.Timestamp("2026-12-31")) == 64
+
+
+def test_in_play_odds_get_more_expensive_as_the_season_runs():
+    cum = np.array([0.30, 0.10, 0.05, 0.0, -0.05])
+    sig = np.full(5, 0.02)
+    p_open = np.full(5, 0.2)
+    early = bd.live_odds(p_open, np.full(5, 0.6), cum, sig, 60, 0.05)
+    late = bd.live_odds(p_open, np.full(5, 0.6), cum, sig, 10, 0.85)
+    assert abs(early.p_win.sum() - 1) < 1e-6 and abs(late.p_win.sum() - 1) < 1e-6
+    assert late.odds_win.iloc[0] < early.odds_win.iloc[0]          # the leader gets cheaper to back... i.e. pays less
+    assert late.odds_win.iloc[0] < late.odds_win.iloc[-1]          # and pays less than a straggler
+    assert bd.tau(0.0) == bd.TAKEOUT and bd.tau(1.0) == bd.TAKE_END and bd.tau(0.5) > bd.tau(0.2)
+    assert (late.odds_win >= bd.MIN_ODDS).all()
+
+
+def test_live_block_of_the_season_in_progress():
+    d = _doc()
+    for pool in d["pools"].values():
+        up = pool["q"]["races"][0]
+        L = up["live"]
+        assert 0 <= L["u"] <= 1 and L["total_days"] >= L["day"] + 1 and len(L["dates"]) == L["day"] + 1
+        assert L["betting_open"] == (L["u"] < L["close_u"]) and abs(L["tau"] - bd.tau(L["u"])) < 1e-3
+        for h in up["horses"]:
+            assert len(h["live_path"]) == L["day"] + 1 and h["live_path"][0] == 0
+            assert h["odds_win"] >= bd.MIN_ODDS and "odds_win_open" in h

@@ -160,3 +160,24 @@ SPECS = {
     "STX": ("希捷 Seagate", "希捷綠旋", "Spin Doctor", "硬碟綠＋黑鬃斑紋",
             dict(base="#6cc24a", mane="#111111", pattern="dapple", pcolor="#8bd36d", silks=("#111111", "#6cc24a", "check"))),
 }
+
+
+# Art style per company (the four styles of the reference sheet; "retro cartoon" is deliberately not used - copyright risk).
+#   pixel  = pixel art          flat   = flat vector (geometric colour blocks)
+#   sketch = hand-drawn pencil + watercolour        neon = cyber neon outline
+ART = {
+    # pixel art
+    "AAPL": "pixel", "AMZN": "pixel", "SNDK": "pixel", "STX": "pixel", "TXN": "pixel", "HD": "pixel", "CAT": "pixel",
+    "SMCI": "pixel", "MU": "pixel", "BRK-B": "pixel", "F": "pixel", "IBM": "pixel", "PANW": "pixel", "WMT": "pixel",
+    # flat vector
+    "MSFT": "flat", "GOOGL": "flat", "META": "flat", "CRM": "flat", "ADBE": "flat", "CSCO": "flat", "ORCL": "flat",
+    "NOW": "flat", "SHOP": "flat", "PYPL": "flat", "V": "flat", "MA": "flat", "QCOM": "flat", "DELL": "flat",
+    "T": "flat", "TMUS": "flat", "ABNB": "flat", "AVGO": "flat", "COST": "flat", "UNH": "flat",
+    # hand-drawn illustration
+    "NVDA": "sketch", "KO": "sketch", "PEP": "sketch", "MCD": "sketch", "SBUX": "sketch", "NKE": "sketch", "DIS": "sketch",
+    "LULU": "sketch", "XOM": "sketch", "LLY": "sketch", "BA": "sketch", "JPM": "sketch", "BAC": "sketch", "WFC": "sketch",
+    "GS": "sketch", "UBER": "sketch",
+    # cyber neon
+    "TSLA": "neon", "AMD": "neon", "INTC": "neon", "NFLX": "neon", "CRWD": "neon", "PLTR": "neon", "COIN": "neon",
+    "HOOD": "neon", "APP": "neon", "VZ": "neon",
+}

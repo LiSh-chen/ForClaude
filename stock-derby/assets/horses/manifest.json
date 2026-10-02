@@ -4,6 +4,9 @@
  "run_frames": 6,
  "brands": {
   "AAPL": {
+   "art": "pixel",
+   "frame_w": 48,
+   "frame_h": 36,
    "company": "蘋果 Apple",
    "zh": "蘋果飛霜",
    "en": "Apple Frost",
@@ -16,6 +19,9 @@
    }
   },
   "MSFT": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "微軟 Microsoft",
    "zh": "微軟四方",
    "en": "Four Panes",
@@ -28,6 +34,9 @@
    }
   },
   "NVDA": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "輝達 NVIDIA",
    "zh": "輝達閃電",
    "en": "Green Bolt",
@@ -40,6 +49,9 @@
    }
   },
   "AMZN": {
+   "art": "pixel",
+   "frame_w": 48,
+   "frame_h": 36,
    "company": "亞馬遜 Amazon",
    "zh": "亞馬遜微笑",
    "en": "Prime Smile",
@@ -52,6 +64,9 @@
    }
   },
   "GOOGL": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "谷歌 Google",
    "zh": "谷歌彩點",
    "en": "Four Dot Derby",
@@ -64,6 +79,9 @@
    }
   },
   "META": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "Meta",
    "zh": "元宇宙無限",
    "en": "Infinity Loop",
@@ -76,6 +94,9 @@
    }
   },
   "TSLA": {
+   "art": "neon",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "特斯拉 Tesla",
    "zh": "特斯電光",
    "en": "Red Lightning",
@@ -88,6 +109,9 @@
    }
   },
   "AVGO": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "博通 Broadcom",
    "zh": "博通赤弧",
    "en": "Crimson Arc",
@@ -100,6 +124,9 @@
    }
   },
   "NFLX": {
+   "art": "neon",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "網飛 Netflix",
    "zh": "網飛紅幕",
    "en": "Red Curtain",
@@ -112,6 +139,9 @@
    }
   },
   "AMD": {
+   "art": "neon",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "超微 AMD",
    "zh": "超微銳箭",
    "en": "Sharp Arrow",
@@ -124,6 +154,9 @@
    }
   },
   "INTC": {
+   "art": "neon",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "英特爾 Intel",
    "zh": "英特爾藍環",
    "en": "Blue Ring",
@@ -136,6 +169,9 @@
    }
   },
   "MU": {
+   "art": "pixel",
+   "frame_w": 48,
+   "frame_h": 36,
    "company": "美光 Micron",
    "zh": "美光記憶",
    "en": "Memory Lane",
@@ -148,6 +184,9 @@
    }
   },
   "ORCL": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "甲骨文 Oracle",
    "zh": "甲骨神諭",
    "en": "Red Oracle",
@@ -160,6 +199,9 @@
    }
   },
   "CRM": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "賽富時 Salesforce",
    "zh": "雲端飛雲",
    "en": "Cloud Nine",
@@ -172,6 +214,9 @@
    }
   },
   "ADBE": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "奧多比 Adobe",
    "zh": "奧多比創意",
    "en": "Creative Red",
@@ -184,6 +229,9 @@
    }
   },
   "QCOM": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "高通 Qualcomm",
    "zh": "高通電波",
    "en": "Signal Boost",
@@ -196,6 +244,9 @@
    }
   },
   "COST": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "好市多 Costco",
    "zh": "好市多滿載",
    "en": "Bulk Buy",
@@ -208,6 +259,9 @@
    }
   },
   "WMT": {
+   "art": "pixel",
+   "frame_w": 48,
+   "frame_h": 36,
    "company": "沃爾瑪 Walmart",
    "zh": "沃爾瑪星火",
    "en": "Spark Saver",
@@ -220,6 +274,9 @@
    }
   },
   "JPM": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "摩根大通 JPMorgan",
    "zh": "大通金融",
    "en": "Blue Chip",
@@ -232,6 +289,9 @@
    }
   },
   "V": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "Visa",
    "zh": "維薩金帶",
    "en": "Gold Band",
@@ -244,6 +304,9 @@
    }
   },
   "MA": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "萬事達 Mastercard",
    "zh": "萬事達雙環",
    "en": "Twin Rings",
@@ -256,6 +319,9 @@
    }
   },
   "UNH": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "聯合健康 UnitedHealth",
    "zh": "聯合安康",
    "en": "Healing Hooves",
@@ -268,6 +334,9 @@
    }
   },
   "LLY": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "禮來 Eli Lilly",
    "zh": "禮來紅駒",
    "en": "Lilly Red",
@@ -280,6 +349,9 @@
    }
   },
   "XOM": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "埃克森美孚 ExxonMobil",
    "zh": "美孚烈油",
    "en": "Crude Flame",
@@ -292,6 +364,9 @@
    }
   },
   "BRK-B": {
+   "art": "pixel",
+   "frame_w": 48,
+   "frame_h": 36,
    "company": "波克夏 Berkshire",
    "zh": "波克夏長青",
    "en": "Oracle of Omaha",
@@ -304,6 +379,9 @@
    }
   },
   "PLTR": {
+   "art": "neon",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "帕蘭泰爾 Palantir",
    "zh": "帕蘭神眼",
    "en": "Seeing Stone",
@@ -316,6 +394,9 @@
    }
   },
   "COIN": {
+   "art": "neon",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "Coinbase",
    "zh": "幣基硬幣",
    "en": "Coin Gallop",
@@ -328,6 +409,9 @@
    }
   },
   "HOOD": {
+   "art": "neon",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "羅賓漢 Robinhood",
    "zh": "羅賓綠羽",
    "en": "Green Feather",
@@ -340,6 +424,9 @@
    }
   },
   "SMCI": {
+   "art": "pixel",
+   "frame_w": 48,
+   "frame_h": 36,
    "company": "美超微 Super Micro",
    "zh": "超微伺服",
    "en": "Rack Runner",
@@ -352,6 +439,9 @@
    }
   },
   "DELL": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "戴爾 Dell",
    "zh": "戴爾藍圈",
    "en": "Blue Orbit",
@@ -364,6 +454,9 @@
    }
   },
   "APP": {
+   "art": "neon",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "AppLovin",
    "zh": "應用閃躍",
    "en": "App Sprint",
@@ -376,6 +469,9 @@
    }
   },
   "NOW": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "ServiceNow",
    "zh": "現在服務",
    "en": "Service Now",
@@ -388,6 +484,9 @@
    }
   },
   "KO": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "可口可樂 Coca-Cola",
    "zh": "可樂狂奔",
    "en": "Fizzy Dash",
@@ -400,6 +499,9 @@
    }
   },
   "PEP": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "百事 PepsiCo",
    "zh": "百事雙色",
    "en": "Pepsi Wave",
@@ -412,6 +514,9 @@
    }
   },
   "DIS": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "迪士尼 Disney",
    "zh": "迪士尼夢駒",
    "en": "Dream Castle",
@@ -424,6 +529,9 @@
    }
   },
   "NKE": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "耐吉 Nike",
    "zh": "耐吉勾勢",
    "en": "Swoosh Runner",
@@ -436,6 +544,9 @@
    }
   },
   "MCD": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "麥當勞 McDonald's",
    "zh": "麥當金拱",
    "en": "Golden Arches",
@@ -448,6 +559,9 @@
    }
   },
   "SBUX": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "星巴克 Starbucks",
    "zh": "星巴克綠環",
    "en": "Siren Green",
@@ -460,6 +574,9 @@
    }
   },
   "BA": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "波音 Boeing",
    "zh": "波音藍天",
    "en": "Blue Wings",
@@ -472,6 +589,9 @@
    }
   },
   "CAT": {
+   "art": "pixel",
+   "frame_w": 48,
+   "frame_h": 36,
    "company": "開拓重工 Caterpillar",
    "zh": "開拓重蹄",
    "en": "Heavy Hooves",
@@ -484,6 +604,9 @@
    }
   },
   "HD": {
+   "art": "pixel",
+   "frame_w": 48,
+   "frame_h": 36,
    "company": "家得寶 Home Depot",
    "zh": "家得寶橘箱",
    "en": "Orange Box",
@@ -496,6 +619,9 @@
    }
   },
   "BAC": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "美國銀行 Bank of America",
    "zh": "美銀旗幟",
    "en": "Flag Runner",
@@ -508,6 +634,9 @@
    }
   },
   "WFC": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "富國銀行 Wells Fargo",
    "zh": "富國驛馬",
    "en": "Stagecoach",
@@ -520,6 +649,9 @@
    }
   },
   "GS": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "高盛 Goldman Sachs",
    "zh": "高盛金蹄",
    "en": "Gold Standard",
@@ -532,6 +664,9 @@
    }
   },
   "T": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "AT&T",
    "zh": "電信環球",
    "en": "Globe Trotter",
@@ -544,6 +679,9 @@
    }
   },
   "VZ": {
+   "art": "neon",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "威瑞森 Verizon",
    "zh": "威瑞勾魂",
    "en": "Red Check",
@@ -556,6 +694,9 @@
    }
   },
   "TMUS": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "T-Mobile",
    "zh": "洋紅電訊",
    "en": "Magenta Mile",
@@ -568,6 +709,9 @@
    }
   },
   "CSCO": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "思科 Cisco",
    "zh": "思科長橋",
    "en": "Bridge Runner",
@@ -580,6 +724,9 @@
    }
   },
   "IBM": {
+   "art": "pixel",
+   "frame_w": 48,
+   "frame_h": 36,
    "company": "國際商業機器 IBM",
    "zh": "藍色巨人",
    "en": "Big Blue",
@@ -592,6 +739,9 @@
    }
   },
   "TXN": {
+   "art": "pixel",
+   "frame_w": 48,
+   "frame_h": 36,
    "company": "德州儀器 Texas Instruments",
    "zh": "德儀孤星",
    "en": "Lone Star",
@@ -604,6 +754,9 @@
    }
   },
   "UBER": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "優步 Uber",
    "zh": "優步疾駛",
    "en": "Night Rider",
@@ -616,6 +769,9 @@
    }
   },
   "ABNB": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "愛彼迎 Airbnb",
    "zh": "愛彼迎珊瑚",
    "en": "Coral Belo",
@@ -628,6 +784,9 @@
    }
   },
   "PYPL": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "PayPal",
    "zh": "貝寶雙藍",
    "en": "Twin Blue",
@@ -640,6 +799,9 @@
    }
   },
   "SHOP": {
+   "art": "flat",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "Shopify",
    "zh": "開店綠袋",
    "en": "Green Bag",
@@ -652,6 +814,9 @@
    }
   },
   "PANW": {
+   "art": "pixel",
+   "frame_w": 48,
+   "frame_h": 36,
    "company": "派拓網路 Palo Alto",
    "zh": "派拓鐵衛",
    "en": "Firewall",
@@ -664,6 +829,9 @@
    }
   },
   "CRWD": {
+   "art": "neon",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "群擎 CrowdStrike",
    "zh": "群擎獵鷹",
    "en": "Falcon Strike",
@@ -676,6 +844,9 @@
    }
   },
   "LULU": {
+   "art": "sketch",
+   "frame_w": 120,
+   "frame_h": 90,
    "company": "露露檸檬 Lululemon",
    "zh": "露露飛旋",
    "en": "Lulu Loop",
@@ -688,6 +859,9 @@
    }
   },
   "F": {
+   "art": "pixel",
+   "frame_w": 48,
+   "frame_h": 36,
    "company": "福特 Ford",
    "zh": "福特藍橢",
    "en": "Blue Oval",
@@ -700,6 +874,9 @@
    }
   },
   "SNDK": {
+   "art": "pixel",
+   "frame_w": 48,
+   "frame_h": 36,
    "company": "閃迪 SanDisk",
    "zh": "閃迪急電",
    "en": "Flash Drive",
@@ -712,6 +889,9 @@
    }
   },
   "STX": {
+   "art": "pixel",
+   "frame_w": 48,
+   "frame_h": 36,
    "company": "希捷 Seagate",
    "zh": "希捷綠旋",
    "en": "Spin Doctor",
@@ -726,82 +906,102 @@
  },
  "generic": {
   "chestnut": {
+   "art": "pixel",
    "zh": "栗毛",
    "features": "白面流星"
   },
   "black": {
+   "art": "pixel",
    "zh": "黑駿",
    "features": "白襪"
   },
   "bay": {
+   "art": "pixel",
    "zh": "鹿毛",
    "features": "白面流星"
   },
   "grey": {
+   "art": "pixel",
    "zh": "白駒",
    "features": "素色"
   },
   "dapple": {
+   "art": "pixel",
    "zh": "銀斑灰",
    "features": "銀斑"
   },
   "palomino": {
+   "art": "pixel",
    "zh": "金鬃",
    "features": "白面流星"
   },
   "cremello": {
+   "art": "pixel",
    "zh": "奶油",
    "features": "素色"
   },
   "appaloosa": {
+   "art": "pixel",
    "zh": "豹斑",
    "features": "彩點"
   },
   "pinto": {
+   "art": "pixel",
    "zh": "花斑",
    "features": "大塊花斑"
   },
   "roan": {
+   "art": "pixel",
    "zh": "藍斑",
    "features": "白襪、斑駁"
   },
   "sorrel": {
+   "art": "pixel",
    "zh": "赤沙",
    "features": "白面流星、白襪"
   },
   "liver": {
+   "art": "pixel",
    "zh": "暗栗",
    "features": "額頭小星"
   },
   "violet": {
+   "art": "pixel",
    "zh": "紫晶",
    "features": "白面流星"
   },
   "emerald": {
+   "art": "pixel",
    "zh": "翠光",
    "features": "白面流星"
   },
   "flame": {
+   "art": "pixel",
    "zh": "火焰",
    "features": "斜紋"
   },
   "sky": {
+   "art": "pixel",
    "zh": "天藍",
    "features": "白面流星、白襪"
   },
   "pink": {
+   "art": "pixel",
    "zh": "櫻粉",
    "features": "白面流星"
   },
   "steel": {
+   "art": "pixel",
    "zh": "鋼銀",
    "features": "銀斑"
   },
   "obsidian": {
+   "art": "pixel",
    "zh": "黑金",
    "features": "額頭小星"
   },
   "tiger": {
+   "art": "pixel",
    "zh": "虎紋",
    "features": "斜紋"
   }

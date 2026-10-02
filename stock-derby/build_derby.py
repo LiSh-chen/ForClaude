@@ -27,6 +27,12 @@ DISTS = list(DIST_MONTHS)
 N_RACES = 5                                    # latest race + the 4 before it
 TAKEOUT = 0.15                                 # house cut in the simulated odds
 ODDS_TEMP = 30.0                               # high on purpose: the ability signal is weak, so odds stay flat
+TAKE_END = 0.40                                # house cut at the end of the season: tau(u) = 15% + 25% * u^2
+CLOSE_U = 0.80                                 # betting closes once 80% of the season has been run
+MIN_ODDS = 1.05
+VOL_SCALE = 0.85                               # backtest (40 quarters): leaders won more often than a plain random walk says
+LIVE_SIMS = 4000
+RHO = 0.4                                      # one-factor correlation between horses in the remaining-days simulation
 FIELD = 10
 N_FORM = 4
 N_VALID = 40
@@ -40,6 +46,7 @@ ADJ = [("疾風", "Swift"), ("烈焰", "Blaze"), ("飛雲", "Skycloud"), ("銀�
 SECTOR_ZH = {"Information Technology": "科技", "Communication Services": "通訊", "Consumer Discretionary": "非必需消費",
              "Consumer Staples": "必需消費", "Financials": "金融", "Health Care": "醫療", "Industrials": "工業",
              "Energy": "能源", "Utilities": "公用事業", "Real Estate": "房地產", "Materials": "原物料"}
+ARTS = ["pixel", "flat", "sketch", "neon"]
 MARKS = ["◎", "○", "▲", "△", "△"]
 
 
@@ -152,6 +159,69 @@ def odds_table(score: pd.Series) -> pd.DataFrame:
                          "odds_place": np.maximum(1.1, np.round((1 - TAKEOUT) / np.maximum(p_top3, 1e-3), 1))}, index=score.index)
 
 
+def nyse_holidays(year: int) -> list[pd.Timestamp]:
+    """NYSE full-day closures (weekend holidays are observed on the Friday / Monday)."""
+    from dateutil.easter import easter
+
+    def nth(month, weekday, n):                       # n-th weekday of a month (n=-1: last)
+        days = pd.date_range(f"{year}-{month:02d}-01", periods=31, freq="D")
+        days = days[(days.month == month) & (days.weekday == weekday)]
+        return days[n]
+
+    def observed(d):
+        return d - pd.Timedelta(days=1) if d.weekday() == 5 else d + pd.Timedelta(days=1) if d.weekday() == 6 else d
+
+    hol = [observed(pd.Timestamp(year, 1, 1)), nth(1, 0, 2), nth(2, 0, 2), pd.Timestamp(easter(year)) - pd.Timedelta(days=2),
+           nth(5, 0, -1), observed(pd.Timestamp(year, 6, 19)), observed(pd.Timestamp(year, 7, 4)), nth(9, 0, 0),
+           nth(11, 3, 3), observed(pd.Timestamp(year, 12, 25))]
+    return hol
+
+
+def trading_days_between(start: pd.Timestamp, end: pd.Timestamp) -> int:
+    """Approximate number of NYSE sessions in (start, end]."""
+    hol = [h for y in range(start.year, end.year + 1) for h in nyse_holidays(y)]
+    return int(np.busday_count((start + pd.Timedelta(days=1)).date(), (end + pd.Timedelta(days=1)).date(),
+                               holidays=[h.date() for h in hol]))
+
+
+def tau(u: float) -> float:
+    return TAKEOUT + (TAKE_END - TAKEOUT) * u ** 2
+
+
+def live_probs(cum: np.ndarray, sig: np.ndarray, n_rem: int, seed: int = 20261002) -> tuple[np.ndarray, np.ndarray]:
+    """P(win), P(top 3) per horse by Monte Carlo of the remaining days (one-factor random walk, zero drift)."""
+    k = len(cum)
+    if n_rem <= 0:
+        order = np.argsort(-cum)
+        pw, pp = np.zeros(k), np.zeros(k)
+        pw[order[0]], pp[order[:3]] = 1, 1
+        return pw, pp
+    rng = np.random.default_rng(seed)
+    sig = sig * VOL_SCALE
+    z = np.sqrt(RHO) * rng.standard_normal((LIVE_SIMS, 1)) + np.sqrt(1 - RHO) * rng.standard_normal((LIVE_SIMS, k))
+    final = np.log1p(cum)[None, :] + sig[None, :] * np.sqrt(n_rem) * z - 0.5 * (sig ** 2)[None, :] * n_rem
+    rank = (-final).argsort(1).argsort(1)
+    return (rank == 0).mean(0), (rank < 3).mean(0)
+
+
+def live_odds(p_open_win, p_open_place, cum, sig, n_rem: int, u: float) -> pd.DataFrame:
+    """In-play prices: geometric blend of the pre-season card odds and the live model, weighted by the elapsed
+    fraction u, with a house cut that rises from 15% to 40% over the season. Later bets cost more."""
+    pw_live, pp_live = live_probs(np.asarray(cum), np.asarray(sig), n_rem)
+    eps = 1e-4
+    w = np.exp((1 - u) * np.log(np.maximum(np.asarray(p_open_win), eps)) + u * np.log(np.maximum(pw_live, eps)))
+    p_win = w / w.sum()
+    q = np.exp((1 - u) * np.log(np.maximum(np.asarray(p_open_place), eps)) + u * np.log(np.maximum(pp_live, eps)))
+    p_place = q / q.sum() * 3
+    for _ in range(5):                                   # keep probabilities <= 1 while summing to 3
+        p_place = np.minimum(p_place, 0.97)
+        p_place = p_place / p_place.sum() * 3
+    t = tau(u)
+    return pd.DataFrame({"p_win": p_win, "p_place": np.minimum(p_place, 0.97),
+                         "odds_win": np.maximum(MIN_ODDS, np.round((1 - t) / np.maximum(p_win, 1e-3), 1)),
+                         "odds_place": np.maximum(MIN_ODDS, np.round((1 - t) / np.maximum(np.minimum(p_place, 0.97), 1e-3), 1))})
+
+
 def form_score(form: list) -> float:
     done = [x for x in form if x is not None]
     return float(np.mean([(11 - r) * 10 for r in done])) if done else 55.0
@@ -166,7 +236,7 @@ def assign_looks(field: list[str], manifest: dict) -> dict[str, dict]:
     for t in field:
         b = manifest["brands"].get(t)
         if b:
-            looks[t] = {"company": b["company"], "horse_zh": b["zh"], "horse_en": b["en"], "sprite": t,
+            looks[t] = {"company": b["company"], "horse_zh": b["zh"], "horse_en": b["en"], "sprite": t, "art": b["art"],
                         "coat": b["features"], "inspired_by": b["inspired_by"], "silks": b["silks"]}
             continue
         h = sum(ord(ch) * (i + 1) for i, ch in enumerate(t))
@@ -176,7 +246,9 @@ def assign_looks(field: list[str], manifest: dict) -> dict[str, dict]:
         used.add(generic[k])
         zh, en = ADJ[h % len(ADJ)]
         g = manifest["generic"][generic[k]]
-        looks[t] = {"company": "", "horse_zh": f"{zh}{t}", "horse_en": f"{en} {t}", "sprite": f"generic_{generic[k]}",
+        art = ARTS[(h // 7) % len(ARTS)]                          # art style is stable per ticker as well
+        looks[t] = {"company": "", "horse_zh": f"{zh}{t}", "horse_en": f"{en} {t}",
+                    "sprite": f"generic_{generic[k]}" + ("" if art == "pixel" else f"_{art}"), "art": art,
                     "coat": f"{g['zh']}・{g['features']}", "inspired_by": "", "silks": None}
     return looks
 
@@ -279,13 +351,39 @@ def build_race(tickers, p, ofac, kf, sector_of, dist, k, live_end, manifest, wit
         race["dates"] = [str(d.date()) for d in dates[s:e + 1]]
         for h in horses:
             h["path"] = [round(float(x), 4) for x in cum[h["ticker"]].values]
-    if dist == "q":                                              # betting odds, from the card only
+    if dist == "q":                                              # opening odds, from the card only
         od = odds_table(pd.Series({h["ticker"]: h["eval"] for h in horses}))
         for h in horses:
             r = od.loc[h["ticker"]]
             h.update({"p_win": round(float(r.p_win), 3), "p_place": round(float(r.p_place), 3),
                       "odds_win": float(r.odds_win), "odds_place": float(r.odds_place)})
+        if not done:
+            add_live(race, close, dates, s, live_end, od)
     return race
+
+
+def add_live(race: dict, close: pd.DataFrame, dates: pd.DatetimeIndex, s: int, live_end: int, od: pd.DataFrame) -> None:
+    """Season-to-date standings and in-play prices for the race in progress."""
+    names = [h["ticker"] for h in race["horses"]]
+    day = int(live_end - s)
+    total = max(trading_days_between(dates[s], pd.Timestamp(race["planned_end"])), day + 1)
+    u = min(1.0, day / total)
+    seg = close.iloc[s:live_end + 1][names]
+    cum = seg / seg.iloc[0] - 1
+    sig = np.log(close[names]).diff().iloc[max(1, live_end - 59):live_end + 1].std().to_numpy()
+    sig = np.where(np.isfinite(sig) & (sig > 0), sig, 0.025)
+    lo = live_odds(od.loc[names, "p_win"].to_numpy(), od.loc[names, "p_place"].to_numpy(), cum.iloc[-1].to_numpy(), sig, total - day, u)
+    ranks = ranks_of(cum.iloc[-1])
+    for h, (_, r) in zip(race["horses"], lo.iterrows()):
+        t = h["ticker"]
+        h.update({"live_path": [round(float(x), 4) for x in cum[t].values], "live_ret": round(float(cum[t].iloc[-1]), 4),
+                  "live_rank": int(ranks[t]), "live_price": round(float(close[t].iloc[live_end]), 2),
+                  "odds_win_open": h["odds_win"], "odds_place_open": h["odds_place"],
+                  "odds_win": float(r.odds_win), "odds_place": float(r.odds_place),
+                  "p_win": round(float(r.p_win), 3), "p_place": round(float(r.p_place), 3)})
+    race["live"] = {"as_of": str(dates[live_end].date()), "day": day, "total_days": total, "u": round(u, 3),
+                    "tau": round(tau(u), 3), "betting_open": bool(u < CLOSE_U), "close_u": CLOSE_U,
+                    "dates": [str(d.date()) for d in dates[s:live_end + 1]]}
 
 
 _POOL_ID: dict[int, str] = {}
