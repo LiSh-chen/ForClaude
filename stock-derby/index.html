@@ -122,7 +122,7 @@
     </section>
 
     <section id="tab-gallery" hidden>
-      <p class="muted">滑鼠移上去／手機點一下，馬會奔跑。四種畫風：像素、扁平向量、手繪插畫、賽博霓虹；毛色與花紋只參考公司 logo 的配色與大致樣式，不是 logo 本身。</p>
+      <p class="muted">滑鼠移上去／手機點一下，馬會奔跑。毛色與花紋只參考公司 logo 的配色與大致樣式，不是 logo 本身。</p>
       <h2>公司專屬馬</h2><div class="grid" id="brands"></div>
       <h2>通用毛色</h2><div class="grid" id="generic"></div>
     </section>
@@ -437,7 +437,7 @@ function renderGallery() {
   if (galleryLoaded) return; galleryLoaded = true;
   fetch("assets/horses/manifest.json").then(r => r.json()).then(m => {
     const ART = { pixel: "像素", flat: "扁平向量", sketch: "手繪插畫", neon: "賽博霓虹" };
-    const c = (file, title, sub, extra, art) => `<div class="gc" onclick="this.classList.toggle('on')"><div class="stage"><div class="sprite ${art === "pixel" ? "px" : ""}" style="background-image:url(assets/horses/${file}.png)"></div></div><b>${esc(title)}</b> <span class="badge" style="font-size:11px">${ART[art] || art}</span><div class="muted">${esc(sub)}</div><div class="muted">${extra}</div></div>`;
+    const c = (file, title, sub, extra, art) => `<div class="gc" onclick="this.classList.toggle('on')"><div class="stage"><div class="sprite ${art === "pixel" ? "px" : ""}" style="background-image:url(assets/horses/${file}.png)"></div></div><b>${esc(title)}</b><div class="muted">${esc(sub)}</div><div class="muted">${extra}</div></div>`;
     $("brands").innerHTML = Object.entries(m.brands).map(([t, b]) => c(t, b.zh, `${b.en}・${t}`, `<span class="swatch" style="background:${b.silks.primary}"></span><span class="swatch" style="background:${b.silks.secondary}"></span>${esc(b.inspired_by)}`, b.art)).join("");
     $("generic").innerHTML = Object.entries(m.generic).map(([k, g]) => c("generic_" + k, g.zh, k, esc(g.features), g.art)).join("");
   });

@@ -46,7 +46,7 @@ ADJ = [("疾風", "Swift"), ("烈焰", "Blaze"), ("飛雲", "Skycloud"), ("銀�
 SECTOR_ZH = {"Information Technology": "科技", "Communication Services": "通訊", "Consumer Discretionary": "非必需消費",
              "Consumer Staples": "必需消費", "Financials": "金融", "Health Care": "醫療", "Industrials": "工業",
              "Energy": "能源", "Utilities": "公用事業", "Real Estate": "房地產", "Materials": "原物料"}
-ARTS = ["pixel", "flat", "sketch", "neon"]
+ARTS = ["pixel"]                              # only the pixel library is wired in; smooth styles live in assets/horses_styles (experimental)
 MARKS = ["◎", "○", "▲", "△", "△"]
 
 

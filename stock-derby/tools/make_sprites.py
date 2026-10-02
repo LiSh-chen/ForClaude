@@ -483,6 +483,9 @@ def sheet(coat: dict) -> Image.Image:
     return sh
 
 
+STYLES_OUT = Path(__file__).parent.parent / "assets" / "horses_styles"
+
+
 def features(c: dict) -> str:
     f = []
     if c.get("blaze"): f.append("白面流星")
@@ -497,6 +500,9 @@ def features(c: dict) -> str:
 
 
 def main() -> None:
+    """Default: the pixel-art library used by the app (assets/horses).
+    --styles: additionally render the *experimental* smooth styles into assets/horses_styles (not used by the app)."""
+    import sys
     from horse_specs import SPECS, ART
 
     OUT.mkdir(parents=True, exist_ok=True)
@@ -505,17 +511,29 @@ def main() -> None:
     manifest = {"frame_w": W, "frame_h": H, "run_frames": RUN_FRAMES, "brands": {}, "generic": {}}
     for tk, (company, zh, en, why, coat) in SPECS.items():
         coat = {"mane": "#333333", **coat}
-        art = ART.get(tk, "pixel")
-        (sheet(coat) if art == "pixel" else sheet_smooth(coat, art)).save(OUT / f"{tk}.png", optimize=True)
-        manifest["brands"][tk] = {"art": art, "frame_w": W if art == "pixel" else round(W * OUT_SCALE), "frame_h": H if art == "pixel" else round(H * OUT_SCALE), "company": company, "zh": zh, "en": en, "inspired_by": why, "features": features(coat),
+        sheet(coat).save(OUT / f"{tk}.png")
+        manifest["brands"][tk] = {"art": "pixel", "company": company, "zh": zh, "en": en, "inspired_by": why, "features": features(coat),
                                   "silks": dict(zip(("primary", "secondary", "pattern"), coat["silks"]))}
     for cid, c in COATS.items():
         sheet(c).save(OUT / f"generic_{cid}.png")
-        for art in ("flat", "sketch", "neon"):                  # the same coat in every smooth style, picked per ticker at build time
-            sheet_smooth({"mane": "#333333", **c}, art).save(OUT / f"generic_{cid}_{art}.png", optimize=True)
         manifest["generic"][cid] = {"art": "pixel", "zh": c["zh"], "features": features(c)}
     (OUT / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1))
     print(f"{len(SPECS)} brand sheets + {len(COATS)} generic coat sheets -> {OUT}")
+
+    if "--styles" in sys.argv:
+        styles = {"frame_w": round(W * OUT_SCALE), "frame_h": round(H * OUT_SCALE), "run_frames": RUN_FRAMES, "brand_art": {}, "styles": ["flat", "sketch", "neon"]}
+        for art in styles["styles"]:
+            (STYLES_OUT / art).mkdir(parents=True, exist_ok=True)
+        for tk, (_, _, _, _, coat) in SPECS.items():
+            art = ART.get(tk, "pixel")
+            if art != "pixel":
+                sheet_smooth({"mane": "#333333", **coat}, art).save(STYLES_OUT / art / f"{tk}.png", optimize=True)
+                styles["brand_art"][tk] = art
+        for cid, c in COATS.items():
+            for art in styles["styles"]:
+                sheet_smooth({"mane": "#333333", **c}, art).save(STYLES_OUT / art / f"generic_{cid}.png", optimize=True)
+        (STYLES_OUT / "manifest.json").write_text(json.dumps(styles, ensure_ascii=False, indent=1))
+        print(f"experimental styles -> {STYLES_OUT}")
 
 
 if __name__ == "__main__":
