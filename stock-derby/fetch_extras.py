@@ -101,6 +101,24 @@ def download(tickers: list[str], start: str) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
+def fetch_recent(tickers: list[str], days: int = 14) -> None:
+    """Refresh data/recent_prices.csv: the last `days` calendar days of every ticker in one batch download.
+    load_long() splices these onto the stored history, so a stale or half-finished upstream snapshot cannot hold the app back."""
+    start = (pd.Timestamp.today() - pd.Timedelta(days=days)).strftime("%Y-%m-%d")
+    try:
+        new = download(sorted(tickers), start)
+    except Exception as e:  # noqa: BLE001
+        print(f"recent top-up failed: {e}", file=sys.stderr)
+        return
+    if new.empty:
+        print("recent top-up returned nothing; keeping the previous file", file=sys.stderr)
+        return
+    new = new.dropna(subset=["close"])
+    dl.RECENT_CSV.parent.mkdir(exist_ok=True)
+    new.round(4).to_csv(dl.RECENT_CSV, index=False)
+    print(f"recent: {new['stock_id'].nunique()} tickers, {new['date'].min()} .. {new['date'].max()}")
+
+
 def main() -> None:
     try:
         ndx, status = fetch_ndx_list()
@@ -114,6 +132,11 @@ def main() -> None:
         print(f"Nasdaq-100 list fetch FAILED ({e}); using {status['source']} list of {len(ndx)}", file=sys.stderr)
     dl.NDX_STATUS.write_text(json.dumps(status, ensure_ascii=False, indent=1))
 
+    try:
+        spx = dl.sp500_members()
+    except Exception:  # noqa: BLE001
+        spx = []
+    fetch_recent(sorted(set(spx) | set(ndx)))
     snap = dl.load_long(str(pd.Timestamp.today().date() - pd.Timedelta(days=15)))
     have = set(snap.loc[snap["stock_id"].isin(ndx) & snap["industry"].ne(""), "stock_id"])
     missing = sorted(set(ndx) - have)

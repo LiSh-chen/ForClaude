@@ -14,6 +14,7 @@ validation: the same prediction replayed over past races (in-sample, see caveats
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -22,20 +23,24 @@ import pandas as pd
 import data_loader as dl
 import factors as F
 
-DIST_MONTHS = {"1m": 1, "3m": 3, "6m": 6, "q": 3}
-DISTS = list(DIST_MONTHS)
-N_RACES = 5                                    # latest race + the 4 before it
+# cycle -> (pandas freq, number of base units per period).  A period is a calendar block: day = one session,
+# w = Mon-Sun week, w2 = two such weeks, m = month, q = quarter, h = half-year.
+CYCLES = {"d": None, "w": ("W-SUN", 1), "w2": ("W-SUN", 2), "m": ("M", 1), "q": ("Q", 1), "h": ("Q", 2)}
+DISTS = list(CYCLES)
+IC_KEY = {"d": "1m", "w": "1m", "w2": "1m", "m": "1m", "q": "3m", "h": "6m"}   # which study horizon weights the abilities
+N_HIST = 5                                     # finished periods kept per cycle (plus the one in progress)
 TAKEOUT = 0.15                                 # house cut in the simulated odds
 ODDS_TEMP = 30.0                               # high on purpose: the ability signal is weak, so odds stay flat
 TAKE_END = 0.40                                # house cut at the end of the season: tau(u) = 15% + 25% * u^2
 CLOSE_U = 0.80                                 # betting closes once 80% of the season has been run
 MIN_ODDS = 1.05
+MAX_ODDS = 99.0                                # boards cap long shots, like a real odds board
 VOL_SCALE = 0.85                               # backtest (40 quarters): leaders won more often than a plain random walk says
 LIVE_SIMS = 4000
 RHO = 0.4                                      # one-factor correlation between horses in the remaining-days simulation
 FIELD = 10
 N_FORM = 4
-N_VALID = 40
+N_VALID = {"d": 120, "w": 100, "w2": 60, "m": 60, "q": 40, "h": 24}   # past periods replayed for the backtest
 KEY_FACTORS = Path(__file__).parent / "data" / "key_factors.json"
 OUT = Path(__file__).parent / "data" / "derby.json"
 MANIFEST = Path(__file__).parent / "assets" / "horses" / "manifest.json"
@@ -94,7 +99,7 @@ def stars(score: float) -> int:
 
 
 def weights_for(kf: list[dict], dk: str) -> np.ndarray:
-    key = "3m" if dk == "q" else dk
+    key = IC_KEY[dk]
     w = np.array([max(f[key]["ic"], 0.002) for f in kf])      # oriented ICs; floor keeps every factor in play
     return w / w.sum()
 
@@ -111,13 +116,6 @@ def total_score(pct: pd.DataFrame, w: np.ndarray) -> pd.Series:
     return pd.Series((np.nan_to_num(vals) * ww).sum(1) / np.where(ww.sum(1) == 0, np.nan, ww.sum(1)), index=pct.index)
 
 
-def select_field(close: pd.DataFrame, tickers: list[str], s: int, e: int) -> tuple[list[str], pd.Series, list[str]]:
-    """Review races: the FIELD best performers between start s and end e (needs a price on both days)."""
-    ok = [t for t in tickers if t in close.columns and pd.notna(close[t].iloc[s]) and pd.notna(close[t].iloc[e])]
-    ret = (close[ok].iloc[e] / close[ok].iloc[s] - 1).sort_values(ascending=False)
-    return list(ret.index[:FIELD]), ret, ok
-
-
 def select_field_prior(close: pd.DataFrame, tickers: list[str], p0: int, s: int) -> tuple[list[str], pd.Series, list[str]]:
     """Quarterly races: entries = best performers of the previous window [p0, s] (known before the start)."""
     ok = [t for t in tickers if t in close.columns and pd.notna(close[t].iloc[p0]) and pd.notna(close[t].iloc[s])]
@@ -125,25 +123,78 @@ def select_field_prior(close: pd.DataFrame, tickers: list[str], p0: int, s: int)
     return list(mom.index[:FIELD]), mom, ok
 
 
+_HOL: dict[int, set] = {}
+
+
+def is_session(ts: pd.Timestamp) -> bool:
+    ts = ts.normalize()
+    if ts.weekday() >= 5:
+        return False
+    if ts.year not in _HOL:
+        _HOL[ts.year] = {h.normalize() for h in nyse_holidays(ts.year)}
+    return ts not in _HOL[ts.year]
+
+
+def next_session(ts: pd.Timestamp) -> pd.Timestamp:
+    d = ts.normalize() + pd.Timedelta(days=1)
+    while not is_session(d):
+        d += pd.Timedelta(days=1)
+    return d
+
+
+def last_session_on_or_before(ts: pd.Timestamp) -> pd.Timestamp:
+    d = ts.normalize()
+    while not is_session(d):
+        d -= pd.Timedelta(days=1)
+    return d
+
+
+def sessions_between(start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]:
+    """NYSE sessions in (start, end]."""
+    out, d = [], start.normalize()
+    while True:
+        d = next_session(d)
+        if d > end.normalize():
+            return out
+        out.append(d)
+
+
+def period_label(dist: str, block: int) -> str:
+    if dist == "d":
+        return ""
+    freq, span = CYCLES[dist]
+    first = pd.Period(ordinal=block * span, freq=freq)
+    last = pd.Period(ordinal=(block + 1) * span - 1, freq=freq)
+    if dist == "q":
+        return f"{first.year}Q{first.quarter}"
+    if dist == "h":
+        return f"{first.year}H{1 if first.quarter <= 2 else 2}"
+    if dist == "m":
+        return str(first)
+    return f"{first.start_time:%m/%d}~{last.end_time - pd.Timedelta(days=2):%m/%d}"      # weeks: Monday .. Friday
+
+
 def race_bounds(dates: pd.DatetimeIndex, dist: str, k: int, live_end: int) -> dict:
-    """Window of race k (0 = latest). Returns start index s, end index e (None = not finished yet),
-    the planned end date, and `chain` = [s, start of the window before, ...] used for 近績 / 跑法."""
-    m = DIST_MONTHS[dist]
-    if dist != "q":
-        e = live_end
-        for _ in range(k):
-            e = months_back(dates, e, m)
-        s = months_back(dates, e, m)
-        chain = [s]
-        for _ in range(N_FORM):
-            chain.append(months_back(dates, chain[-1], m))
-        return {"s": s, "e": e, "chain": chain, "planned_end": None}
-    cur = (dates[live_end] + pd.Timedelta(days=1)).to_period("Q") - k          # quarter in progress, minus k
-    ends = [(cur - j).end_time.normalize() for j in range(0, N_FORM + 3)]       # ends[0] = this quarter's end
-    starts = [idx_on(dates, ends[j + 1]) for j in range(0, N_FORM + 2)]         # start of quarter (cur - j)
-    s = starts[0]
-    e = None if k == 0 else idx_on(dates, ends[0])
-    return {"s": s, "e": e, "chain": starts[:N_FORM + 1], "planned_end": str(ends[0].date())}
+    """Window of period k (0 = the period in progress, whose next session has not been played yet).
+    s / e = start / end index (e is None while running), chain = [s, start of the period before, ...] for 近績 / 跑法."""
+    ns = next_session(dates[live_end])
+    if dist == "d":
+        e = None if k == 0 else live_end - (k - 1)
+        s = live_end if k == 0 else e - 1
+        chain = [s - j if s - j >= 0 else -1 for j in range(N_FORM + 1)]
+        end_ts = ns if k == 0 else dates[e]
+        return {"s": s, "e": e, "chain": chain, "end_ts": end_ts, "label": str((ns if k == 0 else dates[e]).date())}
+    freq, span = CYCLES[dist]
+    b = pd.Period(ns, freq).ordinal // span - k
+
+    def end_of(block):
+        return pd.Period(ordinal=(block + 1) * span - 1, freq=freq).end_time.normalize()
+
+    ends = [end_of(b - 1 - j) for j in range(N_FORM + 1)]
+    chain = [idx_on(dates, x) for x in ends]
+    end_ts = end_of(b)
+    e = None if k == 0 else min(idx_on(dates, end_ts), live_end)
+    return {"s": chain[0], "e": e, "chain": chain, "end_ts": end_ts, "label": period_label(dist, b)}
 
 
 def odds_table(score: pd.Series) -> pd.DataFrame:
@@ -155,8 +206,8 @@ def odds_table(score: pd.Series) -> pd.DataFrame:
     p_win = (place == 0).mean(0)
     p_top3 = (place < 3).mean(0)
     return pd.DataFrame({"p_win": p_win, "p_place": p_top3,
-                         "odds_win": np.maximum(1.2, np.round((1 - TAKEOUT) / np.maximum(p_win, 1e-3), 1)),
-                         "odds_place": np.maximum(1.1, np.round((1 - TAKEOUT) / np.maximum(p_top3, 1e-3), 1))}, index=score.index)
+                         "odds_win": np.minimum(MAX_ODDS, np.maximum(1.2, np.round((1 - TAKEOUT) / np.maximum(p_win, 1e-3), 1))),
+                         "odds_place": np.minimum(MAX_ODDS, np.maximum(1.1, np.round((1 - TAKEOUT) / np.maximum(p_top3, 1e-3), 1)))}, index=score.index)
 
 
 def nyse_holidays(year: int) -> list[pd.Timestamp]:
@@ -178,10 +229,8 @@ def nyse_holidays(year: int) -> list[pd.Timestamp]:
 
 
 def trading_days_between(start: pd.Timestamp, end: pd.Timestamp) -> int:
-    """Approximate number of NYSE sessions in (start, end]."""
-    hol = [h for y in range(start.year, end.year + 1) for h in nyse_holidays(y)]
-    return int(np.busday_count((start + pd.Timedelta(days=1)).date(), (end + pd.Timedelta(days=1)).date(),
-                               holidays=[h.date() for h in hol]))
+    """Number of NYSE sessions in (start, end]."""
+    return len(sessions_between(start, end))
 
 
 def tau(u: float) -> float:
@@ -218,8 +267,8 @@ def live_odds(p_open_win, p_open_place, cum, sig, n_rem: int, u: float) -> pd.Da
         p_place = p_place / p_place.sum() * 3
     t = tau(u)
     return pd.DataFrame({"p_win": p_win, "p_place": np.minimum(p_place, 0.97),
-                         "odds_win": np.maximum(MIN_ODDS, np.round((1 - t) / np.maximum(p_win, 1e-3), 1)),
-                         "odds_place": np.maximum(MIN_ODDS, np.round((1 - t) / np.maximum(np.minimum(p_place, 0.97), 1e-3), 1))})
+                         "odds_win": np.minimum(MAX_ODDS, np.maximum(MIN_ODDS, np.round((1 - t) / np.maximum(p_win, 1e-3), 1))),
+                         "odds_place": np.minimum(MAX_ODDS, np.maximum(MIN_ODDS, np.round((1 - t) / np.maximum(np.minimum(p_place, 0.97), 1e-3), 1)))})
 
 
 def form_score(form: list) -> float:
@@ -273,30 +322,24 @@ def comment(h: dict, kf: list[dict]) -> str:
 
 
 def evaluate(close, ofac, kf, tickers, dist, b) -> dict | None:
-    """Field + pre-race scores for one race window b = race_bounds(...). None if the data does not allow it."""
+    """Field + pre-race scores for one period b = race_bounds(...). The field is always the previous period's
+    FIELD best performers (known before the start). None if the data does not allow it."""
     s, e, chain = b["s"], b["e"], b["chain"]
-    if s < 0:
+    if s < 0 or chain[1] < 0 or chain[1] >= s:
         return None
-    if dist == "q":
-        if chain[1] < 0:
-            return None
-        field, rank_basis, ok = select_field_prior(close, tickers, chain[1], s)
-        if e is not None:
-            field = [t for t in field if pd.notna(close[t].iloc[e])]
-        ret = (close[field].iloc[e] / close[field].iloc[s] - 1) if e is not None else None
-        eligible = [t for t in tickers if t in close.columns and pd.notna(close[t].iloc[s])]
-    else:
-        field, ret_all, ok = select_field(close, tickers, s, e)
-        ret = ret_all.loc[field]
-        eligible = ok
+    field, _, _ = select_field_prior(close, tickers, chain[1], s)
+    if e is not None:
+        field = [t for t in field if pd.notna(close[t].iloc[e])]
     if len(field) < FIELD:
         return None
+    ret = (close[field].iloc[e] / close[field].iloc[s] - 1) if e is not None else None
+    eligible = [t for t in tickers if t in close.columns and pd.notna(close[t].iloc[s])]
     pct = ability_pct(ofac, kf, s, eligible)
     score = total_score(pct, weights_for(kf, dist)).fillna(50.0)      # newly listed horses: neutral score
-    return {"field": field, "ret": ret, "pct": pct, "score": score, "ok": ok if dist != "q" else eligible}
+    return {"field": field, "ret": ret, "pct": pct, "score": score, "ok": eligible}
 
 
-def build_race(tickers, p, ofac, kf, sector_of, dist, k, live_end, manifest, with_path) -> dict | None:
+def build_race(tickers, p, ofac, kf, sector_of, dist, k, live_end, manifest) -> dict | None:
     close = p["close"]
     dates = close.index
     b = race_bounds(dates, dist, k, live_end)
@@ -324,49 +367,52 @@ def build_race(tickers, p, ofac, kf, sector_of, dist, k, live_end, manifest, wit
              "form": form, "style": style, "style_desc": style_desc, "early_rank": round(early_avg, 1) if early else None,
              "ability": ability, "raw": raw, "total": total, "stars": stars(total), "pred": no,
              "mark": MARKS[no - 1] if no <= 5 else "", "price_start": round(float(close[t].iloc[s]), 2),
+             "prior_ret": round(float(close[t].iloc[s] / close[t].iloc[chain[1]] - 1), 4),
              "eval": round(0.7 * total + 0.3 * form_score(form), 1)}
-        if dist == "q":
-            h["prior_ret"] = round(float(close[t].iloc[s] / close[t].iloc[chain[1]] - 1), 4)
         if done:
             h.update({"price_end": round(float(close[t].iloc[e]), 2), "ret": round(float(ev["ret"][t]), 4),
                       "result": int(final_rank[t])})
         h["comment"] = comment(h, kf)
         horses.append(h)
 
-    race = {"id": f"{ev_pool_id(tickers)}|{dist}|{dates[s].date()}", "k": k, "dist": dist,
+    race = {"id": f"{ev_pool_id(tickers)}|{dist}|{dates[s].date()}", "k": k, "dist": dist, "label": b["label"],
             "status": "done" if done else "upcoming",
             "start": str(dates[s].date()), "end": str(dates[e].date()) if done else None,
-            "planned_end": b["planned_end"], "months": DIST_MONTHS[dist], "days": (e - s) if done else None,
-            "horses": horses,
+            "days": (e - s) if done else None, "horses": horses,
+            "momentum_window": [str(dates[chain[1]].date()), str(dates[s].date())],
             "weights": [{"id": f["id"], "w": round(float(w), 3)} for f, w in zip(kf, weights_for(kf, dist))],
             "coverage": {"pool_size": len(tickers), "with_prices": len(ev["ok"]),
                          "missing": sorted(t for t in tickers if t not in ev["ok"])[:40]}}
-    if dist == "q":
-        race["momentum_window"] = [str(dates[chain[1]].date()), str(dates[s].date())]
-        if not done:
-            race["trading_days_so_far"] = int(live_end - s)
-    if with_path and done:
+    od = odds_table(pd.Series({h["ticker"]: h["eval"] for h in horses}))                 # opening odds, from the card only
+    for h in horses:
+        r = od.loc[h["ticker"]]
+        h.update({"p_win": round(float(r.p_win), 3), "p_place": round(float(r.p_place), 3),
+                  "odds_win": float(r.odds_win), "odds_place": float(r.odds_place)})
+    if done:
         cum = close.iloc[s:e + 1][pred_order]
         cum = cum / cum.iloc[0] - 1
         race["dates"] = [str(d.date()) for d in dates[s:e + 1]]
         for h in horses:
             h["path"] = [round(float(x), 4) for x in cum[h["ticker"]].values]
-    if dist == "q":                                              # opening odds, from the card only
-        od = odds_table(pd.Series({h["ticker"]: h["eval"] for h in horses}))
-        for h in horses:
-            r = od.loc[h["ticker"]]
-            h.update({"p_win": round(float(r.p_win), 3), "p_place": round(float(r.p_place), 3),
-                      "odds_win": float(r.odds_win), "odds_place": float(r.odds_place)})
-        if not done:
-            add_live(race, close, dates, s, live_end, od)
+            del h["odds_win"], h["odds_place"], h["p_win"], h["p_place"]               # odds only matter while a race can still be bet on
+    else:
+        race["planned_end"] = str(last_session_on_or_before(b["end_ts"]).date()) if dist != "d" else str(b["end_ts"].date())
+        add_live(race, close, dates, s, live_end, od, b["end_ts"])
     return race
 
 
-def add_live(race: dict, close: pd.DataFrame, dates: pd.DatetimeIndex, s: int, live_end: int, od: pd.DataFrame) -> None:
-    """Season-to-date standings and in-play prices for the race in progress."""
+def session_open_utc(d: pd.Timestamp) -> str:
+    from zoneinfo import ZoneInfo
+    return pd.Timestamp(d.year, d.month, d.day, 9, 30, tz=ZoneInfo("America/New_York")).tz_convert("UTC").strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def add_live(race: dict, close: pd.DataFrame, dates: pd.DatetimeIndex, s: int, live_end: int, od: pd.DataFrame,
+             end_ts: pd.Timestamp) -> None:
+    """Standings so far and in-play prices for the period in progress."""
     names = [h["ticker"] for h in race["horses"]]
     day = int(live_end - s)
-    total = max(trading_days_between(dates[s], pd.Timestamp(race["planned_end"])), day + 1)
+    sessions = sessions_between(dates[s], end_ts)
+    total = max(len(sessions), day + 1) if day else max(len(sessions), 1)
     u = min(1.0, day / total)
     seg = close.iloc[s:live_end + 1][names]
     cum = seg / seg.iloc[0] - 1
@@ -381,8 +427,11 @@ def add_live(race: dict, close: pd.DataFrame, dates: pd.DatetimeIndex, s: int, l
                   "odds_win_open": h["odds_win"], "odds_place_open": h["odds_place"],
                   "odds_win": float(r.odds_win), "odds_place": float(r.odds_place),
                   "p_win": round(float(r.p_win), 3), "p_place": round(float(r.p_place), 3)})
+    n_last = max(0, math.ceil(CLOSE_U * total) - 1)               # last number of finished sessions at which a bet is still taken
+    close_session = sessions[min(n_last, len(sessions) - 1)] if sessions else end_ts
     race["live"] = {"as_of": str(dates[live_end].date()), "day": day, "total_days": total, "u": round(u, 3),
-                    "tau": round(tau(u), 3), "betting_open": bool(u < CLOSE_U), "close_u": CLOSE_U,
+                    "tau": round(tau(u), 3), "betting_open": bool(day <= n_last), "close_u": CLOSE_U,
+                    "close_at": session_open_utc(close_session), "first_session": str(sessions[0].date()) if sessions else None,
                     "dates": [str(d.date()) for d in dates[s:live_end + 1]]}
 
 
@@ -399,7 +448,7 @@ def validate(tickers, p, ofac, kf, dist, live_end: int) -> dict:
     dates = close.index
     w = weights_for(kf, dist)
     rhos, top1, top3 = [], [], []
-    for k in range(1, N_VALID + 1):
+    for k in range(1, N_VALID[dist] + 1):
         b = race_bounds(dates, dist, k, live_end)
         if b["s"] < 300 or b["e"] is None or b["e"] <= b["s"]:      # need >1y of history for the factors
             break
@@ -445,27 +494,21 @@ def main() -> None:
         live_end = int(close.index.get_loc(cov[cov >= 0.9].index[-1]))
         pools_out[pk] = {}
         for dk in DISTS:
-            races = [r for k in range(N_RACES) if (r := build_race(pt, p, ofac, kf, sector_of, dk, k, live_end, manifest,
-                                                                  with_path=(k == 0 and dk != "q") or (k == 1 and dk == "q"))) is not None]
+            races = [r for k in range(N_HIST + 1) if (r := build_race(pt, p, ofac, kf, sector_of, dk, k, live_end, manifest)) is not None]
             pools_out[pk][dk] = {"races": races, "validation": validate(pt, p, ofac, kf, dk, live_end)}
-            if dk == "q":                                # everything a stored bet needs to be settled later
-                for r in races:
-                    if r["status"] == "done":
-                        settled[r["id"]] = {"end": r["end"], "result": {h["ticker"]: h["result"] for h in r["horses"]},
-                                            "odds_win": {h["ticker"]: h["odds_win"] for h in r["horses"]},
-                                            "odds_place": {h["ticker"]: h["odds_place"] for h in r["horses"]}}
-    asof = pools_out["all"]["1m"]["races"][0]["end"]
+            for r in races:                                  # everything a stored bet needs to be settled later
+                if r["status"] == "done":
+                    settled[r["id"]] = {"end": r["end"], "result": {h["ticker"]: h["result"] for h in r["horses"]}}
+    asof = pools_out["all"]["d"]["races"][1]["end"]
     out = {"asof": asof, "key_factors": kf, "study": {k: kf_doc[k] for k in ("universe_size", "period", "months")},
            "ndx_status": dl.ndx_status(), "pools": pools_out, "settled": settled}
     OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
     print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB), asof {asof}, NDX list: {out['ndx_status']['source']}")
-    for pk in pools:
-        for dk in DISTS:
-            r0 = pools_out[pk][dk]["races"][0]
-            top = sorted(r0["horses"], key=lambda h: h.get("result", h["pred"]))
-            print(pk, dk, r0["status"], r0["start"], "->", r0["end"] or r0["planned_end"], len(pools_out[pk][dk]["races"]), "races |",
-                  ", ".join(f"{h['ticker']}" + (f" {h['ret']:+.0%}" if "ret" in h else f" @{h['odds_win']}") for h in top[:5]),
-                  "|", pools_out[pk][dk]["validation"].get("mean_rho"))
+    for dk in DISTS:
+        r0 = pools_out["all"][dk]["races"][0]
+        L = r0["live"]
+        print("all", dk, r0["label"], r0["start"], "->", r0["planned_end"], f"day {L['day']}/{L['total_days']}", "close_at", L["close_at"],
+              "|", ", ".join(f"{h['ticker']}@{h['odds_win']}" for h in r0["horses"][:3]), "| rho", pools_out["all"][dk]["validation"].get("mean_rho"))
 
 
 if __name__ == "__main__":
