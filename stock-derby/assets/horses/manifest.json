@@ -1,0 +1,809 @@
+{
+ "frame_w": 48,
+ "frame_h": 36,
+ "run_frames": 6,
+ "brands": {
+  "AAPL": {
+   "company": "蘋果 Apple",
+   "zh": "蘋果飛霜",
+   "en": "Apple Frost",
+   "inspired_by": "銀白機身配色＋復古彩虹鬃毛",
+   "features": "多彩鬃毛",
+   "silks": {
+    "primary": "#1d1d1f",
+    "secondary": "#ffffff",
+    "pattern": "stripe"
+   }
+  },
+  "MSFT": {
+   "company": "微軟 Microsoft",
+   "zh": "微軟四方",
+   "en": "Four Panes",
+   "inspired_by": "四色方塊分區毛色",
+   "features": "四色分區",
+   "silks": {
+    "primary": "#00a4ef",
+    "secondary": "#7fba00",
+    "pattern": "check"
+   }
+  },
+  "NVDA": {
+   "company": "輝達 NVIDIA",
+   "zh": "輝達閃電",
+   "en": "Green Bolt",
+   "inspired_by": "招牌螢光綠＋黑色眼睛同心圓",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#111111",
+    "secondary": "#76b900",
+    "pattern": "stripe"
+   }
+  },
+  "AMZN": {
+   "company": "亞馬遜 Amazon",
+   "zh": "亞馬遜微笑",
+   "en": "Prime Smile",
+   "inspired_by": "深藍黑底＋橘色微笑弧線",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#ff9900",
+    "secondary": "#232f3e",
+    "pattern": "sash"
+   }
+  },
+  "GOOGL": {
+   "company": "谷歌 Google",
+   "zh": "谷歌彩點",
+   "en": "Four Dot Derby",
+   "inspired_by": "四原色點點花斑",
+   "features": "彩點、多彩鬃毛",
+   "silks": {
+    "primary": "#4285f4",
+    "secondary": "#fbbc05",
+    "pattern": "check"
+   }
+  },
+  "META": {
+   "company": "Meta",
+   "zh": "元宇宙無限",
+   "en": "Infinity Loop",
+   "inspired_by": "品牌藍＋雙環無限符號",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#0866ff",
+    "secondary": "#ffffff",
+    "pattern": "stripe"
+   }
+  },
+  "TSLA": {
+   "company": "特斯拉 Tesla",
+   "zh": "特斯電光",
+   "en": "Red Lightning",
+   "inspired_by": "烈焰紅＋銀色閃電紋",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#e31937",
+    "secondary": "#222222",
+    "pattern": "solid"
+   }
+  },
+  "AVGO": {
+   "company": "博通 Broadcom",
+   "zh": "博通赤弧",
+   "en": "Crimson Arc",
+   "inspired_by": "白底＋紅色環形弧線",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#cc092f",
+    "secondary": "#ffffff",
+    "pattern": "sash"
+   }
+  },
+  "NFLX": {
+   "company": "網飛 Netflix",
+   "zh": "網飛紅幕",
+   "en": "Red Curtain",
+   "inspired_by": "黑底＋紅色絲帶鬃尾",
+   "features": "直紋",
+   "silks": {
+    "primary": "#e50914",
+    "secondary": "#141414",
+    "pattern": "stripe"
+   }
+  },
+  "AMD": {
+   "company": "超微 AMD",
+   "zh": "超微銳箭",
+   "en": "Sharp Arrow",
+   "inspired_by": "黑底＋紅色直角箭頭",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#ed1c24",
+    "secondary": "#161616",
+    "pattern": "check"
+   }
+  },
+  "INTC": {
+   "company": "英特爾 Intel",
+   "zh": "英特爾藍環",
+   "en": "Blue Ring",
+   "inspired_by": "經典藍＋環形標誌感",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#0068b5",
+    "secondary": "#ffffff",
+    "pattern": "stripe"
+   }
+  },
+  "MU": {
+   "company": "美光 Micron",
+   "zh": "美光記憶",
+   "en": "Memory Lane",
+   "inspired_by": "晶片藍＋條列式記憶體橫紋",
+   "features": "橫紋",
+   "silks": {
+    "primary": "#7ec8ff",
+    "secondary": "#1e5bbb",
+    "pattern": "stripe"
+   }
+  },
+  "ORCL": {
+   "company": "甲骨文 Oracle",
+   "zh": "甲骨神諭",
+   "en": "Red Oracle",
+   "inspired_by": "Oracle 紅＋深灰鬃毛",
+   "features": "額頭小星",
+   "silks": {
+    "primary": "#312d2a",
+    "secondary": "#c74634",
+    "pattern": "stripe"
+   }
+  },
+  "CRM": {
+   "company": "賽富時 Salesforce",
+   "zh": "雲端飛雲",
+   "en": "Cloud Nine",
+   "inspired_by": "天藍＋雲朵斑點",
+   "features": "銀斑",
+   "silks": {
+    "primary": "#00a1e0",
+    "secondary": "#ffffff",
+    "pattern": "check"
+   }
+  },
+  "ADBE": {
+   "company": "奧多比 Adobe",
+   "zh": "奧多比創意",
+   "en": "Creative Red",
+   "inspired_by": "全紅＋白色 A 形尖角",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#fa0f00",
+    "secondary": "#ffffff",
+    "pattern": "sash"
+   }
+  },
+  "QCOM": {
+   "company": "高通 Qualcomm",
+   "zh": "高通電波",
+   "en": "Signal Boost",
+   "inspired_by": "高通藍＋深藍鬃毛",
+   "features": "白面流星",
+   "silks": {
+    "primary": "#1b2a6b",
+    "secondary": "#3253dc",
+    "pattern": "stripe"
+   }
+  },
+  "COST": {
+   "company": "好市多 Costco",
+   "zh": "好市多滿載",
+   "en": "Bulk Buy",
+   "inspired_by": "紅色底＋藍色橫條倉儲感",
+   "features": "橫紋",
+   "silks": {
+    "primary": "#005daa",
+    "secondary": "#e31837",
+    "pattern": "stripe"
+   }
+  },
+  "WMT": {
+   "company": "沃爾瑪 Walmart",
+   "zh": "沃爾瑪星火",
+   "en": "Spark Saver",
+   "inspired_by": "藍底＋黃色火花鬃尾",
+   "features": "額頭小星、白襪",
+   "silks": {
+    "primary": "#ffc220",
+    "secondary": "#0071ce",
+    "pattern": "sash"
+   }
+  },
+  "JPM": {
+   "company": "摩根大通 JPMorgan",
+   "zh": "大通金融",
+   "en": "Blue Chip",
+   "inspired_by": "深藍＋銀灰鬃毛，穩重的藍籌",
+   "features": "白襪",
+   "silks": {
+    "primary": "#e8e8e8",
+    "secondary": "#1b4f9c",
+    "pattern": "stripe"
+   }
+  },
+  "V": {
+   "company": "Visa",
+   "zh": "維薩金帶",
+   "en": "Gold Band",
+   "inspired_by": "深藍＋金色鬃毛與馬蹄",
+   "features": "白面流星",
+   "silks": {
+    "primary": "#1a1f71",
+    "secondary": "#f7b600",
+    "pattern": "stripe"
+   }
+  },
+  "MA": {
+   "company": "萬事達 Mastercard",
+   "zh": "萬事達雙環",
+   "en": "Twin Rings",
+   "inspired_by": "紅底＋重疊橘色雙圓",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#f79e1b",
+    "secondary": "#eb001b",
+    "pattern": "check"
+   }
+  },
+  "UNH": {
+   "company": "聯合健康 UnitedHealth",
+   "zh": "聯合安康",
+   "en": "Healing Hooves",
+   "inspired_by": "深藍＋橘色鬃毛",
+   "features": "素色",
+   "silks": {
+    "primary": "#ff612b",
+    "secondary": "#002677",
+    "pattern": "check"
+   }
+  },
+  "LLY": {
+   "company": "禮來 Eli Lilly",
+   "zh": "禮來紅駒",
+   "en": "Lilly Red",
+   "inspired_by": "禮來紅＋白色鬃毛",
+   "features": "白面流星",
+   "silks": {
+    "primary": "#d52b1e",
+    "secondary": "#ffffff",
+    "pattern": "stripe"
+   }
+  },
+  "XOM": {
+   "company": "埃克森美孚 ExxonMobil",
+   "zh": "美孚烈油",
+   "en": "Crude Flame",
+   "inspired_by": "紅藍雙色：紅身藍鬃",
+   "features": "素色",
+   "silks": {
+    "primary": "#1a3b8f",
+    "secondary": "#e0112b",
+    "pattern": "sash"
+   }
+  },
+  "BRK-B": {
+   "company": "波克夏 Berkshire",
+   "zh": "波克夏長青",
+   "en": "Oracle of Omaha",
+   "inspired_by": "深藍＋銀鬃，沉穩的價值馬",
+   "features": "額頭小星",
+   "silks": {
+    "primary": "#cfd6e0",
+    "secondary": "#223a5e",
+    "pattern": "stripe"
+   }
+  },
+  "PLTR": {
+   "company": "帕蘭泰爾 Palantir",
+   "zh": "帕蘭神眼",
+   "en": "Seeing Stone",
+   "inspired_by": "純黑＋白襪白鬃，低調神祕",
+   "features": "白襪",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#101010",
+    "pattern": "check"
+   }
+  },
+  "COIN": {
+   "company": "Coinbase",
+   "zh": "幣基硬幣",
+   "en": "Coin Gallop",
+   "inspired_by": "鈷藍＋白色圓幣環",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#0052ff",
+    "pattern": "stripe"
+   }
+  },
+  "HOOD": {
+   "company": "羅賓漢 Robinhood",
+   "zh": "羅賓綠羽",
+   "en": "Green Feather",
+   "inspired_by": "螢光綠＋羽毛斜紋",
+   "features": "斜紋",
+   "silks": {
+    "primary": "#0b2f0b",
+    "secondary": "#00c805",
+    "pattern": "sash"
+   }
+  },
+  "SMCI": {
+   "company": "美超微 Super Micro",
+   "zh": "超微伺服",
+   "en": "Rack Runner",
+   "inspired_by": "黑底＋亮綠鬃毛",
+   "features": "素色",
+   "silks": {
+    "primary": "#7ac143",
+    "secondary": "#1b1b1b",
+    "pattern": "stripe"
+   }
+  },
+  "DELL": {
+   "company": "戴爾 Dell",
+   "zh": "戴爾藍圈",
+   "en": "Blue Orbit",
+   "inspired_by": "戴爾藍＋圓環",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#007db8",
+    "pattern": "stripe"
+   }
+  },
+  "APP": {
+   "company": "AppLovin",
+   "zh": "應用閃躍",
+   "en": "App Sprint",
+   "inspired_by": "深藍＋青藍閃電",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#4cc3ff",
+    "secondary": "#1b3b6f",
+    "pattern": "check"
+   }
+  },
+  "NOW": {
+   "company": "ServiceNow",
+   "zh": "現在服務",
+   "en": "Service Now",
+   "inspired_by": "深墨綠＋螢光綠圓環",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#62d84e",
+    "secondary": "#293e40",
+    "pattern": "stripe"
+   }
+  },
+  "KO": {
+   "company": "可口可樂 Coca-Cola",
+   "zh": "可樂狂奔",
+   "en": "Fizzy Dash",
+   "inspired_by": "可樂紅＋白色飄帶波紋",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#f40009",
+    "pattern": "stripe"
+   }
+  },
+  "PEP": {
+   "company": "百事 PepsiCo",
+   "zh": "百事雙色",
+   "en": "Pepsi Wave",
+   "inspired_by": "上藍下紅＋白色波浪分界",
+   "features": "身側品牌風格標記花紋、上下雙色",
+   "silks": {
+    "primary": "#004b93",
+    "secondary": "#e32934",
+    "pattern": "sash"
+   }
+  },
+  "DIS": {
+   "company": "迪士尼 Disney",
+   "zh": "迪士尼夢駒",
+   "en": "Dream Castle",
+   "inspired_by": "夢幻藍＋白色星星",
+   "features": "白面流星、額頭小星",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#113ccf",
+    "pattern": "check"
+   }
+  },
+  "NKE": {
+   "company": "耐吉 Nike",
+   "zh": "耐吉勾勢",
+   "en": "Swoosh Runner",
+   "inspired_by": "黑底＋白色勾形弧線",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#111111",
+    "pattern": "sash"
+   }
+  },
+  "MCD": {
+   "company": "麥當勞 McDonald's",
+   "zh": "麥當金拱",
+   "en": "Golden Arches",
+   "inspired_by": "紅底＋金黃雙拱門弧線",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#ffc72c",
+    "secondary": "#da291c",
+    "pattern": "stripe"
+   }
+  },
+  "SBUX": {
+   "company": "星巴克 Starbucks",
+   "zh": "星巴克綠環",
+   "en": "Siren Green",
+   "inspired_by": "咖啡綠＋白色圓環",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#00704a",
+    "pattern": "stripe"
+   }
+  },
+  "BA": {
+   "company": "波音 Boeing",
+   "zh": "波音藍天",
+   "en": "Blue Wings",
+   "inspired_by": "深藍＋淡藍鬃毛",
+   "features": "白面流星",
+   "silks": {
+    "primary": "#9cc3ff",
+    "secondary": "#0033a0",
+    "pattern": "sash"
+   }
+  },
+  "CAT": {
+   "company": "開拓重工 Caterpillar",
+   "zh": "開拓重蹄",
+   "en": "Heavy Hooves",
+   "inspired_by": "工程黃＋黑色四肢",
+   "features": "素色",
+   "silks": {
+    "primary": "#111111",
+    "secondary": "#ffcd11",
+    "pattern": "stripe"
+   }
+  },
+  "HD": {
+   "company": "家得寶 Home Depot",
+   "zh": "家得寶橘箱",
+   "en": "Orange Box",
+   "inspired_by": "橘色方塊感＋黑鬃",
+   "features": "白襪",
+   "silks": {
+    "primary": "#111111",
+    "secondary": "#f96302",
+    "pattern": "check"
+   }
+  },
+  "BAC": {
+   "company": "美國銀行 Bank of America",
+   "zh": "美銀旗幟",
+   "en": "Flag Runner",
+   "inspired_by": "深藍＋紅色旗幟橫紋",
+   "features": "橫紋",
+   "silks": {
+    "primary": "#e31837",
+    "secondary": "#012169",
+    "pattern": "stripe"
+   }
+  },
+  "WFC": {
+   "company": "富國銀行 Wells Fargo",
+   "zh": "富國驛馬",
+   "en": "Stagecoach",
+   "inspired_by": "紅底＋黃色鬃毛（驛馬車配色）",
+   "features": "素色",
+   "silks": {
+    "primary": "#ffcd41",
+    "secondary": "#d71e28",
+    "pattern": "sash"
+   }
+  },
+  "GS": {
+   "company": "高盛 Goldman Sachs",
+   "zh": "高盛金蹄",
+   "en": "Gold Standard",
+   "inspired_by": "高盛藍＋銀白鬃",
+   "features": "素色",
+   "silks": {
+    "primary": "#f0f4fa",
+    "secondary": "#7399c6",
+    "pattern": "stripe"
+   }
+  },
+  "T": {
+   "company": "AT&T",
+   "zh": "電信環球",
+   "en": "Globe Trotter",
+   "inspired_by": "天藍＋白色地球經緯線",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#00a8e0",
+    "pattern": "stripe"
+   }
+  },
+  "VZ": {
+   "company": "威瑞森 Verizon",
+   "zh": "威瑞勾魂",
+   "en": "Red Check",
+   "inspired_by": "黑底＋紅色勾勾",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#cd040b",
+    "secondary": "#161616",
+    "pattern": "stripe"
+   }
+  },
+  "TMUS": {
+   "company": "T-Mobile",
+   "zh": "洋紅電訊",
+   "en": "Magenta Mile",
+   "inspired_by": "洋紅粉＋白襪",
+   "features": "白面流星、白襪",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#e20074",
+    "pattern": "check"
+   }
+  },
+  "CSCO": {
+   "company": "思科 Cisco",
+   "zh": "思科長橋",
+   "en": "Bridge Runner",
+   "inspired_by": "科技藍＋白色直條橋樑紋",
+   "features": "直紋",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#049fd9",
+    "pattern": "stripe"
+   }
+  },
+  "IBM": {
+   "company": "國際商業機器 IBM",
+   "zh": "藍色巨人",
+   "en": "Big Blue",
+   "inspired_by": "IBM 藍＋白色細橫條紋",
+   "features": "橫紋",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#1f70c1",
+    "pattern": "stripe"
+   }
+  },
+  "TXN": {
+   "company": "德州儀器 Texas Instruments",
+   "zh": "德儀孤星",
+   "en": "Lone Star",
+   "inspired_by": "德州紅＋額頭孤星",
+   "features": "白面流星、額頭小星",
+   "silks": {
+    "primary": "#111111",
+    "secondary": "#c8102e",
+    "pattern": "stripe"
+   }
+  },
+  "UBER": {
+   "company": "優步 Uber",
+   "zh": "優步疾駛",
+   "en": "Night Rider",
+   "inspired_by": "純黑＋白襪白鬃",
+   "features": "白襪",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#111111",
+    "pattern": "stripe"
+   }
+  },
+  "ABNB": {
+   "company": "愛彼迎 Airbnb",
+   "zh": "愛彼迎珊瑚",
+   "en": "Coral Belo",
+   "inspired_by": "珊瑚粉紅＋白色小環",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#ff5a5f",
+    "pattern": "sash"
+   }
+  },
+  "PYPL": {
+   "company": "PayPal",
+   "zh": "貝寶雙藍",
+   "en": "Twin Blue",
+   "inspired_by": "深藍＋亮藍上下雙色",
+   "features": "上下雙色",
+   "silks": {
+    "primary": "#009cde",
+    "secondary": "#003087",
+    "pattern": "check"
+   }
+  },
+  "SHOP": {
+   "company": "Shopify",
+   "zh": "開店綠袋",
+   "en": "Green Bag",
+   "inspired_by": "萌芽綠＋額頭星",
+   "features": "額頭小星",
+   "silks": {
+    "primary": "#5e8e3e",
+    "secondary": "#95bf47",
+    "pattern": "stripe"
+   }
+  },
+  "PANW": {
+   "company": "派拓網路 Palo Alto",
+   "zh": "派拓鐵衛",
+   "en": "Firewall",
+   "inspired_by": "橘紅斜紋＋黑鬃",
+   "features": "斜紋",
+   "silks": {
+    "primary": "#111111",
+    "secondary": "#fa582d",
+    "pattern": "sash"
+   }
+  },
+  "CRWD": {
+   "company": "群擎 CrowdStrike",
+   "zh": "群擎獵鷹",
+   "en": "Falcon Strike",
+   "inspired_by": "黑底＋紅色獵鷹弧線",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#ec0000",
+    "secondary": "#161616",
+    "pattern": "stripe"
+   }
+  },
+  "LULU": {
+   "company": "露露檸檬 Lululemon",
+   "zh": "露露飛旋",
+   "en": "Lulu Loop",
+   "inspired_by": "紅底＋白色圓環",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#d31f3a",
+    "pattern": "stripe"
+   }
+  },
+  "F": {
+   "company": "福特 Ford",
+   "zh": "福特藍橢",
+   "en": "Blue Oval",
+   "inspired_by": "福特藍＋白色橢圓環",
+   "features": "身側品牌風格標記花紋",
+   "silks": {
+    "primary": "#ffffff",
+    "secondary": "#003478",
+    "pattern": "stripe"
+   }
+  },
+  "SNDK": {
+   "company": "閃迪 SanDisk",
+   "zh": "閃迪急電",
+   "en": "Flash Drive",
+   "inspired_by": "快閃紅＋黑色條紋",
+   "features": "橫紋",
+   "silks": {
+    "primary": "#111111",
+    "secondary": "#e60012",
+    "pattern": "stripe"
+   }
+  },
+  "STX": {
+   "company": "希捷 Seagate",
+   "zh": "希捷綠旋",
+   "en": "Spin Doctor",
+   "inspired_by": "硬碟綠＋黑鬃斑紋",
+   "features": "銀斑",
+   "silks": {
+    "primary": "#111111",
+    "secondary": "#6cc24a",
+    "pattern": "check"
+   }
+  }
+ },
+ "generic": {
+  "chestnut": {
+   "zh": "栗毛",
+   "features": "白面流星"
+  },
+  "black": {
+   "zh": "黑駿",
+   "features": "白襪"
+  },
+  "bay": {
+   "zh": "鹿毛",
+   "features": "白面流星"
+  },
+  "grey": {
+   "zh": "白駒",
+   "features": "素色"
+  },
+  "dapple": {
+   "zh": "銀斑灰",
+   "features": "銀斑"
+  },
+  "palomino": {
+   "zh": "金鬃",
+   "features": "白面流星"
+  },
+  "cremello": {
+   "zh": "奶油",
+   "features": "素色"
+  },
+  "appaloosa": {
+   "zh": "豹斑",
+   "features": "彩點"
+  },
+  "pinto": {
+   "zh": "花斑",
+   "features": "大塊花斑"
+  },
+  "roan": {
+   "zh": "藍斑",
+   "features": "白襪、斑駁"
+  },
+  "sorrel": {
+   "zh": "赤沙",
+   "features": "白面流星、白襪"
+  },
+  "liver": {
+   "zh": "暗栗",
+   "features": "額頭小星"
+  },
+  "violet": {
+   "zh": "紫晶",
+   "features": "白面流星"
+  },
+  "emerald": {
+   "zh": "翠光",
+   "features": "白面流星"
+  },
+  "flame": {
+   "zh": "火焰",
+   "features": "斜紋"
+  },
+  "sky": {
+   "zh": "天藍",
+   "features": "白面流星、白襪"
+  },
+  "pink": {
+   "zh": "櫻粉",
+   "features": "白面流星"
+  },
+  "steel": {
+   "zh": "鋼銀",
+   "features": "銀斑"
+  },
+  "obsidian": {
+   "zh": "黑金",
+   "features": "額頭小星"
+  },
+  "tiger": {
+   "zh": "虎紋",
+   "features": "斜紋"
+  }
+ }
+}

@@ -1,0 +1,4 @@
+{
+  "_note": "Fallback Nasdaq-100 list, used only when the Wikipedia fetch in fetch_extras.py fails. S&P 500 membership comes from the repo's data/us_index_membership_snapshot.parquet.",
+  "ndx": ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","AVGO","TSLA","COST","NFLX","ASML","TMUS","CSCO","PEP","LIN","ADBE","AMD","AZN","QCOM","TXN","INTU","ISRG","BKNG","AMGN","HON","AMAT","PDD","CMCSA","PANW","ADP","VRTX","GILD","MU","ADI","LRCX","SBUX","MELI","INTC","KLAC","CRWD","APP","CDNS","MDLZ","REGN","SNPS","CTAS","MAR","ORLY","PYPL","ABNB","MRVL","FTNT","CSX","ADSK","DASH","WDAY","CEG","ROP","NXPI","CHTR","PCAR","AEP","FANG","MNST","CPRT","PAYX","ROST","KDP","ODFL","FAST","BKR","EXC","VRSK","TTWO","CCEP","EA","XEL","KHC","GEHC","LULU","CSGP","DDOG","IDXX","ON","CDW","TEAM","TTD","ZS","GFS","BIIB","MDB","DXCM","WBD","ARM","CTSH","PLTR","AXON","SHOP"]
+}

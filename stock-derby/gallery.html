@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stock Derby 馬匹圖鑑</title>
+<style>
+  :root { --bg:#f6f4ee; --fg:#1d2b1f; --card:#fffdf7; --muted:#6b7367; --line:rgba(128,128,128,.25); }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14181a; --fg:#e8ece6; --card:#1d2326; --muted:#98a39a; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,-apple-system,"Noto Sans TC",sans-serif; }
+  main { max-width:1000px; margin:0 auto; padding:16px; }
+  h1 { margin:0 0 4px; font-size:1.5rem; } h2 { margin:24px 0 8px; font-size:1.15rem; }
+  .muted { color:var(--muted); font-size:13px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:10px; }
+  .c { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:8px; }
+  .stage { background:#4c8a4a; border-radius:8px; display:flex; justify-content:center; padding:6px 0; }
+  .sprite { width:96px; height:72px; background-size:672px 72px; image-rendering:pixelated; background-position:-576px 0; }
+  .c:hover .sprite, .sprite.live { animation:g .55s steps(6) infinite; }
+  @keyframes g { from { background-position:0 0; } to { background-position:-576px 0; } }
+  .sw { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:3px; border:1px solid var(--line); }
+  b { font-size:1rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🎨 馬匹圖鑑</h1>
+  <p class="muted"><a href="./">← 回賽馬</a>　滑鼠移到馬上（手機：點一下）會奔跑。素材是用程式（<code>tools/make_sprites.py</code>）生成的 48×36 像素風精靈圖，
+    每匹 6 格奔跑 + 1 格站立。公司馬的毛色/花紋只參考該公司 logo 的配色與大致樣式，並非 logo 本身。</p>
+  <h2>公司專屬馬</h2><div class="grid" id="brands"></div>
+  <h2>通用毛色（沒有專屬設計的股票，依代號自動分配）</h2><div class="grid" id="generic"></div>
+</main>
+<script>
+const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+fetch("assets/horses/manifest.json").then(r => r.json()).then(m => {
+  const card = (file, title, sub, extra) => `<div class="c" ontouchstart="this.querySelector('.sprite').classList.toggle('live')">
+    <div class="stage"><div class="sprite" style="background-image:url(assets/horses/${file}.png)"></div></div>
+    <b>${esc(title)}</b><div class="muted">${esc(sub)}</div><div class="muted">${extra}</div></div>`;
+  document.getElementById("brands").innerHTML = Object.entries(m.brands).map(([t, b]) =>
+    card(t, b.zh, `${b.en}・${t} ${b.company}`,
+      `<span class="sw" style="background:${b.silks.primary}"></span><span class="sw" style="background:${b.silks.secondary}"></span>靈感：${esc(b.inspired_by)}`)).join("");
+  document.getElementById("generic").innerHTML = Object.entries(m.generic).map(([k, g]) =>
+    card("generic_" + k, g.zh, k, esc(g.features))).join("");
+});
+</script>
+</body>
+</html>
