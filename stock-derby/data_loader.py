@@ -48,11 +48,22 @@ def sp500_members() -> list[str]:
     return sorted(m.loc[m["end_date"].isna(), "stock_id"])
 
 
+NDX_CACHE = HERE / "data" / "ndx_members.json"
+NDX_STATUS = HERE / "data" / "ndx_status.json"
+
+
 def ndx_members() -> list[str]:
-    cache = HERE / "data" / "ndx_members.json"
-    if cache.exists():
-        return json.loads(cache.read_text())
+    """Latest known Nasdaq-100 list: fresh/cached download if there is one, else the built-in fallback."""
+    if NDX_CACHE.exists():
+        return json.loads(NDX_CACHE.read_text())
     return json.loads((HERE / "universe.json").read_text())["ndx"]
+
+
+def ndx_status() -> dict:
+    """Where the Nasdaq-100 list came from (shown on the page so a stale list is never passed off as current)."""
+    if NDX_STATUS.exists():
+        return json.loads(NDX_STATUS.read_text())
+    return {"source": "fallback", "fetched_at": None, "errors": ["never downloaded"]}
 
 
 def earnings() -> pd.DataFrame:

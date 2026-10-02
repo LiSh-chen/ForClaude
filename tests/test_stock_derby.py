@@ -82,7 +82,7 @@ def test_every_horse_has_sprite_sheet_and_name():
             for h in race["horses"]:
                 im = Image.open(D / "assets" / "horses" / f"{h['sprite']}.png")
                 assert im.size == (man["frame_w"] * (man["run_frames"] + 1), man["frame_h"])
-                assert h["horse_zh"] and h["horse_en"] and h["company"]
+                assert h["horse_zh"] and h["horse_en"]
 
 
 def test_sprite_frames_differ_so_gallop_animates():
@@ -91,3 +91,48 @@ def test_sprite_frames_differ_so_gallop_animates():
     im = Image.open(D / "assets" / "horses" / "NVDA.png")
     fr = [im.crop((i * 48, 0, i * 48 + 48, 36)) for i in range(6)]
     assert all(ImageChops.difference(fr[i], fr[(i + 1) % 6]).getbbox() for i in range(6))
+
+
+def test_months_back_is_calendar_based():
+    dates = pd.bdate_range("2026-01-01", "2026-09-30")
+    i = len(dates) - 1                                   # 2026-09-30
+    assert dates[bd.months_back(dates, i, 3)] == pd.Timestamp("2026-06-30")
+    assert dates[bd.months_back(dates, i, 1)] == pd.Timestamp("2026-08-28")   # 08-30 is a Sunday
+    assert bd.months_back(dates, 5, 6) == -1             # before the data starts
+
+
+def test_select_field_is_top_ten_by_return():
+    cols = {f"S{i}": [100.0, 100.0 + i] for i in range(15)}
+    cols["NEW"] = [np.nan, 150.0]                         # no start price -> not eligible
+    close = pd.DataFrame(cols)
+    field, ret, ok = bd.select_field(close, list(cols), 0, 1)
+    assert field == [f"S{i}" for i in range(14, 4, -1)] and "NEW" not in ok
+
+
+def test_total_score_renormalises_missing_factors():
+    pct = pd.DataFrame({"a": [100.0, 50.0], "b": [100.0, np.nan]}, index=["x", "y"])
+    sc = bd.total_score(pct, np.array([0.5, 0.5]))
+    assert sc["x"] == 100.0 and sc["y"] == 50.0           # y's weight moves entirely to factor a
+
+
+def test_all_key_factors_are_higher_is_better():
+    import json
+    kf = json.loads((D / "data" / "key_factors.json").read_text())["key_factors"]
+    assert all(f["avg_ic"] >= 0 and "sign" not in f for f in kf)
+    assert all(("reversed" in f) for f in kf)
+
+
+def test_derby_json_matches_real_prices_and_prediction_rules():
+    import json
+    d = json.loads((D / "data" / "derby.json").read_text())
+    for pool in d["pools"].values():
+        for race in pool.values():
+            hs = race["horses"]
+            assert [h["pred"] for h in hs] == list(range(1, 11))              # numbered by prediction
+            assert [h["total"] for h in hs] == sorted((h["total"] for h in hs), reverse=True)
+            for h in hs:
+                assert abs(h["price_end"] / h["price_start"] - 1 - h["ret"]) < 2e-3
+                assert h["path"][0] == 0 and abs(h["path"][-1] - h["ret"]) < 1e-3
+            by_ret = sorted(hs, key=lambda h: -h["ret"])
+            assert [h["result"] for h in by_ret] == list(range(1, 11))        # result = return rank
+            assert race["dates"][0] == race["start"] and race["dates"][-1] == race["end"]

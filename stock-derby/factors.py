@@ -29,6 +29,15 @@ META = {
 }
 
 
+# Label used when a factor is entered *reversed* (so that "higher value = better" holds for every ability).
+REV_LABEL = {
+    "mom_12_1": "12個月跌幅(扣近1月)", "mom_3m": "3個月跌幅", "rev_1m": "近1月跌幅(短線反轉)",
+    "high_52w": "距52週高點回檔幅度", "vol_60": "低波動度(60日)", "trend_200": "低於200日均線幅度",
+    "rsi_14": "RSI超賣程度(100-RSI)", "vol_surge": "量能萎縮程度", "updown_vol": "下跌日成交量占比(60日)",
+    "cmf_20": "資金流出程度(-CMF)", "eps_surprise": "EPS不如預期幅度", "eps_yoy": "EPS年增率衰退幅度",
+}
+
+
 def _earnings_panels(e: pd.DataFrame, index: pd.DatetimeIndex, columns) -> dict[str, pd.DataFrame]:
     e = e.sort_values("date").drop_duplicates(["stock_id", "date"], keep="last").copy()
     e["yoy"] = (e["eps_actual"] - e.groupby("stock_id")["eps_actual"].shift(4)) / \

@@ -2,7 +2,7 @@
 
 For every month-end since 2012, rank-IC (Spearman) of each candidate factor vs the
 forward 1/3/6-month return across the current S&P 500 + Nasdaq-100 universe.
-Selection: |mean IC across the three horizons|, greedily skipping a factor whose
+Selection: mean (oriented) IC across the three horizons, greedily skipping a factor whose
 average cross-sectional rank correlation with an already-chosen one exceeds 0.7.
 Output: data/key_factors.json (+ full IC table).  Run: python stock-derby/factor_study.py
 """
@@ -37,6 +37,10 @@ def rank_ic(factor: pd.DataFrame, fwd: pd.DataFrame, dates) -> pd.Series:
     return pd.Series(vals)
 
 
+def label(k: str, table: dict) -> str:
+    return F.REV_LABEL[k] if table[k]["reversed"] else F.META[k][0]
+
+
 def main() -> None:
     df = dl.load_long("2010-06-01")
     p = dl.panels(df)
@@ -60,7 +64,15 @@ def main() -> None:
         row["avg_ic"] = round(float(np.mean([row[k]["ic"] for k in HORIZONS])), 4)
         table[name] = row
 
-    ranked = sorted(table, key=lambda k: -abs(table[k]["avg_ic"]))
+    # Orientation: every ability must read "higher = better".  A factor whose IC is negative on average is
+    # entered reversed (value -> -value) and its IC/t flipped, so all reported ICs describe the oriented factor.
+    for row in table.values():
+        row["reversed"] = row["avg_ic"] < 0
+        if row["reversed"]:
+            row["avg_ic"] = -row["avg_ic"]
+            for k in HORIZONS:
+                row[k]["ic"], row[k]["t"] = -row[k]["ic"], -row[k]["t"]
+    ranked = sorted(table, key=lambda k: -table[k]["avg_ic"])
     sample = dates[::3]
     chosen: list[str] = []
     skipped: dict[str, str] = {}
@@ -82,16 +94,16 @@ def main() -> None:
         "universe_size": len(tickers),
         "months": len(dates),
         "period": [str(dates[0].date()), str(dates[-1].date())],
-        "key_factors": [{"id": k, "label": F.META[k][0], "group": F.META[k][1], "fmt": F.META[k][2],
-                         "sign": 1 if table[k]["avg_ic"] >= 0 else -1, **table[k]} for k in chosen],
+        "key_factors": [{"id": k, "label": label(k, table), "group": F.META[k][1], "fmt": F.META[k][2], **table[k]}
+                        for k in chosen],
         "skipped": skipped,
-        "all": {k: {"label": F.META[k][0], "group": F.META[k][1], **table[k]} for k in ranked},
+        "all": {k: {"label": label(k, table), "group": F.META[k][1], **table[k]} for k in ranked},
     }
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(json.dumps(result, ensure_ascii=False, indent=1))
     for k in ranked:
         t = table[k]
-        print(f"{'*' if k in chosen else ' '} {k:13s} {F.META[k][1]} avgIC={t['avg_ic']:+.4f}  "
+        print(f"{'*' if k in chosen else ' '} {k:13s} {F.META[k][1]}{'(反)' if t['reversed'] else '    '} avgIC={t['avg_ic']:+.4f}  "
               + "  ".join(f"{h}:{t[h]['ic']:+.3f}(t={t[h]['t']:+.1f})" for h in HORIZONS))
 
 
