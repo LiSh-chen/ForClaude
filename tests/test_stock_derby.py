@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 D = Path(__file__).parent.parent / "stock-derby"
 sys.path.insert(0, str(D))
@@ -70,6 +71,7 @@ def test_committed_derby_json_is_consistent():
 
 def test_every_horse_has_sprite_sheet_and_name():
     import json
+    pytest.importorskip("PIL")        # Pillow isn't in requirements.txt (only the sprite tools need it)
     from PIL import Image
     d = json.loads((D / "data" / "derby.json").read_text())
     man = json.loads((D / "assets" / "horses" / "manifest.json").read_text())
@@ -84,6 +86,7 @@ def test_every_horse_has_sprite_sheet_and_name():
 
 
 def test_sprite_frames_differ_so_gallop_animates():
+    pytest.importorskip("PIL")
     from PIL import Image, ImageChops
     im = Image.open(D / "assets" / "horses" / "NVDA.png")
     fr = [im.crop((i * 48, 0, i * 48 + 48, 36)) for i in range(6)]
