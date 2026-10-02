@@ -31,7 +31,7 @@
 ## 檔案
 - `data_loader.py` 讀價量（repo 的 S&P 500 parquet 快照 + `data/extra_prices.csv`）
 - `factors.py` 候選因子　`factor_study.py` 因子研究　`build_derby.py` 產生 `data/derby.json`
-- `fetch_extras.py` 補抓不在 S&P 快照內的 Nasdaq-100 成分股；名單抓 Wikipedia，失敗退回 `universe.json`
+- `fetch_extras.py` 補抓不在 S&P 快照內的 Nasdaq-100 成分股；名單每天從維基百科 [List of NASDAQ-100 companies](https://en.wikipedia.org/wiki/List_of_NASDAQ-100_companies) 更新（失敗時依序退回 slickcharts、nasdaq.com、上次快取、`universe.json`，並在頁面標示來源）
 - `index.html` 純靜態前端　`.github/workflows/stock_derby_daily.yml` 每日建置＋發佈 Pages
 
 本機：`python stock-derby/build_derby.py && python -m http.server -d stock-derby`

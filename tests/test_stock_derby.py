@@ -136,3 +136,14 @@ def test_derby_json_matches_real_prices_and_prediction_rules():
             by_ret = sorted(hs, key=lambda h: -h["ret"])
             assert [h["result"] for h in by_ret] == list(range(1, 11))        # result = return rank
             assert race["dates"][0] == race["start"] and race["dates"][-1] == race["end"]
+
+
+def test_parse_ndx_tables_finds_the_constituents_table_and_reports_what_it_saw():
+    rows = "".join(f"<tr><td>Co{i}</td><td>{t}</td></tr>" for i, t in enumerate(f"AB{chr(65 + i % 26)}{chr(65 + i // 26)}" for i in range(100)))
+    html = ("<table><tr><th>Year</th><th>Index</th></tr><tr><td>1</td><td>2</td></tr></table>"
+            f"<table><tr><th>Company</th><th>Ticker</th></tr>{rows}</table>")
+    out = fe.parse_ndx_tables(html)
+    assert len(out) == 100 and all(t.isupper() for t in out)
+    import pytest as _pt
+    with _pt.raises(ValueError, match="saw 1 tables"):
+        fe.parse_ndx_tables("<table><tr><th>A</th></tr><tr><td>1</td></tr></table>")

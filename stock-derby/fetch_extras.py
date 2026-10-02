@@ -1,6 +1,7 @@
 """Daily top-up for what the repo's S&P 500 snapshot does not cover.
 
-1. Refresh the Nasdaq-100 member list (Wikipedia; falls back to universe.json).
+1. Refresh the Nasdaq-100 member list from Wikipedia's "List of NASDAQ-100 companies" (then slickcharts / nasdaq.com,
+   then the last cached list, then universe.json). Runs on every daily build, so the list follows index changes.
 2. For Nasdaq-100 tickers missing from the snapshot, download OHLCV with yfinance
    into data/extra_prices.csv (long format, incremental, committed to the repo).
 
@@ -30,24 +31,38 @@ def merge_long(old: pd.DataFrame, new: pd.DataFrame) -> pd.DataFrame:
 UA = {"User-Agent": "Mozilla/5.0 (compatible; research-bot/1.0)"}
 
 
-def _from_wikipedia() -> list[str]:
+def parse_ndx_tables(html: str, header_hints=("ticker", "symbol")) -> list[str]:
+    """Find the constituents table in any page: a table with >= 90 rows and a Ticker/Symbol-like column.
+    Raises with a summary of every table seen, so a failure in CI is diagnosable from ndx_status.json."""
+    seen = []
+    for t in pd.read_html(io.StringIO(html)):
+        cols = [" ".join(map(str, c)) if isinstance(c, tuple) else str(c) for c in t.columns]
+        seen.append(f"{t.shape[0]}x{t.shape[1]}{cols[:3]}")
+        idx = next((i for i, c in enumerate(cols) if any(h in c.lower() for h in header_hints)), None)
+        if idx is not None and len(t) >= 90:
+            vals = t.iloc[:, idx].astype(str).str.strip().str.replace(".", "-", regex=False)
+            return [v for v in vals if v.replace("-", "").isalpha() and v.isupper()]
+    raise ValueError(f"no constituents table; saw {len(seen)} tables: " + "; ".join(seen[:8]))
+
+
+def _get(url: str):
     import requests
 
-    html = requests.get("https://en.wikipedia.org/wiki/Nasdaq-100", headers=UA, timeout=30)
-    html.raise_for_status()
-    for t in pd.read_html(io.StringIO(html.text)):
-        col = next((c for c in t.columns if str(c).lower() in ("ticker", "symbol")), None)
-        if col is not None and len(t) > 80:
-            return [x.strip().replace(".", "-") for x in t[col].astype(str)]
-    raise ValueError("Nasdaq-100 table not found on Wikipedia")
+    r = requests.get(url, headers={**UA, "Accept": "text/html,application/json"}, timeout=20)
+    r.raise_for_status()
+    return r
+
+
+def _from_wikipedia() -> list[str]:
+    return parse_ndx_tables(_get("https://en.wikipedia.org/wiki/List_of_NASDAQ-100_companies").text)
+
+
+def _from_slickcharts() -> list[str]:
+    return parse_ndx_tables(_get("https://www.slickcharts.com/nasdaq100").text)
 
 
 def _from_nasdaq_api() -> list[str]:
-    import requests
-
-    r = requests.get("https://api.nasdaq.com/api/quote/list-type/nasdaq100",
-                     headers={**UA, "Accept": "application/json"}, timeout=30)
-    r.raise_for_status()
+    r = _get("https://api.nasdaq.com/api/quote/list-type/nasdaq100")
     return [row["symbol"].strip().replace(".", "-") for row in r.json()["data"]["data"]["rows"]]
 
 
@@ -56,7 +71,7 @@ def fetch_ndx_list() -> tuple[list[str], dict]:
     import datetime as dt
 
     errors = []
-    for name, fn in (("wikipedia", _from_wikipedia), ("nasdaq.com", _from_nasdaq_api)):
+    for name, fn in (("wikipedia", _from_wikipedia), ("slickcharts", _from_slickcharts), ("nasdaq.com", _from_nasdaq_api)):
         try:
             lst = sorted(set(fn()))
             if not 95 <= len(lst) <= 110:
