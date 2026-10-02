@@ -22,7 +22,38 @@ OUT = Path(__file__).parent.parent / "assets" / "horses"
 JK_SILK, JK_SILK2, JK_HELMET, JK_SKIN, JK_BOOT, OUTLINE = 20, 21, 22, 23, 24, 30
 
 
-def _leg(d, hip, phase, kind, idle):
+class Cv:
+    """Index-image canvas that draws in base-pixel coordinates scaled by k (k=1 is the original 48x36 pixel art)."""
+
+    def __init__(self, k: int):
+        self.k = k
+        self.img = Image.new("P", (W * k, H * k), T)
+        self.d = ImageDraw.Draw(self.img)
+
+    def _s(self, pts):
+        return [(round(x * self.k), round(y * self.k)) for x, y in pts]
+
+    def poly(self, pts, fill):
+        self.d.polygon(self._s(pts), fill=fill)
+
+    def line(self, pts, fill, width=1):
+        self.d.line(self._s(pts), fill=fill, width=max(1, round(width * self.k)))
+
+    def _box(self, b):
+        k = self.k
+        return [round(b[0] * k), round(b[1] * k), round((b[2] + 1) * k) - 1, round((b[3] + 1) * k) - 1]
+
+    def rect(self, b, fill):
+        self.d.rectangle(self._box(b), fill=fill)
+
+    def ellipse(self, b, fill):
+        self.d.ellipse(self._box(b), fill=fill)
+
+    def pie(self, b, a0, a1, fill):
+        self.d.pieslice(self._box(b), a0, a1, fill=fill)
+
+
+def _leg(cv, hip, phase, kind, idle):
     """One leg: thigh + folding lower leg. kind: 'near'/'far'."""
     up_id, lo_id = (NEAR_UP, NEAR_LO) if kind == "near" else (FAR_UP, FAR_LO)
     a = 7 * math.sin(phase * 2 * math.pi) if idle else 40 * math.sin(phase * 2 * math.pi)
@@ -33,61 +64,63 @@ def _leg(d, hip, phase, kind, idle):
     hx, hy = hip
     kx, ky = hx + 6 * math.sin(tu), hy + 6 * math.cos(tu)
     fx, fy = kx + 6 * math.sin(tl), ky + 6 * math.cos(tl)
-    d.line([(hx, hy), (round(kx), round(ky))], fill=up_id, width=3)
-    d.line([(round(kx), round(ky)), (round(fx), round(fy))], fill=lo_id, width=2)
-    d.rectangle([round(fx) - 1, round(fy), round(fx) + 1, round(fy) + 1], fill=HOOF)
+    r = round if cv.k == 1 else (lambda v: v)          # pixel art snaps joints to the grid; smooth styles keep them exact
+    cv.line([(hx, hy), (r(kx), r(ky))], up_id, 3)
+    cv.line([(r(kx), r(ky)), (r(fx), r(fy))], lo_id, 2)
+    cv.rect([r(fx) - 1, r(fy), r(fx) + 1, r(fy) + 1], HOOF)
 
 
-def frame_ids(i: int, idle: bool = False) -> Image.Image:
+def frame_ids(i: int, idle: bool = False, k: int = 1):
+    """Material-id image of gallop frame i. k=1: the 48x36 pixel-art frame with its 1px outline; k>1: the same
+    pose at k-times resolution (no outline - the smooth styles draw their own)."""
     p = i / RUN_FRAMES
-    img = Image.new("P", (W, H), T)
-    d = ImageDraw.Draw(img)
+    cv = Cv(k)
     bob = 0 if idle else round(1.2 * math.sin(p * 4 * math.pi))
-    oy = bob + (0 if idle else 0)
+    oy = bob
 
     def P(*pts):
         return [(x, y + oy) for x, y in pts]
 
     # far legs first, then tail, body, near legs
     if idle:
-        _leg(d, (16, 21 + oy), 0.02, "far", True); _leg(d, (29, 21 + oy), 0.98, "far", True)
+        _leg(cv, (16, 21 + oy), 0.02, "far", True); _leg(cv, (29, 21 + oy), 0.98, "far", True)
     else:
-        _leg(d, (16, 21 + oy), p + 0.62, "far", False); _leg(d, (30, 21 + oy), p + 0.12, "far", False)
+        _leg(cv, (16, 21 + oy), p + 0.62, "far", False); _leg(cv, (30, 21 + oy), p + 0.12, "far", False)
     w = 0 if idle else math.sin(p * 2 * math.pi)
-    t = [(13, 14 + oy), (8, 15 + oy + round(w)), (4, 18 + oy + round(2 * w)), (2, 23 + oy + round(w))]
-    d.line(t, fill=TAIL, width=3)
-    d.polygon(P((12, 13), (18, 12), (29, 12), (33, 14), (34, 19), (30, 23), (18, 23), (12, 21), (10, 16)), fill=BODY)
-    d.polygon(P((13, 21), (30, 21), (28, 23), (18, 23)), fill=SHADE)
+    cv.line([(13, 14 + oy), (8, 15 + oy + round(w)), (4, 18 + oy + round(2 * w)), (2, 23 + oy + round(w))], TAIL, 3)
+    cv.poly(P((12, 13), (18, 12), (29, 12), (33, 14), (34, 19), (30, 23), (18, 23), (12, 21), (10, 16)), BODY)
+    cv.poly(P((13, 21), (30, 21), (28, 23), (18, 23)), SHADE)
     # neck + head (head dips a little when galloping)
     hd = 0 if idle else round(math.sin(p * 2 * math.pi + 1))
-    d.polygon(P((28, 13), (35, 12), (41, 6 + hd), (37, 3 + hd), (31, 9)), fill=BODY)
-    d.polygon(P((37, 3 + hd), (42, 4 + hd), (47, 10 + hd), (46, 13 + hd), (41, 12 + hd), (38, 8 + hd)), fill=HEAD)
-    d.polygon(P((42, 4 + hd), (44, 2 + hd), (44, 5 + hd)), fill=HEAD)                       # ear
-    d.rectangle([46 - 0, 10 + hd + oy, 47, 12 + hd + oy], fill=NOSE)
-    d.point((42, 6 + hd + oy), fill=EYE)
-    d.line([(40, 5 + hd + oy), (44, 9 + hd + oy)], fill=FACE, width=1)                     # blaze line
+    cv.poly(P((28, 13), (35, 12), (41, 6 + hd), (37, 3 + hd), (31, 9)), BODY)
+    cv.poly(P((37, 3 + hd), (42, 4 + hd), (47, 10 + hd), (46, 13 + hd), (41, 12 + hd), (38, 8 + hd)), HEAD)
+    cv.poly(P((42, 4 + hd), (44, 2 + hd), (44, 5 + hd)), HEAD)                              # ear
+    cv.rect([46, 10 + hd + oy, 47, 12 + hd + oy], NOSE)
+    cv.rect([42, 6 + hd + oy, 42, 6 + hd + oy], EYE)
+    cv.line([(40, 5 + hd + oy), (44, 9 + hd + oy)], FACE, 1)                               # blaze line
     # mane flowing back along the neck
     mw = 0 if idle else round(math.sin(p * 2 * math.pi + 2))
-    d.line([(37, 3 + hd + oy), (33 - mw, 5 + oy), (30 - mw, 9 + oy), (28, 13 + oy)], fill=MANE, width=2)
+    cv.line([(37, 3 + hd + oy), (33 - mw, 5 + oy), (30 - mw, 9 + oy), (28, 13 + oy)], MANE, 2)
     if idle:
-        _leg(d, (16, 21 + oy), 0.0, "near", True); _leg(d, (30, 21 + oy), 0.5, "near", True)
+        _leg(cv, (16, 21 + oy), 0.0, "near", True); _leg(cv, (30, 21 + oy), 0.5, "near", True)
     else:
-        _leg(d, (16, 21 + oy), p + 0.5, "near", False); _leg(d, (30, 21 + oy), p, "near", False)
+        _leg(cv, (16, 21 + oy), p + 0.5, "near", False); _leg(cv, (30, 21 + oy), p, "near", False)
     # jockey, crouched forward
-    d.line([(21, 12 + oy), (23, 17 + oy)], fill=JK_SKIN, width=2)
-    d.line([(23, 17 + oy), (23, 19 + oy)], fill=JK_BOOT, width=2)
-    d.polygon(P((19, 12), (23, 10), (29, 7), (31, 9), (26, 13), (21, 14)), fill=JK_SILK)
-    d.polygon(P((24, 11), (27, 9), (28, 10), (25, 12)), fill=JK_SILK2)
-    d.line([(28, 9 + oy), (34, 11 + oy)], fill=JK_SKIN, width=1)
-    d.ellipse([28, 3 + oy, 33, 8 + oy], fill=JK_SKIN)
-    d.pieslice([28, 2 + oy, 33, 7 + oy], 180, 360, fill=JK_HELMET)
-    d.rectangle([28, 4 + oy, 31, 5 + oy], fill=JK_HELMET)
-    # 1px dark outline
-    px = img.load()
-    out = [(x, y) for y in range(H) for x in range(W) if px[x, y] == T and any(
-        0 <= x + dx < W and 0 <= y + dy < H and px[x + dx, y + dy] != T for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))]
-    for x, y in out:
-        px[x, y] = OUTLINE
+    cv.line([(21, 12 + oy), (23, 17 + oy)], JK_SKIN, 2)
+    cv.line([(23, 17 + oy), (23, 19 + oy)], JK_BOOT, 2)
+    cv.poly(P((19, 12), (23, 10), (29, 7), (31, 9), (26, 13), (21, 14)), JK_SILK)
+    cv.poly(P((24, 11), (27, 9), (28, 10), (25, 12)), JK_SILK2)
+    cv.line([(28, 9 + oy), (34, 11 + oy)], JK_SKIN, 1)
+    cv.ellipse([28, 3 + oy, 33, 8 + oy], JK_SKIN)
+    cv.pie([28, 2 + oy, 33, 7 + oy], 180, 360, JK_HELMET)
+    cv.rect([28, 4 + oy, 31, 5 + oy], JK_HELMET)
+    img = cv.img
+    if k == 1:                                                                             # 1px dark outline (pixel art)
+        px = img.load()
+        out = [(x, y) for y in range(H) for x in range(W) if px[x, y] == T and any(
+            0 <= x + dx < W and 0 <= y + dy < H and px[x + dx, y + dy] != T for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))]
+        for x, y in out:
+            px[x, y] = OUTLINE
     return img, oy
 
 
@@ -214,6 +247,232 @@ def colourise(ids: Image.Image, c: dict, oy: int = 0) -> Image.Image:
     return img
 
 
+# ---------------------------------------------------------------------------------------------------
+# Smooth styles.  They re-draw the same gallop poses at K x resolution (so the animation is identical across
+# styles) and differ only in how the material-id image is turned into colour:
+#   flat   - flat vector: soft-edged colour blocks, low-poly facets, no outline
+#   sketch - hand-drawn illustration: wobbly pencil outline, watercolour fill that is slightly mis-registered
+#   neon   - cyber neon: dark body, glowing outline in the brand colour
+# ---------------------------------------------------------------------------------------------------
+K = 4                                   # supersampling factor (192 x 144 working canvas)
+OUT_SCALE = 2.5                         # delivered frame size: 120 x 90
+BODYLIKE = (BODY, HEAD, SHADE, NEAR_UP, FAR_UP)
+
+
+def _np():
+    import numpy as np
+    return np
+
+
+def _noise(shape, seed, sigma):
+    """Smooth random field in [-1, 1] (box-blurred white noise) used for wobble and watercolour texture."""
+    np = _np()
+    rng = np.random.default_rng(seed)
+    im = Image.fromarray((rng.random(shape) * 255).astype("uint8"))
+    from PIL import ImageFilter
+    f = np.asarray(im.filter(ImageFilter.GaussianBlur(sigma)), dtype="float32")
+    f = (f - f.mean()) / (f.std() + 1e-6)
+    return np.clip(f / 2.5, -1, 1)
+
+
+def _warp(mask, seed, amp):
+    """Displace a 2-D array by a smooth random field (hand-drawn wobble)."""
+    np = _np()
+    h, w = mask.shape
+    dx = _noise((h, w), seed, 5) * amp
+    dy = _noise((h, w), seed + 1, 5) * amp
+    yy, xx = np.mgrid[0:h, 0:w]
+    return mask[np.clip((yy + dy).round().astype(int), 0, h - 1), np.clip((xx + dx).round().astype(int), 0, w - 1)]
+
+
+def _edges(ids, thick):
+    """Boundary pixels between different materials (and against transparency), `thick` px wide."""
+    np = _np()
+    a = ids.copy()
+    e = np.zeros(a.shape, bool)
+    e[1:, :] |= a[1:, :] != a[:-1, :]
+    e[:-1, :] |= a[1:, :] != a[:-1, :]
+    e[:, 1:] |= a[:, 1:] != a[:, :-1]
+    e[:, :-1] |= a[:, 1:] != a[:, :-1]
+    if thick > 1:
+        from PIL import ImageFilter
+        e = np.asarray(Image.fromarray((e * 255).astype("uint8")).filter(ImageFilter.MaxFilter(2 * (thick // 2) + 1))) > 0
+    return e
+
+
+def _mat_colours(c):
+    """Colour per material id for the smooth styles (same palette logic as the pixel version)."""
+    base = hx(c["base"]); legs = hx(c["legs"]) if c.get("legs") else base
+    mane = c["mane"]; mane0 = hx(mane[0] if isinstance(mane, list) else mane)
+    p1, p2, pat = c["silks"]; p1, p2 = hx(p1), hx(p2)
+    white = (246, 244, 240)
+    return {BODY: base, HEAD: base, SHADE: shade(base, c.get("shade", 0.78)), NEAR_UP: legs, NEAR_LO: white if c.get("socks") else legs,
+            FAR_UP: shade(legs, 0.82), FAR_LO: shade(white if c.get("socks") else legs, 0.82), HOOF: hx(c.get("hoof", "#2b2220")),
+            MANE: mane0, TAIL: mane0, EYE: (15, 15, 20), NOSE: shade(base, 0.7), FACE: white if c.get("blaze") else base,
+            JK_SKIN: (240, 190, 150), JK_HELMET: p2 if pat != "solid" else shade(p1, 0.6), JK_BOOT: (40, 30, 30),
+            JK_SILK: p1, JK_SILK2: p2 if pat != "solid" else shade(p1, 0.8)}
+
+
+def _paint(ids, cols, mane_list=None):
+    np = _np()
+    h, w = ids.shape
+    rgb = np.zeros((h, w, 3), "float32")
+    for i, col in cols.items():
+        rgb[ids == i] = col
+    if mane_list:                                                  # multi-colour mane/tail: diagonal bands
+        yy, xx = np.mgrid[0:h, 0:w]
+        band = ((xx + yy) // (K * 2)) % len(mane_list)
+        for j, colr in enumerate(mane_list):
+            m = np.isin(ids, (MANE, TAIL)) & (band == j)
+            rgb[m] = hx(colr)
+    return rgb
+
+
+def _marks_hi(c, oy):
+    np = _np()
+    m = Image.new("L", (W * K, H * K), 0)
+    d = ImageDraw.Draw(m)
+    for mk in c.get("marks") or []:
+        kind = mk[0]
+        if kind == "line":
+            d.line([(x * K, (y + oy) * K) for x, y in mk[1]], fill=255, width=max(1, round(mk[2] * K)))
+        elif kind == "ring":
+            (cx, cy, r), w_ = mk[1], mk[2]
+            d.ellipse([(cx - r) * K, (cy + oy - r) * K, (cx + r) * K, (cy + oy + r) * K], outline=255, width=round(w_ * K))
+        elif kind == "arc":
+            (cx, cy, r), a0, a1, w_ = mk[1], mk[2], mk[3], mk[4]
+            d.arc([(cx - r) * K, (cy + oy - r) * K, (cx + r) * K, (cy + oy + r) * K], a0, a1, fill=255, width=round(w_ * K))
+    return np.asarray(m) > 0
+
+
+def _pattern_hi(ids, rgb, c, oy):
+    """Flat-colour versions of the coat patterns (blocks / stripes / dots instead of single pixels)."""
+    np = _np()
+    h, w = ids.shape
+    yy, xx = np.mgrid[0:h, 0:w]
+    pt, pcs = c.get("pattern"), c.get("pcolor", "#000000")
+    body = np.isin(ids, BODYLIKE)
+    pc = lambda j: hx(pcs[j % len(pcs)] if isinstance(pcs, list) else pcs)
+    by = yy / K - oy
+    if pt == "quad":
+        for q, (xs, ys) in enumerate(((0, 0), (1, 0), (0, 1), (1, 1))):
+            m = body & ((xx / K >= 22) == bool(xs)) & ((by >= 17) == bool(ys)) & (xx / K >= 10) & (xx / K <= 34) & (ids != HEAD)
+            rgb[m] = pc(q)
+    elif pt == "hsplit":
+        for q in range(2):
+            m = body & ((by >= 17) == bool(q)) & (xx / K >= 10) & (xx / K <= 34) & (ids != HEAD)
+            rgb[m] = pc(q)
+    elif pt in ("hstripes", "vstripes"):
+        sel = ((by % 3) < 0.9) if pt == "hstripes" else (((xx / K) % 4) < 1.2)
+        rgb[body & sel & (ids != HEAD)] = pc(0)
+    elif pt == "stripes":
+        rgb[body & (((xx + yy) / K) % 4 < 1.4) & (ids != HEAD)] = pc(0)
+    elif pt in ("spots", "dapple", "roan", "patch"):
+        n = _noise((h, w), sum(map(ord, c["base"])), 3 if pt != "patch" else 9)
+        thr = {"spots": 0.55, "dapple": 0.62, "roan": 0.4, "patch": 0.25}[pt]
+        rgb[body & (n > thr)] = pc(int(abs(n.sum()) * 7)) if isinstance(pcs, list) else pc(0)
+    return rgb
+
+
+def render_hi(ids_img, c, style, oy):
+    """RGBA (working resolution) from a material-id image for one of the smooth styles."""
+    np = _np()
+    from PIL import ImageFilter
+    raw = Image.fromarray(np.array(ids_img).astype("uint8"), "L")                                   # P-mode indices, not palette greys
+    ids = np.asarray(raw.filter(ImageFilter.ModeFilter(5))).astype("int16")                          # round the polygon corners
+    sil = ids != T
+    cols = _mat_colours(c)
+    mane = c["mane"] if isinstance(c["mane"], list) else None
+    rgb = _paint(ids, cols, mane)
+    rgb = _pattern_hi(ids, rgb, c, oy)
+    mk = _marks_hi(c, oy) & np.isin(ids, (BODY, SHADE, NEAR_UP, FAR_UP))
+    mc = np.array(hx(c.get("mc", "#ffffff")), "float32")
+    h, w = ids.shape
+    yy, xx = np.mgrid[0:h, 0:w]
+    out = np.zeros((h, w, 4), "float32")
+
+    if style == "flat":
+        # low-poly facets: alternate light/dark triangles across the body regions
+        cell = K * 4
+        tri = ((xx // cell + yy // cell) % 2 == 0)
+        diag = ((xx % cell) > (yy % cell))
+        shade_f = np.where(tri ^ diag, 1.07, 0.94)[..., None]
+        facet = np.isin(ids, (BODY, SHADE, NEAR_UP, FAR_UP, HEAD)) & ~mk
+        rgb = np.where(facet[..., None], np.clip(rgb * shade_f, 0, 255), rgb)
+        rgb[mk] = mc
+        out[..., :3] = rgb; out[..., 3] = sil * 255
+        # a clean white keyline so flat shapes separate from the track
+        edge = _edges(sil.astype("int16"), 1) & ~sil
+        edge = np.asarray(Image.fromarray((edge * 255).astype("uint8")).filter(ImageFilter.MaxFilter(K + 1))) > 0
+        out[edge & ~sil] = (255, 255, 255, 235)
+
+    elif style == "sketch":
+        paper = np.array([250, 247, 238], "float32")
+        wash = 0.88 + 0.12 * (_noise((h, w), 11, 6) * 0.5 + 0.5)                                # watercolour density
+        fill = rgb * wash[..., None] * 0.86 + paper * 0.14 * (1 - wash[..., None] * 0.2)
+        grain = _noise((h, w), 5, 1.2)[..., None] * 9
+        fill = np.clip(fill + grain, 0, 255)
+        fill[mk] = mc * 0.9 + paper * 0.1
+        # hand-drawn fills sit a little off the pencil lines (mis-registration)
+        sh = K // 2 + 1
+        def shifted(a):                                           # shift right/down without wrapping around the frame
+            o = np.zeros_like(a); o[sh:, sh:] = a[:-sh, :-sh]; return o
+        fill_s, sil_s = shifted(fill), shifted(sil)
+        sil_loose = sil | sil_s
+        out[..., :3] = np.where(sil_s[..., None], fill_s, np.where(sil[..., None], fill, 0)); out[..., 3] = sil_loose * 235
+        # pencil outline: two wobbly passes + region boundaries + hatching in the shadow
+        e1 = _warp(_edges(ids, 1), 21, K * 0.8)
+        e2 = _warp(_edges(ids, 1), 33, K * 1.0)
+        inner = _warp(_edges(np.where(np.isin(ids, (NEAR_UP, NEAR_LO, JK_SILK, JK_SILK2, JK_SKIN, JK_HELMET, MANE, TAIL)), ids, 0), 1), 41, K * 0.8)
+        hatch = np.isin(ids, (SHADE, FAR_UP, FAR_LO)) & (((xx + 2 * yy) // 1) % (K * 2) < 1.4)
+        pencil = np.array([70, 64, 72], "float32")
+        a_line = np.clip(e1 * 0.9 + e2 * 0.4 + inner * 0.35 + hatch * 0.28, 0, 1)
+        out[..., :3] = out[..., :3] * (1 - a_line[..., None]) + pencil * a_line[..., None]
+        out[..., 3] = np.maximum(out[..., 3], a_line * 255)
+
+    elif style == "neon":
+        # neon colour: brightest saturated colour of the brand, pushed to full brightness
+        cand = [hx(c["silks"][0]), hx(c["silks"][1]), hx(c["base"]), mc.astype(int).tolist()]
+        def vividness(col):
+            mx, mn = max(col), min(col)
+            return (mx - mn) * 0.6 + mx * 0.4
+        pr = np.array(max(cand, key=vividness), "float32")
+        mxv = pr.max(); pr = np.clip(pr / (mxv + 1e-6) * 255, 0, 255)
+        alt = np.array(max([hx(c["silks"][1]), hx(c["silks"][0])], key=vividness), "float32")
+        alt = np.clip(alt / (alt.max() + 1e-6) * 255, 0, 255)
+        dark = np.array([10, 12, 28], "float32")
+        out[..., :3] = dark; out[..., 3] = sil * 215
+        core = _edges(sil.astype("int16"), 3) & sil
+        inner = _edges(np.where(np.isin(ids, (NEAR_UP, NEAR_LO, FAR_UP, FAR_LO, JK_SILK, JK_SILK2, JK_SKIN, JK_HELMET, MANE, TAIL, FACE)), ids, 0), 2) & sil
+        jock = np.isin(ids, (JK_SILK, JK_SILK2, JK_SKIN, JK_HELMET, JK_BOOT))
+        line = np.zeros((h, w, 3), "float32")
+        line[core & ~jock] = pr
+        line[core & jock] = alt
+        line[inner & ~core] = (pr * 0.7 + alt * 0.3)
+        line[mk] = np.maximum(line[mk], alt * 0.5 + 128)
+        line_a = (line.sum(2) > 0).astype("float32")
+        glow = Image.fromarray(line.clip(0, 255).astype("uint8"))
+        g1 = np.asarray(glow.filter(ImageFilter.GaussianBlur(K * 1.6)), "float32")
+        g2 = np.asarray(glow.filter(ImageFilter.GaussianBlur(K * 0.7)), "float32")
+        glow_rgb = np.clip(g1 * 1.9 + g2 * 1.1, 0, 255)
+        base_rgb = np.clip(dark * sil[..., None] * 0.9 + glow_rgb, 0, 255)
+        hot = np.clip(line * 0.55 + 140 * line_a[..., None], 0, 255) * line_a[..., None]               # white-hot core
+        rgb2 = np.where(line_a[..., None] > 0, hot, base_rgb)
+        ga = np.clip(glow_rgb.max(2) * 1.6, 0, 255)
+        out[..., :3] = rgb2; out[..., 3] = np.maximum(out[..., 3], ga)
+    return Image.fromarray(out.clip(0, 255).astype("uint8"), "RGBA")
+
+
+def sheet_smooth(coat: dict, style: str) -> Image.Image:
+    fw, fh = round(W * OUT_SCALE), round(H * OUT_SCALE)
+    sh = Image.new("RGBA", (fw * (RUN_FRAMES + 1), fh), (0, 0, 0, 0))
+    for i in range(RUN_FRAMES + 1):
+        ids, oy = frame_ids(i, idle=(i == RUN_FRAMES), k=K) if i < RUN_FRAMES else frame_ids(0, idle=True, k=K)
+        hi = render_hi(ids, coat, style, oy)
+        sh.paste(hi.resize((fw, fh), Image.LANCZOS), (i * fw, 0))
+    return sh
+
+
 def sheet(coat: dict) -> Image.Image:
     sh = Image.new("RGBA", (W * (RUN_FRAMES + 1), H), (0, 0, 0, 0))
     for i in range(RUN_FRAMES):
@@ -222,6 +481,9 @@ def sheet(coat: dict) -> Image.Image:
     ids, oy = frame_ids(0, idle=True)
     sh.paste(colourise(ids, coat, oy), (RUN_FRAMES * W, 0))
     return sh
+
+
+STYLES_OUT = Path(__file__).parent.parent / "assets" / "horses_styles"
 
 
 def features(c: dict) -> str:
@@ -238,7 +500,10 @@ def features(c: dict) -> str:
 
 
 def main() -> None:
-    from horse_specs import SPECS
+    """Default: the pixel-art library used by the app (assets/horses).
+    --styles: additionally render the *experimental* smooth styles into assets/horses_styles (not used by the app)."""
+    import sys
+    from horse_specs import SPECS, ART
 
     OUT.mkdir(parents=True, exist_ok=True)
     for old in OUT.glob("*.png"):
@@ -247,13 +512,28 @@ def main() -> None:
     for tk, (company, zh, en, why, coat) in SPECS.items():
         coat = {"mane": "#333333", **coat}
         sheet(coat).save(OUT / f"{tk}.png")
-        manifest["brands"][tk] = {"company": company, "zh": zh, "en": en, "inspired_by": why, "features": features(coat),
+        manifest["brands"][tk] = {"art": "pixel", "company": company, "zh": zh, "en": en, "inspired_by": why, "features": features(coat),
                                   "silks": dict(zip(("primary", "secondary", "pattern"), coat["silks"]))}
     for cid, c in COATS.items():
         sheet(c).save(OUT / f"generic_{cid}.png")
-        manifest["generic"][cid] = {"zh": c["zh"], "features": features(c)}
+        manifest["generic"][cid] = {"art": "pixel", "zh": c["zh"], "features": features(c)}
     (OUT / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1))
     print(f"{len(SPECS)} brand sheets + {len(COATS)} generic coat sheets -> {OUT}")
+
+    if "--styles" in sys.argv:
+        styles = {"frame_w": round(W * OUT_SCALE), "frame_h": round(H * OUT_SCALE), "run_frames": RUN_FRAMES, "brand_art": {}, "styles": ["flat", "sketch", "neon"]}
+        for art in styles["styles"]:
+            (STYLES_OUT / art).mkdir(parents=True, exist_ok=True)
+        for tk, (_, _, _, _, coat) in SPECS.items():
+            art = ART.get(tk, "pixel")
+            if art != "pixel":
+                sheet_smooth({"mane": "#333333", **coat}, art).save(STYLES_OUT / art / f"{tk}.png", optimize=True)
+                styles["brand_art"][tk] = art
+        for cid, c in COATS.items():
+            for art in styles["styles"]:
+                sheet_smooth({"mane": "#333333", **c}, art).save(STYLES_OUT / art / f"generic_{cid}.png", optimize=True)
+        (STYLES_OUT / "manifest.json").write_text(json.dumps(styles, ensure_ascii=False, indent=1))
+        print(f"experimental styles -> {STYLES_OUT}")
 
 
 if __name__ == "__main__":

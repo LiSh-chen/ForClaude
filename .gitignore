@@ -14,3 +14,6 @@ data/*.db-shm
 
 # 手動產生的暫存匯出檔仍然忽略
 *.tmp.csv
+
+# experimental sprite styles are regenerable (tools/make_sprites.py --styles)
+stock-derby/assets/horses_styles/
