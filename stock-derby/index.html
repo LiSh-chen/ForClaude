@@ -69,6 +69,7 @@
   .lbl { font-size:12px; color:var(--muted); }
   .chips { display:flex; gap:4px; margin:2px 0; }
   .chip { min-width:26px; text-align:center; padding:0 6px; border-radius:6px; background:var(--line); font-weight:600; }
+  .chip.none { background:transparent; border:1px dashed var(--line); color:var(--muted); font-weight:400; }
   .chip.g1 { background:var(--gold); color:#fff; } .chip.g2 { background:#9aa3ab; color:#fff; } .chip.g3 { background:#b87333; color:#fff; }
   .badge { display:inline-block; padding:0 8px; border-radius:10px; background:var(--accent); color:#fff; font-size:13px; font-weight:600; }
   .arow { display:grid; grid-template-columns:76px 1fr 30px; gap:6px; align-items:center; font-size:13px; cursor:pointer; padding:1px 0; }
@@ -188,8 +189,8 @@ const HELP = {
   live: "這一期還在進行：畫面是截至最新收盤的排名，馬群持續奔跑。沒有終點線（要等期末才知道誰贏）。按「↺ 重播」可從開賽日再跑一次。",
   odds: "賠率隨賽況即時調整：開賽時依馬報評估分（能力 70% ＋ 近績 30%）定價，越往後越偏向「目前排名＋剩餘天數」的模擬勝率；抽水從 15% 升到 40%，所以越晚下注賠率越低。下注當下的賠率會鎖定。點數是虛擬的，沒有金錢價值。",
   place: "位置＝你押的馬只要跑進前 3 名就算中，賠率較低但比較容易中。獨贏＝必須第 1 名才中。",
-  form: "近 4 戰名次：在這 10 匹馬之間比，新→舊。金／銀／銅＝第 1／2／3 名。",
-  style: "看前 3 戰「前 1/3 段」的平均排名：≤2.5 領放、≤4.5 跟前、≤7 居中、>7 後上。",
+  form: "近績＝這匹馬在前 4 期（新→舊）真正出賽的名次，名次是在當期參賽的 10 匹馬中的排名；沒出場的期別標「未」。每期的參賽馬都是上一期的前 10 名，所以多數馬是首次出賽。金／銀／銅＝第 1／2／3 名。",
+  style: "看牠最近（最多 3 次）真正出賽時「前 1/3 段」的平均排名：≤2.5 領放、≤4.5 跟前、≤7 居中、>7 後上。沒出過場就標「未知」。",
   ability: "五項能力是這匹馬在整個馬群中的百分位（0–100，越高越好）。點能力名稱可看實際參數。",
   total: "能力指數＝五項能力依歷史相關性加權平均；馬號依能力指數排序，1 號＝◎本命，◎○▲△△ 為前 5 名。",
 };
@@ -402,16 +403,16 @@ function renderCard() {
   const r = cur(), kf = D.key_factors, live = r.status === "upcoming";
   $("cinfo").innerHTML = `<div class="box"><b>${cycTitle(r)}</b>｜${r.start} → ${r.end || "預計 " + r.planned_end}｜${live ? "進行中" : "已結束"}${tip(HELP.field)}　<span class="muted">馬號＝預測名次${tip(HELP.total)}</span></div>`;
   $("cards").innerHTML = r.horses.map(h => {
-    const form = h.form.map(x => `<span class="chip ${x && x <= 3 ? "g" + x : ""}">${x ?? "–"}</span>`).join("");
+    const form = h.form.map(x => x == null ? `<span class="chip none" title="這一期沒有參賽">未</span>` : `<span class="chip ${x <= 3 ? "g" + x : ""}">${x}</span>`).join("") + (h.n_ran ? "" : ` <span class="badge" style="background:var(--muted)">首次出賽</span>`);
     const abil = kf.map(f => { const a = h.ability[f.id];
       return `<div class="arow"><span>${esc(f.horse)}</span><div class="bar"><i style="width:${a ?? 0}%"></i></div><span>${a == null ? "—" : Math.round(a)}</span></div>` +
-        `<div class="tt" hidden><b>${esc(f.horse)}</b>：${esc(f.meaning)}。<br>參數：${esc(f.param)}。本馬：${fmtRaw(f, h.raw[f.id])}（馬群百分位 ${a ?? "—"}）</div>`; }).join("");
+        `<div class="tt" hidden><b>${esc(f.horse)}</b>：${esc(f.meaning)}。<br>參數：${esc(f.param)}。${a == null ? "缺資料（財報資料未涵蓋或上市未滿一年），這一項不計分、其餘項目重新配分。" : `本馬：${fmtRaw(f, h.raw[f.id])}（馬群百分位 ${a}）`}</div>`; }).join("");
     const res = h.result != null ? `<span class="muted">賽果 第${h.result}名 <span class="${cls(h.ret)}">${pct(h.ret)}</span></span>` : `<span class="muted">目前第${h.live_rank}名 <span class="${cls(h.live_ret)}">${pct(h.live_ret)}</span>・獨贏 ${h.odds_win.toFixed(1)}</span>`;
     return `<div class="card"><div class="cardsp"><div class="sprite live" style="background-image:url(assets/horses/${h.sprite}.png);--spd:${(.5 + h.no * .03).toFixed(2)}s"></div><div class="no" style="background:${COLORS[h.no - 1]}">${h.no}</div></div>
       <div class="head"><span class="tk">${esc(h.horse_zh)}</span><span class="mark">${h.mark}</span><span class="stars">${"★".repeat(h.stars)}${"☆".repeat(5 - h.stars)}</span>
         <span class="muted">${esc(h.ticker)}${h.company ? " " + esc(h.company) : ""}・${esc(h.sector)}</span> ${res}</div>
       <div class="body">
-        <div><div class="lbl">近績（新→舊）${tip(HELP.form)}</div><div class="chips">${form}</div>
+        <div><div class="lbl">近績（近 4 期真實名次，新→舊；未＝沒出場）${tip(HELP.form)}</div><div class="chips">${form}</div>
           <div class="lbl">跑法${tip(HELP.style)}</div><span class="badge">${h.style}</span> <span class="muted">${esc(h.style_desc)}</span></div>
         <div><div class="lbl">能力（點名稱看參數）${tip(HELP.ability)}</div>${abil}</div>
       </div>
@@ -518,7 +519,7 @@ function renderBet() {
       <div class="sum"><span class="muted">${slip.type === "place" ? `例：押 100 點、賠率 ${odds.toFixed(1)}，進前三名 → 拿回 ${Math.round(100 * odds)} 點` : `例：押 100 點、賠率 ${odds.toFixed(1)}，拿第 1 名 → 拿回 ${Math.round(100 * odds)} 點`}${enough ? "" : "　<b style=\"color:#b0314a\">點數不足</b>"}</span>
         <span><button id="cancelSlip" style="background:#fff;color:#2a2320">取消</button> <button class="go" id="confirmBet">確認投注</button></span></div></div></td></tr>`;
   };
-  const rows = r.horses.map(h => `<tr><td><span class="saddle" style="background:${COLORS[h.no - 1]}">${h.no}</span></td><td>${esc(h.horse_zh)} <small class="muted" style="color:#8fb59a">${esc(h.ticker)}</small><br><span class="form-dots">${h.form.map(x => x ?? "–").join(" ")}</span></td><td>${led(h, "win")}</td><td>${led(h, "place")}</td></tr>`
+  const rows = r.horses.map(h => `<tr><td><span class="saddle" style="background:${COLORS[h.no - 1]}">${h.no}</span></td><td>${esc(h.horse_zh)} <small class="muted" style="color:#8fb59a">${esc(h.ticker)}</small><br><span class="form-dots">${h.form.map(x => x ?? "未").join(" ")}</span></td><td>${led(h, "win")}</td><td>${led(h, "place")}</td></tr>`
     + (slip.ticker === h.ticker ? slipRow(h) : "")).join("");
   $("betview").innerHTML = `
     <div id="betnote" class="betnote" role="alert" hidden></div>

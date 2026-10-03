@@ -119,6 +119,45 @@ def fetch_recent(tickers: list[str], days: int = 14) -> None:
     print(f"recent: {new['stock_id'].nunique()} tickers, {new['date'].min()} .. {new['date'].max()}")
 
 
+def download_earnings(tickers: list[str]) -> pd.DataFrame:
+    """Reported quarters (EPS estimate / actual / surprise %) from Yahoo for tickers the stored snapshot has no earnings for."""
+    import yfinance as yf
+
+    rows = []
+    for t in tickers:
+        try:
+            df = yf.Ticker(t).get_earnings_dates(limit=16)
+        except Exception as e:  # noqa: BLE001
+            print(f"earnings {t}: {e}", file=sys.stderr)
+            continue
+        if df is None or df.empty:
+            continue
+        df = df.dropna(subset=["Reported EPS"])
+        for idx, r in df.iterrows():
+            rows.append({"date": pd.Timestamp(idx).tz_localize(None).strftime("%Y-%m-%d") if pd.Timestamp(idx).tzinfo else pd.Timestamp(idx).strftime("%Y-%m-%d"),
+                         "stock_id": t, "eps_estimate": r.get("EPS Estimate"), "eps_actual": r.get("Reported EPS"),
+                         "surprise_pct": r.get("Surprise(%)")})
+    return pd.DataFrame(rows, columns=["date", "stock_id", "eps_estimate", "eps_actual", "surprise_pct"])
+
+
+def fetch_missing_earnings(tickers: list[str]) -> None:
+    """Fill the earnings the S&P snapshot does not have (Nasdaq-only names, new index members) into data/extra_earnings.csv."""
+    snap = dl.REPO / "data" / "us_earnings_snapshot.parquet"
+    have = set(pd.read_parquet(snap, columns=["stock_id"])["stock_id"]) if snap.exists() else set()
+    missing = sorted(set(tickers) - have)
+    if not missing:
+        return
+    new = download_earnings(missing)
+    if new.empty:
+        print(f"earnings: nothing returned for {len(missing)} tickers", file=sys.stderr)
+        return
+    old = pd.read_csv(dl.EXTRA_EARNINGS) if dl.EXTRA_EARNINGS.exists() else pd.DataFrame()
+    out = dl.merge_earnings(old, new) if len(old) else new
+    out["date"] = pd.to_datetime(out["date"]).dt.strftime("%Y-%m-%d")
+    out.to_csv(dl.EXTRA_EARNINGS, index=False)
+    print(f"earnings: {out['stock_id'].nunique()} extra tickers, {len(out)} rows (asked for {len(missing)})")
+
+
 def main() -> None:
     try:
         ndx, status = fetch_ndx_list()
@@ -137,6 +176,10 @@ def main() -> None:
     except Exception:  # noqa: BLE001
         spx = []
     fetch_recent(sorted(set(spx) | set(ndx)))
+    try:
+        fetch_missing_earnings(sorted(set(spx) | set(ndx)))
+    except Exception as e:  # noqa: BLE001
+        print(f"earnings top-up failed: {e}", file=sys.stderr)
     snap = dl.load_long(str(pd.Timestamp.today().date() - pd.Timedelta(days=15)))
     have = set(snap.loc[snap["stock_id"].isin(ndx) & snap["industry"].ne(""), "stock_id"])
     missing = sorted(set(ndx) - have)

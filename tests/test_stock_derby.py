@@ -271,3 +271,35 @@ def test_every_cycle_has_a_live_race_with_capped_odds_and_replayable_history():
                 assert h["odds_place"] <= h["odds_win"] + 1e-9
             for r in blk["races"][1:]:                          # every finished period can be replayed and settled
                 assert "dates" in r and all("path" in h for h in r["horses"]) and r["id"] in d["settled"]
+
+
+def test_form_is_the_real_race_record_and_unentered_is_marked():
+    d = _doc()
+    for pk, pool in d["pools"].items():
+        for dist, blk in pool.items():
+            rs = {r["k"]: r for r in blk["races"]}
+            for r in blk["races"]:
+                for h in r["horses"]:
+                    assert len(h["form"]) == 4 and h["n_ran"] == sum(x is not None for x in h["form"])
+                    if h["n_ran"] == 0:
+                        assert h["style"] == "未知" and h["early_rank"] is None and "首次出賽" in h["comment"]
+                    prev = rs.get(r["k"] + 1)                       # form[0] must equal what the horse really did last period
+                    if prev and prev["status"] == "done":
+                        real = next((x["result"] for x in prev["horses"] if x["ticker"] == h["ticker"]), None)
+                        assert h["form"][0] == real, (pk, dist, h["ticker"])
+
+
+def test_missing_earnings_are_filled_from_the_extra_file(monkeypatch, tmp_path):
+    import types
+    import data_loader as dl
+    snap = pd.DataFrame({"date": ["2026-07-30"], "stock_id": ["AAA"], "eps_estimate": [1.0], "eps_actual": [1.1], "surprise_pct": [10.0]})
+    extra = pd.DataFrame({"date": ["2026-07-31"], "stock_id": ["MSTR"], "eps_estimate": [-1.0], "eps_actual": [-0.5], "surprise_pct": [50.0]})
+    merged = dl.merge_earnings(snap, extra)
+    assert set(merged["stock_id"]) == {"AAA", "MSTR"}
+
+    idx = pd.DatetimeIndex(["2026-07-31", "2026-10-30"], tz="America/New_York")                 # one reported, one still to come
+    df = pd.DataFrame({"EPS Estimate": [-1.0, -0.8], "Reported EPS": [-0.5, float("nan")], "Surprise(%)": [50.0, float("nan")]}, index=idx)
+    fake = types.SimpleNamespace(Ticker=lambda t: types.SimpleNamespace(get_earnings_dates=lambda limit: df))
+    monkeypatch.setitem(sys.modules, "yfinance", fake)
+    out = fe.download_earnings(["MSTR"])
+    assert len(out) == 1 and out.iloc[0]["stock_id"] == "MSTR" and out.iloc[0]["date"] == "2026-07-31" and out.iloc[0]["surprise_pct"] == 50.0

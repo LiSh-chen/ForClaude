@@ -306,19 +306,47 @@ def comment(h: dict, kf: list[dict]) -> str:
     labels = {f["id"]: f["horse"] for f in kf}
     have = {k: v for k, v in h["ability"].items() if v is not None}
     parts = []
-    done = [x for x in h["form"] if x is not None]
-    if done:
-        top3 = sum(1 for x in done if x <= 3)
-        parts.append(f"近{len(done)}戰{top3}次前三" if top3 else f"近{len(done)}戰未進前三")
-    parts.append(f"跑法{h['style']}")
+    ran = [x for x in h["form"] if x is not None]
+    if ran:
+        top3 = sum(1 for x in ran if x <= 3)
+        parts.append(f"近4期出場{len(ran)}次、{top3}次前三" if top3 else f"近4期出場{len(ran)}次、未進前三")
+    else:
+        parts.append("首次出賽")
+    parts.append(f"跑法{h['style']}" if h["early_rank"] is not None else "跑法未知")
     if have:
         ab = sorted(have.items(), key=lambda kv: -kv[1])
         parts.append(f"強項「{labels[ab[0][0]]}」")
         if ab[-1][1] < 35:
             parts.append(f"弱項「{labels[ab[-1][0]]}」")
-    if len(have) < len(kf):
-        parts.append("新馬，部分能力無資料")
+    miss = [labels[k] for k, v in h["ability"].items() if v is None]
+    if miss:
+        parts.append(f"缺資料：{'、'.join(miss)}（其餘項目重新配分計算）")
     return "，".join(parts)
+
+
+_REC: dict = {}
+
+
+def period_record(close, tickers, pool_key, dist, k, live_end) -> dict:
+    """Real results of the finished period k: {ticker: (final rank, rank at the 1/3 point)} for the horses that
+    were in that period's field.  Used for 近績 / 跑法 (a horse that was not in the field simply has no entry)."""
+    key = (pool_key, dist, k)
+    if key in _REC:
+        return _REC[key]
+    dates = close.index
+    b = race_bounds(dates, dist, k, live_end)
+    s_, e_, chain = b["s"], b["e"], b["chain"]
+    rec: dict = {}
+    if s_ >= 0 and e_ is not None and e_ > s_ and chain[1] >= 0 and chain[1] < s_:
+        field, _, _ = select_field_prior(close, tickers, chain[1], s_)
+        field = [t for t in field if pd.notna(close[t].iloc[e_])]
+        if len(field) >= FIELD:
+            final = ranks_of(close[field].iloc[e_] / close[field].iloc[s_] - 1)
+            third = s_ + max(1, (e_ - s_) // 3)
+            early = ranks_of(close[field].iloc[third] / close[field].iloc[s_] - 1)
+            rec = {t: (int(final[t]), int(early[t])) for t in field}
+    _REC[key] = rec
+    return rec
 
 
 def evaluate(close, ofac, kf, tickers, dist, b) -> dict | None:
@@ -348,23 +376,24 @@ def build_race(tickers, p, ofac, kf, sector_of, dist, k, live_end, manifest) -> 
         return None
     s, e, chain = b["s"], b["e"], b["chain"]
     pred_order = list(ev["score"].loc[ev["field"]].sort_values(ascending=False).index)
-    past = [window_ranks(close, pred_order, chain[j + 1], chain[j]) if chain[j + 1] >= 0 else None for j in range(N_FORM)]
+    pk = ev_pool_id(tickers)
+    recs = [period_record(close, tickers, pk, dist, k + j, live_end) for j in range(1, N_FORM + 1)]      # previous periods, newest first
     done = e is not None
     final_rank = ranks_of(ev["ret"].loc[pred_order]) if done else None
     looks = assign_looks(pred_order, manifest)
 
     horses = []
     for no, t in enumerate(pred_order, 1):
-        form = [int(q[1][t]) if q and pd.notna(q[1][t]) else None for q in past]
-        early = [q[0][t] for q in past[:3] if q and pd.notna(q[0][t])]
-        early_avg = float(np.mean(early)) if early else 5.5
-        style, style_desc = style_label(early_avg)
+        form = [rec[t][0] if t in rec else None for rec in recs]               # real finishing ranks; None = did not run
+        early = [rec[t][1] for rec in recs if t in rec][:3]
+        early_avg = float(np.mean(early)) if early else None
+        style, style_desc = style_label(early_avg) if early else ("未知", "首次出賽，還沒有跑法紀錄")
         pct = ev["pct"]
         ability = {f["id"]: (None if pd.isna(pct.loc[t, f["id"]]) else round(float(pct.loc[t, f["id"]]), 1)) for f in kf}
         raw = {f["id"]: (None if pd.isna(ofac[f["id"]].iloc[s][t]) else round(float(ofac[f["id"]].iloc[s][t]), 4)) for f in kf}
         total = round(float(ev["score"][t]), 1)
         h = {"no": no, "ticker": t, "sector": SECTOR_ZH.get(sector_of.get(t, ""), "—"), **looks[t],
-             "form": form, "style": style, "style_desc": style_desc, "early_rank": round(early_avg, 1) if early else None,
+             "form": form, "style": style, "style_desc": style_desc, "early_rank": round(early_avg, 1) if early else None, "n_ran": sum(x is not None for x in form),
              "ability": ability, "raw": raw, "total": total, "stars": stars(total), "pred": no,
              "mark": MARKS[no - 1] if no <= 5 else "", "price_start": round(float(close[t].iloc[s]), 2),
              "prior_ret": round(float(close[t].iloc[s] / close[t].iloc[chain[1]] - 1), 4),
