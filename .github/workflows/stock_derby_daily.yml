@@ -9,6 +9,11 @@ name: Stock Derby Daily Build
 # 手動執行 refresh_factors=true 可重跑因子研究（factor_study.py），重新挑選五大關鍵參數。
 
 on:
+  schedule:
+    # 固定每天更新兩次（美東收盤後、隔天開盤前）。賽馬自己用 yfinance 補抓最近兩週的價格，
+    # 不必等上游快照；第二次是為了撿到 Yahoo 較晚才定案的收盤資料。
+    - cron: "30 23 * * 1-5"     # 23:30 UTC = 美東 19:30/18:30，收盤 3.5 小時後
+    - cron: "30 12 * * 2-6"     # 12:30 UTC = 美東 08:30/07:30，隔天開盤前
   workflow_run:
     workflows: ["Daily US Market Data Ingest"]
     types: [completed]
@@ -43,7 +48,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install pandas numpy pyarrow yfinance requests lxml
-      - name: Top up Nasdaq-100 names missing from the S&P snapshot
+      - name: Refresh Nasdaq-100 list + recent prices (all tickers) + Nasdaq-100-only history
         run: python fetch_extras.py
       - name: Re-pick the five key factors
         if: inputs.refresh_factors
@@ -56,7 +61,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data
           git diff --cached --quiet || git commit -m "chore: stock-derby data $(date -u +%F)"
-          git push
+          git pull --rebase -q origin "${GITHUB_REF_NAME}" && git push
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with: { path: stock-derby }

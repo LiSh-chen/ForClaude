@@ -15,6 +15,7 @@ HERE = Path(__file__).parent
 REPO = HERE.parent
 SNAPSHOTS = ["us_prices_snapshot.parquet", "us_prices_snapshot.part2.parquet"]
 EXTRA_CSV = HERE / "data" / "extra_prices.csv"
+RECENT_CSV = HERE / "data" / "recent_prices.csv"        # last ~2 weeks for every ticker, refreshed by fetch_extras.py
 COLS = ["date", "stock_id", "high", "low", "close", "volume"]
 
 
@@ -27,8 +28,29 @@ def load_long(since: str = "2009-01-01") -> pd.DataFrame:
         parts.append(ex[COLS + ["industry"]])
     df = pd.concat(parts, ignore_index=True)
     df["date"] = pd.to_datetime(df["date"])
-    df = df[df["date"] >= since]
-    return df.drop_duplicates(["date", "stock_id"], keep="last")
+    df = df[df["date"] >= since].dropna(subset=["close"])           # a half-finished session (NaN close) is not a row
+    df = df.drop_duplicates(["date", "stock_id"], keep="last")
+    if RECENT_CSV.exists():
+        rec = pd.read_csv(RECENT_CSV, parse_dates=["date"]).dropna(subset=["close"])
+        df = splice_recent(df, rec)
+    return df
+
+
+def splice_recent(base: pd.DataFrame, recent: pd.DataFrame) -> pd.DataFrame:
+    """Append sessions newer than `base` from `recent`, rescaled so the two series agree on their last common day.
+    (The stored history was dividend/split-adjusted at an earlier download, the recent one at today's.)"""
+    last = base.groupby("stock_id")["date"].max().rename("last_base")
+    m = base[["stock_id", "date", "close"]].merge(recent[["stock_id", "date", "close"]], on=["stock_id", "date"], suffixes=("_b", "_r"))
+    if m.empty:
+        return base
+    m = m.sort_values("date").groupby("stock_id").tail(1).set_index("stock_id")
+    ratio = (m["close_b"] / m["close_r"]).rename("ratio")
+    new = recent.join(last, on="stock_id").join(ratio, on="stock_id")
+    new = new[new["last_base"].notna() & new["ratio"].notna() & (new["date"] > new["last_base"])].copy()
+    for c in ("high", "low", "close"):
+        new[c] = new[c] * new["ratio"]
+    new["industry"] = new["stock_id"].map(base.sort_values("date").drop_duplicates("stock_id", keep="last").set_index("stock_id")["industry"]).fillna("")
+    return pd.concat([base, new[base.columns]], ignore_index=True)
 
 
 def panels(df: pd.DataFrame) -> dict[str, pd.DataFrame]:

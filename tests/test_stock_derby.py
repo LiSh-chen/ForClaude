@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import json
+import math
 import pandas as pd
 import pytest
 
@@ -74,14 +75,14 @@ def test_derby_json_structure():
     d = _doc()
     assert set(d["pools"]) == {"spx", "ndx", "all"} and len(d["key_factors"]) == 5
     for pool in d["pools"].values():
-        assert set(pool) == {"1m", "3m", "6m", "q"}
-        for dist, blk in pool.items():
-            assert 1 <= len(blk["races"]) <= bd.N_RACES
-            assert [r["k"] for r in blk["races"]] == sorted(r["k"] for r in blk["races"])
+        assert set(pool) == set(bd.DISTS) == {"d", "w", "w2", "m", "q", "h"}
+        for blk in pool.values():
+            rs = blk["races"]
+            assert 2 <= len(rs) <= bd.N_HIST + 1
+            assert [r["k"] for r in rs] == sorted(r["k"] for r in rs) and rs[0]["k"] == 0
+            assert rs[0]["status"] == "upcoming" and all(r["status"] == "done" for r in rs[1:])
     for dist, race in _all_races(d):
         assert len(race["horses"]) == 10
-
-
 def test_every_horse_has_sprite_sheet_and_name():
     pytest.importorskip("PIL")        # Pillow isn't in requirements.txt (only the sprite tools need it)
     from PIL import Image
@@ -138,18 +139,40 @@ def test_key_factors_have_horse_wording_and_params():
         assert f["horse"] and f["meaning"] and f["param"] and f["avg_ic"] >= 0 and "sign" not in f
 
 
-def test_race_bounds_quarter_and_months():
+def test_race_bounds_calendar_periods():
     dates = pd.bdate_range("2025-01-01", "2026-10-01")
-    live = dates.get_loc(pd.Timestamp("2026-09-30"))             # data through the quarter-end close -> Q4 is the race in progress
+    live = dates.get_loc(pd.Timestamp("2026-09-30"))            # data through the quarter-end close
     q0 = bd.race_bounds(dates, "q", 0, live)
-    assert q0["e"] is None and q0["planned_end"] == "2026-12-31"
-    assert dates[q0["s"]] == pd.Timestamp("2026-09-30")          # starts at the last quarter-end close
+    assert q0["e"] is None and q0["label"] == "2026Q4" and dates[q0["s"]] == pd.Timestamp("2026-09-30")
     q1 = bd.race_bounds(dates, "q", 1, live)
-    assert dates[q1["e"]] == dates[q0["s"]] and dates[q1["s"]] <= pd.Timestamp("2026-06-30")
-    m1 = bd.race_bounds(dates, "3m", 1, live)
-    assert m1["e"] == bd.race_bounds(dates, "3m", 0, live)["s"]   # consecutive, non-overlapping races
+    assert dates[q1["e"]] == dates[q0["s"]] and q1["label"] == "2026Q3"
+    w0 = bd.race_bounds(dates, "w", 0, live)                    # Wed 09-30 -> the week of 09-28 is in progress
+    assert dates[w0["s"]] == pd.Timestamp("2026-09-25") and w0["label"] == "09/28~10/02"
+    w1 = bd.race_bounds(dates, "w", 1, live)
+    assert dates[w1["e"]] == pd.Timestamp("2026-09-25") and w1["e"] == w0["s"]            # consecutive, non-overlapping
+    d0, d1 = bd.race_bounds(dates, "d", 0, live), bd.race_bounds(dates, "d", 1, live)
+    assert d0["s"] == live and d1["e"] == live and d1["s"] == live - 1
+    h0 = bd.race_bounds(dates, "h", 0, live)
+    assert h0["label"] == "2026H2" and dates[h0["s"]] == pd.Timestamp("2026-06-30")
+    m2 = bd.race_bounds(dates, "m", 0, live)
+    assert m2["label"] == "2026-10" and dates[m2["s"]] == pd.Timestamp("2026-09-30")
 
 
+def test_next_session_skips_weekends_and_holidays():
+    assert bd.next_session(pd.Timestamp("2026-10-02")) == pd.Timestamp("2026-10-05")      # Fri -> Mon
+    assert bd.next_session(pd.Timestamp("2026-11-25")) == pd.Timestamp("2026-11-27")      # Thanksgiving 11-26
+    assert bd.last_session_on_or_before(pd.Timestamp("2026-10-03")) == pd.Timestamp("2026-10-02")
+
+
+def test_recent_prices_are_spliced_onto_the_stored_history():
+    import data_loader as dl
+    base = pd.DataFrame({"stock_id": "A", "date": pd.to_datetime(["2026-09-29", "2026-09-30"]), "high": [10.1, 10.4],
+                         "low": [9.8, 9.9], "close": [10.0, 10.3], "volume": 1, "industry": "IT"})
+    rec = pd.DataFrame({"stock_id": "A", "date": pd.to_datetime(["2026-09-30", "2026-10-01"]), "high": [20.8, 21.2],
+                        "low": [19.8, 20.0], "close": [20.6, 21.0], "volume": 1})        # re-adjusted: everything x2
+    out = dl.splice_recent(base, rec)
+    assert list(out["date"].dt.strftime("%m-%d")) == ["09-29", "09-30", "10-01"]
+    assert abs(out["close"].iloc[-1] - 10.5) < 1e-9                                     # rescaled to the stored basis
 def test_odds_table_is_a_proper_distribution_with_house_edge():
     sc = pd.Series({"a": 90.0, "b": 60.0, "c": 50.0, "d": 40.0, "e": 30.0, "f": 20.0})
     od = bd.odds_table(sc)
@@ -181,14 +204,12 @@ def test_months_back_is_calendar_based():
     assert bd.months_back(dates, 5, 6) == -1             # before the data starts
 
 
-def test_select_field_is_top_ten_by_return():
-    cols = {f"S{i}": [100.0, 100.0 + i] for i in range(15)}
-    cols["NEW"] = [np.nan, 150.0]                         # no start price -> not eligible
+def test_field_is_previous_periods_top_ten():
+    cols = {f"S{i}": [100.0, 100.0 + i, 110.0] for i in range(15)}
+    cols["NEW"] = [np.nan, 150.0, 160.0]                  # no price at the start of the previous period -> not eligible
     close = pd.DataFrame(cols)
-    field, ret, ok = bd.select_field(close, list(cols), 0, 1)
+    field, mom, ok = bd.select_field_prior(close, list(cols), 0, 1)
     assert field == [f"S{i}" for i in range(14, 4, -1)] and "NEW" not in ok
-
-
 def test_total_score_renormalises_missing_factors():
     pct = pd.DataFrame({"a": [100.0, 50.0], "b": [100.0, np.nan]}, index=["x", "y"])
     sc = bd.total_score(pct, np.array([0.5, 0.5]))
@@ -231,7 +252,21 @@ def test_live_block_of_the_season_in_progress():
         up = pool["q"]["races"][0]
         L = up["live"]
         assert 0 <= L["u"] <= 1 and L["total_days"] >= L["day"] + 1 and len(L["dates"]) == L["day"] + 1
-        assert L["betting_open"] == (L["u"] < L["close_u"]) and abs(L["tau"] - bd.tau(L["u"])) < 1e-3
+        assert L["betting_open"] == (L["day"] <= max(0, math.ceil(L["close_u"] * L["total_days"]) - 1)) and abs(L["tau"] - bd.tau(L["u"])) < 1e-3
+        assert L["close_at"].endswith("Z") and L["close_at"][11:] in ("13:30:00Z", "14:30:00Z")             # 09:30 New York
         for h in up["horses"]:
             assert len(h["live_path"]) == L["day"] + 1 and h["live_path"][0] == 0
             assert h["odds_win"] >= bd.MIN_ODDS and "odds_win_open" in h
+
+
+def test_every_cycle_has_a_live_race_with_capped_odds_and_replayable_history():
+    d = _doc()
+    for pk, pool in d["pools"].items():
+        for dist, blk in pool.items():
+            up = blk["races"][0]
+            assert abs(sum(h["p_win"] for h in up["horses"]) - 1) < 0.02, (pk, dist)
+            for h in up["horses"]:
+                assert bd.MIN_ODDS <= h["odds_win"] <= bd.MAX_ODDS and bd.MIN_ODDS <= h["odds_place"] <= bd.MAX_ODDS
+                assert h["odds_place"] <= h["odds_win"] + 1e-9
+            for r in blk["races"][1:]:                          # every finished period can be replayed and settled
+                assert "dates" in r and all("path" in h for h in r["horses"]) and r["id"] in d["settled"]
