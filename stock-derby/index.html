@@ -35,16 +35,20 @@
   .trackwrap { background:var(--grass); border-radius:12px; padding:4px 0 6px; position:relative; overflow:hidden; margin-top:6px; }
   .tlabels { position:relative; height:16px; font-size:11px; color:#fff; font-weight:600; }
   .tlabels span { position:absolute; top:0; white-space:nowrap; text-shadow:0 1px 2px #0008; }
-  .lane { display:flex; height:var(--lane-h,50px); margin:1px 0; background:var(--track); }
-  .lane:nth-child(even) { background:var(--track2); }
-  .gut { flex:none; width:var(--gut,62px); display:flex; align-items:center; gap:4px; padding-left:4px; overflow:hidden; background:rgba(0,0,0,.18); color:#fff; font-size:11px; font-weight:600; text-shadow:0 1px 2px #0008; }
-  .gut b { flex:none; min-width:16px; height:16px; border-radius:8px; text-align:center; line-height:16px; font-size:11px; }
-  .gut span { font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #track { position:relative; }
+  .lane { position:absolute; left:0; right:0; top:0; display:flex; height:var(--lane-h,50px); background:var(--track); transition:transform .45s ease; }
+  .lane.alt { background:var(--track2); } .lane.nt { transition:none; }
+  .gut { flex:none; width:var(--gut,74px); display:flex; flex-direction:column; justify-content:center; gap:1px; padding-left:4px; overflow:hidden; background:rgba(0,0,0,.28); color:#fff; font-size:11px; font-weight:600; text-shadow:0 1px 2px #0008; }
+  .gl1 { display:flex; align-items:center; gap:3px; min-width:0; }
+  .gl1 .rk { flex:none; min-width:16px; height:16px; border-radius:8px; background:#fff3; text-align:center; line-height:16px; font-size:11px; }
+  .gl1 .sd { flex:none; min-width:15px; height:15px; border-radius:4px; text-align:center; line-height:15px; font-size:10px; font-style:normal; }
+  .gl1 span { font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .gl2 { font-size:10px; font-variant-numeric:tabular-nums; padding-left:2px; } .gut .up { color:#8ef0a8; } .gut .down { color:#ffa3aa; }
   .field { position:relative; flex:1; background-image:linear-gradient(90deg, rgba(255,255,255,.16) 0 2px, transparent 2px); background-size:36px 100%; background-position-x:var(--gx,0px); }
   .horse { position:absolute; top:2px; left:0; will-change:transform; z-index:2; display:flex; align-items:flex-end; }
   .horse .sprite { flex:none; image-rendering:pixelated; }
   .tag { position:absolute; left:100%; bottom:1px; margin-left:3px; font-size:10px; font-weight:700; color:#fff; padding:0 5px; border-radius:8px; white-space:nowrap; }
-  .vline { position:absolute; top:0; bottom:0; width:3px; z-index:1; }
+  .vline { position:absolute; top:0; bottom:0; width:3px; z-index:3; }
   .vline.finish { width:8px; background:repeating-conic-gradient(#fff 0 25%,#222 0 50%) 0 0/8px 8px; }
   .sprite.live { animation:gallop var(--spd,.55s) steps(6) infinite; }
   .cardsp .sprite { width:72px; height:54px; background-size:504px 54px; background-position:-432px 0; image-rendering:pixelated; }
@@ -90,6 +94,10 @@
   .oddsboard th { color:#8fb59a; font-weight:500; font-size:12px; border-bottom:1px solid #1c3a28; }
   .oddsboard td { border-bottom:1px solid #12301f; }
   .saddle { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:6px; color:#fff; font-weight:800; font-size:14px; box-shadow:inset 0 -2px 0 #0004; }
+  .betnote { margin:8px 0; padding:8px 12px; border-radius:10px; background:#fff1d6; color:#7a3e00; border:2px solid #f5a623; font-weight:600; font-size:14px; }
+  .oddsboard .slip { margin:4px 0 8px; } .oddsboard td.slipcell { padding:0 2px; }
+  .led.shut { color:#6b7d70; text-shadow:none; }
+  #persel label { display:flex; gap:6px; align-items:center; flex:1; min-width:0; } #perSel { flex:1; min-width:0; max-width:100%; }
   .led { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-weight:800; font-size:16px; color:#ffd84d; text-shadow:0 0 6px #ffb80088; background:#050d08; border:1px solid #29503a; border-radius:6px; padding:3px 8px; min-width:58px; cursor:pointer; }
   .led:hover { border-color:#ffd84d; } .led.sel { background:#ffd84d; color:#1b1500; text-shadow:none; } .led[disabled] { color:#5b6b60; text-shadow:none; cursor:not-allowed; }
   .led small { display:block; font-size:10px; font-weight:400; color:#8fb59a; }
@@ -137,7 +145,7 @@
       <span class="seg" id="pool"><button data-v="spx">S&amp;P 500</button><button data-v="ndx">Nasdaq-100</button><button data-v="all">合併</button></span>
       <span class="seg" id="cyc"><button data-v="d">1天</button><button data-v="w">1週</button><button data-v="w2">2週</button><button data-v="m">1個月</button><button data-v="q">季</button><button data-v="h">半年</button></span>
     </div>
-    <div class="controls" id="persel"><label>週期 <select id="perSel"></select></label><span class="muted" id="perNote"></span></div>
+    <div class="controls" id="persel"><label>週期 <select id="perSel"></select></label></div>
 
     <section id="tab-race">
       <div id="rinfo"></div>
@@ -145,7 +153,7 @@
         <select id="speed"><option value="slow">慢</option><option value="mid" selected>中</option><option value="fast">快</option></select>
         <span class="date" id="date"></span><input type="range" id="scrub" min="0" max="0" value="0" step="any"></div>
       <div class="trackwrap"><div class="tlabels" id="tlabels"></div><div id="track"></div></div>
-      <table id="board"><thead><tr><th>名次</th><th>馬匹</th><th>漲幅</th><th>預測</th><th class="hide-narrow">起跑價</th><th class="hide-narrow" id="endcol">終點價</th></tr></thead><tbody></tbody></table>
+      <details class="box" id="boardbox"><summary>📊 詳細名次表（漲幅、預測差、起跑價／終點價）</summary><table id="board"><thead><tr><th>名次</th><th>馬匹</th><th>漲幅</th><th>預測</th><th>起跑價</th><th id="endcol">終點價</th></tr></thead><tbody></tbody></table></details>
     </section>
 
     <section id="tab-card" hidden>
@@ -252,14 +260,15 @@ function renderRace() {
 /* ---- pack-camera track: the leader is fixed at the right, every other horse sits behind it by its gap ---- */
 const GMIN = 0.06, VS = 0.62;                             // smallest zoom reference (6 pp); finishing sprint speed
 function layout() {
-  const W = $("track").clientWidth || 320, narrow = W < 560, gut = narrow ? 62 : 132;
+  const W = $("track").clientWidth || 320, narrow = W < 560, gut = narrow ? 76 : 150;
   const top = $("track").getBoundingClientRect().top + scrollY;             // lanes must fit between here and the bottom of the screen
   const laneH = clamp(Math.floor((innerHeight - top - 28) / 10), narrow ? 24 : 34, 56);
   const scale = (laneH - 4) / 36, spW = 48 * scale, spH = 36 * scale, Wf = W - gut;
+  const rowH = laneH + 2;
   const xmin = spW * 0.95 + 2, xl = Math.max(xmin + 40, Wf * 0.74);          // leader's nose x
   const cap = (Wf - 3 - xmin) / (xl - xmin);                                 // furthest nose position after the line, in frac units
-  G = { ...G, W, narrow, gut, laneH, scale, spW, spH, Wf, xmin, xl, nose: 46 * scale, cap, rankStep: (0.8 * (Wf - 3 - xl) / 9) / (xl - xmin) };
-  const tr = $("track").style; tr.setProperty("--lane-h", laneH + "px"); tr.setProperty("--gut", gut + "px");
+  G = { ...G, W, narrow, gut, laneH, rowH, scale, spW, spH, Wf, xmin, xl, nose: 46 * scale, cap, rankStep: (0.8 * (Wf - 3 - xl) / 9) / (xl - xmin) };
+  const tr = $("track").style; tr.setProperty("--lane-h", laneH + "px"); tr.setProperty("--gut", gut + "px"); tr.height = (10 * rowH) + "px";
 }
 // Gaussian-smooth the daily series (edges replicated, both ends pinned) so one-day jumps become gentle surges
 function smooth(path, sigma) {
@@ -288,7 +297,7 @@ function setupTrack() {
   const hs = race.horses, sigma = Math.max(1.5, race.days / 25);
   hs.forEach(h => { h.sp = smooth(h.path, sigma); });
   $("track").innerHTML = hs.map(h =>
-    `<div class="lane" data-n="${h.no}"><div class="gut"><b style="background:${COLORS[h.no - 1]}">${h.no}</b><span>${G.narrow ? esc(h.ticker) : esc(h.horse_zh) + " " + esc(h.ticker)}</span></div>` +
+    `<div class="lane nt" data-n="${h.no}"><div class="gut"><div class="gl1"><b class="rk"></b><i class="sd" style="background:${COLORS[h.no - 1]}">${h.no}</i><span>${G.narrow ? esc(h.ticker) : esc(h.horse_zh) + " " + esc(h.ticker)}</span></div>${G.laneH >= 34 ? '<div class="gl2"></div>' : ""}</div>` +
     `<div class="field"><div class="horse"><div class="sprite" style="background-image:url(assets/horses/${h.sprite}.png);width:${G.spW}px;height:${G.spH}px;background-size:${7 * G.spW}px ${G.spH}px"></div>${G.narrow ? "" : `<span class="tag" style="background:${COLORS[h.no - 1]}"></span>`}</div></div></div>`).join("");
   const over = document.createElement("div");
   over.style.cssText = `position:absolute;top:0;bottom:0;left:${G.gut}px;right:0;pointer-events:none`;
@@ -296,7 +305,7 @@ function setupTrack() {
   $("track").style.position = "relative"; $("track").append(over);
   $("tlabels").innerHTML = `<span style="left:${G.gut + 6}px">領先馬在右，其餘依落後幅度排左</span>`;
   $("scrub").max = Math.max(race.days, 0.001);
-  G.ground = 0;
+  G.ground = 0; G.firstPaint = true;
 }
 
 function resetPhysics(t) {
@@ -328,6 +337,16 @@ function stepPhysics(dt) {
 }
 
 function paint(running) {
+  // the track doubles as the standings: lanes are ordered by current rank, the leader's lane is on top
+  const cur = race.horses.map((h, i) => ({ h, i, r: sample(h.path, T) })).sort((a, b) => b.r - a.r);
+  const finished = race.finish !== false && T >= race.days && race.days > 0;
+  cur.forEach(({ h, r }, rank) => {
+    const lane = $("track").querySelector(`.lane[data-n="${h.no}"]`);
+    lane.style.transform = `translateY(${rank * G.rowH}px)`; lane.classList.toggle("alt", rank % 2 === 1);
+    lane.querySelector(".rk").textContent = finished && rank === 0 ? "🏆" : rank + 1;
+    const pc = lane.querySelector(".gl2"); if (pc) { pc.textContent = pct(r); pc.className = "gl2 " + cls(r); }
+  });
+  if (G.firstPaint) { G.firstPaint = false; requestAnimationFrame(() => $("track").querySelectorAll(".lane.nt").forEach(l => l.classList.remove("nt"))); }
   race.horses.forEach((h, i) => {
     const s = st[i], el = $("track").querySelector(`.lane[data-n="${h.no}"] .horse`), x = G.xmin + s.pos * (G.xl - G.xmin) - G.nose;
     el.style.transform = `translateX(${x}px)`;
@@ -412,7 +431,7 @@ function renderMethod(r) {
 function renderTruth(r) {
   const cv = r.coverage, ns = D.ndx_status;
   const nw = ns.source === "fallback" ? `<li class="warn">⚠️ Nasdaq-100 名單下載失敗，使用內建後備名單，可能不是最新。</li>` : ns.source === "cache" ? `<li class="warn">⚠️ Nasdaq-100 名單本次更新失敗，沿用 ${esc(ns.fetched_at || "舊")} 的名單。</li>` : `<li>Nasdaq-100 名單：${esc(ns.source)}（${esc(ns.fetched_at)}，${ns.count} 檔）。</li>`;
-  $("truth").innerHTML = `<ul><li>股價：Yahoo Finance 日收盤價（還原股利與分割），每天固定兩次由 GitHub Actions 更新（美東收盤後、隔天開盤前），資料至 <b>${esc(D.asof)}</b>。</li><li>S&amp;P 500 名單：維基百科現任成分股。</li>${nw}
+  $("truth").innerHTML = `<ul><li>股價：Yahoo Finance 日收盤價（還原股利與分割），每天固定三次由 GitHub Actions 更新（美東收盤後、半夜、隔天開盤前），資料至 <b>${esc(D.asof)}</b>。</li><li>S&amp;P 500 名單：維基百科現任成分股。</li>${nw}
     <li>本場納入 ${cv.with_prices} / ${cv.pool_size} 檔${cv.missing.length ? "（無報價：" + esc(cv.missing.join("、")) + "）" : ""}。</li>
     <li>馬名、毛色、靈感說明是創作；漲幅、名次、近績、跑法、能力、賠率都由上述資料計算。</li></ul>`;
 }
@@ -463,39 +482,51 @@ function ticketHtml(b) {
     ${b.status === "lost" ? `<div class="r"><span>實際名次</span><span>第 ${b.rank ?? "—"} 名</span></div>` : ""}
     ${barcode(ticketNo(b))}<div class="stamp ${stamp[0]}">${stamp[1]}</div></div>`;
 }
+// next scheduled data refresh (UTC): 23:30 Mon-Fri, 05:30 and 12:30 Tue-Sat
+function nextRefresh(now = new Date()) {
+  const plan = [[23, 30, [1, 2, 3, 4, 5]], [5, 30, [2, 3, 4, 5, 6]], [12, 30, [2, 3, 4, 5, 6]]];
+  let best = null;
+  for (let d = 0; d < 8; d++) for (const [h, m, days] of plan) {
+    const t = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + d, h, m));
+    if (t > now && days.includes(t.getUTCDay()) && (!best || t < best)) best = t;
+  }
+  return best;
+}
+function closedReason(r) {
+  const L = r.live, nx = nextRefresh();
+  const why = !L.betting_open ? `這一期已過 ${(L.close_u * 100).toFixed(0)}% 的交易日，不再收單` : `已過截止時間（${fmtClose(L.close_at)}，美股開盤）`;
+  return `${why}。結果預計 ${md(r.planned_end)} 收盤後揭曉；下一期要等這一期的結果出爐才會開始（約 ${md(L.next_first_session)} 起），屆時資料更新後（下次約 ${fmtClose(nx.toISOString())}）就能下注。`;
+}
+function note(msg) { const el = $("betnote"); if (!el) return; el.textContent = msg; el.hidden = false; el.scrollIntoView({ block: "center", behavior: "smooth" }); }
+
 function renderBet() {
   const r = liveOf();
   if (!r) { $("betview").innerHTML = `<div class="box">這個馬群／週期目前沒有進行中的賽事。</div>`; return; }
   const L = r.live, open = isOpen(r), mine = bank.bets.filter(b => b.raceId === r.id);
   if (!slip.ticker || !r.horses.find(h => h.ticker === slip.ticker)) slip.ticker = null;
-  const sh = slip.ticker && r.horses.find(h => h.ticker === slip.ticker);
-  const odds = sh ? (slip.type === "win" ? sh.odds_win : sh.odds_place) : 0;
-  const rows = r.horses.map(h => {
-    const cell = type => { const now = type === "win" ? h.odds_win : h.odds_place, o = type === "win" ? h.odds_win_open : h.odds_place_open;
-      return `<button class="led ${slip.ticker === h.ticker && slip.type === type ? "sel" : ""}" data-pick="${h.ticker}" data-type="${type}" ${open ? "" : "disabled"}>${now.toFixed(1)}${Math.abs(now - o) >= 0.05 ? `<small>開 ${o.toFixed(1)}</small>` : ""}</button>`; };
-    return `<tr><td><span class="saddle" style="background:${COLORS[h.no - 1]}">${h.no}</span></td><td>${esc(h.horse_zh)} <small class="muted" style="color:#8fb59a">${esc(h.ticker)}</small> ${swatch(h)}<br><span class="form-dots">${h.form.map(x => x ?? "–").join(" ")}</span></td><td>${cell("win")}</td><td>${cell("place")}</td></tr>`;
-  }).join("");
-  const open_ = fmtClose(L.close_at);
+  const oddsOf = (h, t) => t === "win" ? h.odds_win : h.odds_place;
+  const led = (h, type) => { const now = oddsOf(h, type), o = type === "win" ? h.odds_win_open : h.odds_place_open;
+    return `<button class="led ${open ? "" : "shut"} ${slip.ticker === h.ticker && slip.type === type ? "sel" : ""}" data-pick="${h.ticker}" data-type="${type}">${now.toFixed(1)}${Math.abs(now - o) >= 0.05 ? `<small>開 ${o.toFixed(1)}</small>` : ""}</button>`; };
+  const slipRow = h => {
+    const odds = oddsOf(h, slip.type), enough = slip.stake <= bank.balance;
+    return `<tr><td colspan="4" class="slipcell"><div class="slip">
+      <h3>投注單 <small>BET SLIP・${esc(CYC_NAME[cyc])}賽 ${esc(r.label || md(r.start))}</small></h3>
+      <div class="step">${slip.type === "win" ? "獨贏：押它拿第 1 名" : "位置：押它進前 3 名（只要前三名就中，賠率較低）"}　<a href="#" data-flip="${slip.type === "win" ? "place" : "win"}" style="color:#b0314a">改押${slip.type === "win" ? "位置" : "獨贏"}</a></div>
+      <div class="sum" style="border:0;margin:0;padding:0"><span>#${h.no} ${esc(h.horse_zh)} @ ${odds.toFixed(1)}</span><span>預計派彩 <b>${Math.round(slip.stake * odds)}</b></span></div>
+      <div class="step">金額（點）</div>
+      <div class="stakes">${[10, 50, 100, 200, 500].map(v => `<button data-stake="${v}" class="${slip.stake === v ? "on" : ""}">${v}</button>`).join("")}</div>
+      <div class="sum"><span class="muted">${slip.type === "place" ? `例：押 100 點、賠率 ${odds.toFixed(1)}，進前三名 → 拿回 ${Math.round(100 * odds)} 點` : `例：押 100 點、賠率 ${odds.toFixed(1)}，拿第 1 名 → 拿回 ${Math.round(100 * odds)} 點`}${enough ? "" : "　<b style=\"color:#b0314a\">點數不足</b>"}</span>
+        <span><button id="cancelSlip" style="background:#fff;color:#2a2320">取消</button> <button class="go" id="confirmBet">確認投注</button></span></div></div></td></tr>`;
+  };
+  const rows = r.horses.map(h => `<tr><td><span class="saddle" style="background:${COLORS[h.no - 1]}">${h.no}</span></td><td>${esc(h.horse_zh)} <small class="muted" style="color:#8fb59a">${esc(h.ticker)}</small><br><span class="form-dots">${h.form.map(x => x ?? "–").join(" ")}</span></td><td>${led(h, "win")}</td><td>${led(h, "place")}</td></tr>`
+    + (slip.ticker === h.ticker ? slipRow(h) : "")).join("");
   $("betview").innerHTML = `
+    <div id="betnote" class="betnote" role="alert" hidden></div>
     <div class="box">💰 虛擬點數 <b>${bank.balance}</b>　<span class="muted">待開獎 ${bank.bets.filter(b => b.status === "pending").length} 張</span>　<button id="resetBank" class="i" style="font-size:11px">重設</button>${tip(HELP.odds)}</div>
     <div class="oddsboard">
-      <div class="ob-title"><span>賠率板</span><small>${esc(cycTitle(r))}</small><span class="ob-status ${open ? "open" : "shut"}">${open ? "開放投注" : "已截止"}</span></div>
-      <div class="ob-title"><small>${open ? `截止 ${open_}（美股開盤前）・目前抽水 ${(L.tau * 100).toFixed(0)}%・越晚下注賠率越低` : `已截止，結果於期末收盤後揭曉（預計 ${md(r.planned_end)}）`}</small></div>
-      <table><thead><tr><th>號</th><th>馬匹／近績</th><th>獨贏</th><th>位置${tip(HELP.place)}</th></tr></thead><tbody>${rows}</tbody></table>
-    </div>
-    <div class="slip">
-      <h3>投注單 <small>BET SLIP・${esc(CYC_NAME[cyc])}賽 ${esc(r.label || md(r.start))}</small></h3>
-      <div class="step">① 選馬</div>
-      <div>${r.horses.map(h => `<span class="nbox ${slip.ticker === h.ticker ? "on" : ""}" data-pickno="${h.ticker}" ${open ? "" : "disabled"}><i>${h.no}</i>${esc(h.ticker)}</span>`).join("")}</div>
-      <div class="step">② 玩法</div>
-      <div class="types">
-        <div class="typecard ${slip.type === "win" ? "on" : ""}" data-type="win"><b>獨贏</b>押它拿第 1 名<br><span class="muted">賠率高、較難中</span></div>
-        <div class="typecard ${slip.type === "place" ? "on" : ""}" data-type="place"><b>位置</b>押它進前 3 名<br><span class="muted">只要前三名就中，賠率較低</span></div>
-      </div>
-      <div class="step">③ 金額（點）</div>
-      <div class="stakes">${[10, 50, 100, 200, 500].map(v => `<button data-stake="${v}" class="${slip.stake === v ? "on" : ""}">${v}</button>`).join("")}</div>
-      <div class="sum"><span>${sh ? `#${sh.no} ${esc(sh.horse_zh)}・${typeName(slip.type)} @ ${odds.toFixed(1)}` : "請先選一匹馬"}</span><span>預計派彩 <b>${sh ? Math.round(slip.stake * odds) : "—"}</b></span></div>
-      <div class="sum" style="border:0;margin-top:6px"><span class="muted">${slip.type === "place" ? "例：押位置 100 點、賠率 2.1，馬進前三名 → 拿回 210 點。" : "例：押獨贏 100 點、賠率 7.4，馬拿第 1 名 → 拿回 740 點。"}</span><button class="go" id="confirmBet" ${open && sh && slip.stake <= bank.balance ? "" : "disabled"}>確認投注</button></div>
+      <div class="ob-title"><span>賠率投注板</span><small>${esc(cycTitle(r))}</small><span class="ob-status ${open ? "open" : "shut"}">${open ? "開放投注" : "已截止"}</span></div>
+      <div class="ob-title"><small>${open ? `截止 ${fmtClose(L.close_at)}（美股開盤前）・目前抽水 ${(L.tau * 100).toFixed(0)}%・越晚下注賠率越低・點賠率即可下注` : closedReason(r)}</small></div>
+      <table><thead><tr><th>號</th><th>馬匹／近績</th><th>獨贏<br><small>第 1 名</small></th><th>位置<br><small>前 3 名</small>${tip(HELP.place)}</th></tr></thead><tbody>${rows}</tbody></table>
     </div>
     <h2>我的注單</h2>
     ${mine.length ? `<div class="tickets">${mine.slice().reverse().map(ticketHtml).join("")}</div>` : `<div class="muted">這一期還沒有注單。結果在期末收盤後揭曉，下次開啟頁面時自動結算。</div>`}
@@ -503,22 +534,26 @@ function renderBet() {
 }
 $("betview").addEventListener("click", e => {
   const r = liveOf(); if (!r) return;
-  const t = e.target.closest("[data-pick],[data-pickno],[data-type],[data-stake]");
   if (e.target.id === "resetBank") { if (confirm("重設虛擬點數為 1000 並清除所有注單？")) { bank = { balance: 1000, bets: [] }; saveBank(); slip.ticker = null; renderBet(); } return; }
-  if (e.target.id === "confirmBet" || e.target.closest("#confirmBet")) {
+  const flip = e.target.closest("[data-flip]"); if (flip) { e.preventDefault(); slip.type = flip.dataset.flip; renderBet(); return; }
+  if (e.target.id === "cancelSlip") { slip.ticker = null; renderBet(); return; }
+  if (e.target.id === "confirmBet") {
     const h = r.horses.find(x => x.ticker === slip.ticker);
-    if (!h || !isOpen(r) || slip.stake > bank.balance) return;
+    if (!h) return;
+    if (!isOpen(r)) { note("無法投注：" + closedReason(r)); return; }
+    if (slip.stake > bank.balance) { note(`點數不足：目前只有 ${bank.balance} 點，請選較小的金額。`); return; }
     const odds = slip.type === "win" ? h.odds_win : h.odds_place, now = new Date();
     bank.balance -= slip.stake;
     bank.bets.push({ id: now.getTime().toString(36) + Math.random().toString(36).slice(2, 6), raceId: r.id, title: cycTitle(r), ticker: h.ticker, horse: h.horse_zh, no: h.no, type: slip.type, stake: slip.stake, odds, u: r.live.u, status: "pending", placedAt: now.toISOString() });
-    saveBank(); renderBet(); return;
+    saveBank(); slip.ticker = null; renderBet(); const t = document.querySelector(".tickets"); if (t) t.scrollIntoView({ block: "start", behavior: "smooth" }); return;
   }
-  if (!t) return;
-  if (t.dataset.pick) { slip.ticker = t.dataset.pick; slip.type = t.dataset.type; }
-  else if (t.dataset.pickno) slip.ticker = t.dataset.pickno;
-  else if (t.dataset.type) slip.type = t.dataset.type;
-  else if (t.dataset.stake) slip.stake = +t.dataset.stake;
-  renderBet();
+  const st_ = e.target.closest("[data-stake]"); if (st_) { slip.stake = +st_.dataset.stake; renderBet(); return; }
+  const pk = e.target.closest("[data-pick]");
+  if (pk) {
+    if (!isOpen(r)) { note("目前不能下注：" + closedReason(r)); return; }
+    slip.ticker = pk.dataset.pick; slip.type = pk.dataset.type; renderBet();
+    const row = document.querySelector(".slip"); if (row) row.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
 });
 
 /* ================= wiring ================= */
@@ -542,7 +577,7 @@ fetch("data/derby.json").then(r => r.json()).then(d => {
   D = d; if (!D.pools[pool]) pool = "all"; if (!D.pools[pool][cyc]) cyc = "q";
   settleBets();
   $("msg").hidden = true; $("app").hidden = false;
-  $("foot").textContent = `資料更新至 ${D.asof}（每天固定更新兩次）。僅供娛樂，非投資建議；下注使用虛擬點數。`;
+  $("foot").textContent = `資料更新至 ${D.asof}（每天固定更新三次）。僅供娛樂，非投資建議；下注使用虛擬點數。`;
   const h = (location.hash || "").slice(1); showTab(["race", "card", "bet"].includes(h) ? h : "race");
 }).catch(e => { $("msg").textContent = "資料載入失敗：" + e.message; });
 </script>

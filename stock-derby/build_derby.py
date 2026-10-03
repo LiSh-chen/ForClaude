@@ -432,6 +432,7 @@ def add_live(race: dict, close: pd.DataFrame, dates: pd.DatetimeIndex, s: int, l
     race["live"] = {"as_of": str(dates[live_end].date()), "day": day, "total_days": total, "u": round(u, 3),
                     "tau": round(tau(u), 3), "betting_open": bool(day <= n_last), "close_u": CLOSE_U,
                     "close_at": session_open_utc(close_session), "first_session": str(sessions[0].date()) if sessions else None,
+                    "next_first_session": str(next_session(sessions[-1] if sessions else end_ts).date()),      # when the next period starts playing
                     "dates": [str(d.date()) for d in dates[s:live_end + 1]]}
 
 
