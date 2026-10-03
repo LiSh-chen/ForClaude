@@ -253,6 +253,7 @@ def test_live_block_of_the_season_in_progress():
         L = up["live"]
         assert 0 <= L["u"] <= 1 and L["total_days"] >= L["day"] + 1 and len(L["dates"]) == L["day"] + 1
         assert L["betting_open"] == (L["day"] <= max(0, math.ceil(L["close_u"] * L["total_days"]) - 1)) and abs(L["tau"] - bd.tau(L["u"])) < 1e-3
+        assert L["next_first_session"] > up["planned_end"] and pd.Timestamp(L["next_first_session"]).weekday() < 5     # the next period starts on a session
         assert L["close_at"].endswith("Z") and L["close_at"][11:] in ("13:30:00Z", "14:30:00Z")             # 09:30 New York
         for h in up["horses"]:
             assert len(h["live_path"]) == L["day"] + 1 and h["live_path"][0] == 0
