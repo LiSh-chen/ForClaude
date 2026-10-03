@@ -141,7 +141,7 @@
 
     <section id="tab-race">
       <div id="rinfo"></div>
-      <div class="controls"><button id="play" class="primary">⏸ 暫停</button><button id="replay">↺ 重播</button>
+      <div class="controls"><button id="play" class="primary">⏸ 暫停</button><button id="replay">↺ 重播</button><button id="result" hidden>⏭ 直接看結果</button>
         <select id="speed"><option value="slow">慢</option><option value="mid" selected>中</option><option value="fast">快</option></select>
         <span class="date" id="date"></span><input type="range" id="scrub" min="0" max="0" value="0" step="any"></div>
       <div class="trackwrap"><div class="tlabels" id="tlabels"></div><div id="track"></div></div>
@@ -246,7 +246,7 @@ function renderRace() {
   }
   $("endcol").textContent = isLive ? "現價" : "終點價";
   setupTrack();
-  if (isLive) startLive(); else showFinal();
+  if (isLive) startLive(); else showStart();
 }
 
 /* ---- pack-camera track: the leader is fixed at the right, every other horse sits behind it by its gap ---- */
@@ -304,10 +304,11 @@ function resetPhysics(t) {
   const sd = standing(t); G.gref = sd.gmax;
   st = race.horses.map((h, i) => ({ pos: fracOf(sd.gaps[i], G.gref), vel: 0, phase: i * 0.37, frame: 6 }));
 }
-// finished race opened from the history: show the last day's result at once; "重播" runs it from the start
-function showFinal() { resetPhysics(race.days); paint(false); $("play").hidden = true; $("replay").textContent = "▶ 重播"; }
+// finished race opened from the history: the horses wait at the start line; "開跑" runs it, "直接看結果" jumps to the last day
+function showStart() { $("play").hidden = true; $("result").hidden = false; $("replay").textContent = "▶ 開跑"; resetPhysics(0); G.ground = 0; paint(false); }
+function showFinal() { stop(); $("play").hidden = true; resetPhysics(race.days); paint(false); $("replay").textContent = "▶ 再看一次"; }
 // race in progress: run the season-to-date quickly, then keep galloping at the latest standing
-function startLive() { $("play").hidden = false; $("replay").textContent = "↺ 重播"; resetPhysics(0); paint(false); if (race.days < 1) { T = 0; phase = "cruise"; go(); } else { phase = "run"; go(); } }
+function startLive() { $("play").hidden = false; $("result").hidden = true; $("replay").textContent = "↺ 重播"; resetPhysics(0); paint(false); if (race.days < 1) { T = 0; phase = "cruise"; go(); } else { phase = "run"; go(); } }
 function go() { cancelAnimationFrame(raf); lastTs = performance.now(); $("play").textContent = "⏸ 暫停"; raf = requestAnimationFrame(tick); }
 
 // Spring-damper: each horse *follows* its target with inertia -> smooth acceleration and braking.
@@ -532,6 +533,7 @@ $("perSel").onchange = e => { perK = +e.target.value; render(); };
 $("galBtn").onclick = () => { $("gallery").hidden = !$("gallery").hidden; if (!$("gallery").hidden) loadGallery(); $("galBtn").textContent = $("gallery").hidden ? "🎨 馬匹圖鑑" : "🎨 收起圖鑑"; };
 $("play").onclick = () => (phase === "run" || phase === "sprint" || phase === "cruise") ? stop() : resume();
 $("replay").onclick = replay;
+$("result").onclick = showFinal;
 $("scrub").oninput = e => { stop(); resetPhysics(+e.target.value); paint(false); };
 let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { if (tab === "race" && race) { const t = T, ph = phase; stop(); setupTrack(); resetPhysics(t); paint(false); if (ph === "cruise" || ph === "run") { phase = ph; go(); } } }, 150); });
 document.addEventListener("visibilitychange", () => { if (document.hidden && (phase === "cruise" || phase === "run")) { const p = phase; stop(); phase = "idle"; $("play").dataset.was = p; } else if (!document.hidden && $("play").dataset.was && tab === "race") { phase = $("play").dataset.was; delete $("play").dataset.was; go(); } });
