@@ -88,8 +88,17 @@ def ndx_status() -> dict:
     return {"source": "fallback", "fetched_at": None, "errors": ["never downloaded"]}
 
 
+EXTRA_EARNINGS = HERE / "data" / "extra_earnings.csv"      # fetched by fetch_extras.py for tickers the snapshot does not cover
+
+
+def merge_earnings(snap: pd.DataFrame, extra: pd.DataFrame) -> pd.DataFrame:
+    both = pd.concat([snap, extra], ignore_index=True) if len(extra) else snap.copy()
+    both["date"] = pd.to_datetime(both["date"])
+    return both.drop_duplicates(["stock_id", "date"], keep="last")
+
+
 def earnings() -> pd.DataFrame:
     p = REPO / "data" / "us_earnings_snapshot.parquet"
-    e = pd.read_parquet(p) if p.exists() else pd.DataFrame(columns=["date", "stock_id", "eps_actual", "surprise_pct"])
-    e["date"] = pd.to_datetime(e["date"])
-    return e
+    e = pd.read_parquet(p) if p.exists() else pd.DataFrame(columns=["date", "stock_id", "eps_estimate", "eps_actual", "surprise_pct"])
+    extra = pd.read_csv(EXTRA_EARNINGS) if EXTRA_EARNINGS.exists() else pd.DataFrame()
+    return merge_earnings(e, extra)
