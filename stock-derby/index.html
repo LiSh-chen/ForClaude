@@ -476,8 +476,8 @@ function resetPhysics(t) {
 // finished race opened from the history: the horses wait at the start line; "開跑" runs it, "直接看結果" jumps to the last day
 function showStart() { $("play").hidden = true; $("result").hidden = false; $("replay").textContent = "▶ 開跑"; resetPhysics(0); G.ground = 0; paint(false); }
 function showFinal() { stop(); $("play").hidden = true; resetPhysics(race.days); paint(false); $("replay").textContent = "▶ 再看一次"; }
-// race in progress: run the season-to-date quickly, then keep galloping at the latest standing
-function startLive() { $("play").hidden = false; $("result").hidden = true; $("replay").textContent = "↺ 重播"; resetPhysics(0); paint(false); if (race.days < 1) { T = 0; phase = "cruise"; go(); } else { phase = "run"; go(); } }
+// race in progress: open directly on the latest standing and keep galloping
+function startLive() { $("play").hidden = false; $("result").hidden = true; $("replay").textContent = "↺ 重播"; resetPhysics(race.days); paint(false); phase = "cruise"; go(); }      // open on the latest standing, already galloping; "↺ 重播" runs it from the start
 function go() { cancelAnimationFrame(raf); lastTs = performance.now(); $("play").textContent = "⏸ 暫停"; raf = requestAnimationFrame(tick); }
 
 // Spring-damper: each horse *follows* its target with inertia -> smooth acceleration and braking.
@@ -502,7 +502,7 @@ function paint(running) {
   const finished = race.finish !== false && T >= race.days && race.days > 0;
   cur.forEach(({ h, r }, rank) => {
     const lane = $("track").querySelector(`.lane[data-n="${h.no}"]`);
-    lane.style.transform = `translateY(${rank * G.rowH}px)`; lane.classList.toggle("alt", rank % 2 === 1);
+    lane.style.transform = `translateY(${(h.no - 1) * G.rowH}px)`; lane.classList.toggle("alt", h.no % 2 === 0);      // lanes stay put (by horse number); only the rank label changes
     lane.querySelector(".rk").textContent = finished && rank === 0 ? "🏆" : rank + 1;
     const pc = lane.querySelector(".gl2"); if (pc) { pc.textContent = pct(r); pc.className = "gl2 " + cls(r); }
   });
