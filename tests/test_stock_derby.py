@@ -1,4 +1,3 @@
-import importlib.util
 import sys
 from pathlib import Path
 
@@ -10,32 +9,9 @@ import pytest
 
 D = Path(__file__).parent.parent / "stock-derby"
 sys.path.insert(0, str(D))
-import build_derby as bd  # noqa: E402
+import build_panel as bp  # noqa: E402
 import factors as F  # noqa: E402
 import fetch_extras as fe  # noqa: E402
-
-
-def test_style_label_boundaries():
-    assert bd.style_label(1.0)[0] == "領放"
-    assert bd.style_label(4.0)[0] == "跟前"
-    assert bd.style_label(6.0)[0] == "居中"
-    assert bd.style_label(9.0)[0] == "後上"
-
-
-def test_stars_range():
-    assert bd.stars(0) == 1 and bd.stars(100) == 5 and bd.stars(55) == 3
-
-
-def test_ranks_best_is_one_and_nan_ignored():
-    r = bd.ranks_of(pd.Series({"a": 0.1, "b": 0.3, "c": np.nan}))
-    assert r["b"] == 1 and r["a"] == 2 and np.isnan(r["c"])
-
-
-def test_window_ranks_uses_only_window_and_handles_missing_history():
-    close = pd.DataFrame({"a": [1, 2, 3, 4, 5, 6.0], "b": [1, 1, 1, 1, 1, 1.0], "c": [np.nan] * 3 + [1, 1, 3.0]})
-    early, fin = bd.window_ranks(close, ["a", "b", "c"], 0, 5)
-    assert fin["a"] == 1 and fin["b"] == 2 and np.isnan(fin["c"])
-    assert bd.window_ranks(close, ["a"], -1, 3) is None
 
 
 def test_factors_no_lookahead():
@@ -59,111 +35,6 @@ def test_merge_long_new_wins():
     assert list(out["close"]) == [1.0, 2.5, 3.0]
 
 
-def _doc():
-    import json
-    return json.loads((D / "data" / "derby.json").read_text())
-
-
-def _all_races(d):
-    for pool in d["pools"].values():
-        for dist, blk in pool.items():
-            for race in blk["races"]:
-                yield dist, race
-
-
-def test_derby_json_structure():
-    d = _doc()
-    assert set(d["pools"]) == {"spx", "ndx", "all"} and len(d["key_factors"]) == 5
-    for pool in d["pools"].values():
-        assert set(pool) == set(bd.DISTS) == {"d", "w", "w2", "m", "q", "h"}
-        for blk in pool.values():
-            rs = blk["races"]
-            assert 2 <= len(rs) <= bd.N_HIST + 1
-            assert [r["k"] for r in rs] == sorted(r["k"] for r in rs) and rs[0]["k"] == 0
-            assert rs[0]["status"] == "upcoming" and all(r["status"] == "done" for r in rs[1:])
-    for dist, race in _all_races(d):
-        assert len(race["horses"]) == 10
-def test_every_horse_has_sprite_sheet_and_name():
-    pytest.importorskip("PIL")        # Pillow isn't in requirements.txt (only the sprite tools need it)
-    from PIL import Image
-    d = _doc()
-    man = json.loads((D / "assets" / "horses" / "manifest.json").read_text())
-    for dist, race in _all_races(d):
-        sprites = [h["sprite"] for h in race["horses"]]
-        assert len(set(sprites)) == len(sprites), "no two identical coats in one field"
-        for h in race["horses"]:
-            im = Image.open(D / "assets" / "horses" / f"{h['sprite']}.png")
-            fh = man["frame_h"] if h["art"] == "pixel" else round(man["frame_h"] * 2.5)       # smooth styles are drawn at 2.5x
-            assert im.height == fh and im.width == fh * 4 // 3 * (man["run_frames"] + 1)
-            assert h["art"] in ("pixel", "flat", "sketch", "neon")
-            assert h["horse_zh"] and h["horse_en"]
-
-
-def test_finished_races_match_real_prices_and_prediction_rules():
-    d = _doc()
-    for dist, race in _all_races(d):
-        hs = race["horses"]
-        assert [h["pred"] for h in hs] == list(range(1, 11))              # numbered by prediction
-        assert [h["total"] for h in hs] == sorted((h["total"] for h in hs), reverse=True)
-        if race["status"] != "done":
-            assert all("ret" not in h and "result" not in h for h in hs), "unknown results must not leak"
-            continue
-        for h in hs:
-            assert abs(h["price_end"] / h["price_start"] - 1 - h["ret"]) < 2e-3
-        by_ret = sorted(hs, key=lambda h: -h["ret"])
-        assert [h["result"] for h in by_ret] == list(range(1, 11))        # result = return rank
-        if "dates" in race:
-            assert race["dates"][0] == race["start"] and race["dates"][-1] == race["end"]
-            assert all(h["path"][0] == 0 and abs(h["path"][-1] - h["ret"]) < 1e-3 for h in hs)
-
-
-def test_quarter_race_is_upcoming_with_sane_odds_and_settlement_data():
-    d = _doc()
-    for pk, pool in d["pools"].items():
-        races = pool["q"]["races"]
-        up = races[0]
-        assert up["status"] == "upcoming" and up["end"] is None and up["planned_end"] > up["start"]
-        assert abs(sum(h["p_win"] for h in up["horses"]) - 1) < 0.01
-        for h in up["horses"]:
-            assert h["odds_win"] >= 1.2 and h["odds_place"] >= 1.1 and h["odds_place"] < h["odds_win"]
-        # the horse the card likes best must not pay more than the one it likes least
-        assert up["horses"][0]["odds_win"] <= up["horses"][-1]["odds_win"]
-        for r in races[1:]:
-            assert r["status"] == "done" and r["id"] in d["settled"]
-            assert sorted(d["settled"][r["id"]]["result"].values()) == list(range(1, 11))
-
-
-def test_key_factors_have_horse_wording_and_params():
-    d = _doc()
-    for f in d["key_factors"]:
-        assert f["horse"] and f["meaning"] and f["param"] and f["avg_ic"] >= 0 and "sign" not in f
-
-
-def test_race_bounds_calendar_periods():
-    dates = pd.bdate_range("2025-01-01", "2026-10-01")
-    live = dates.get_loc(pd.Timestamp("2026-09-30"))            # data through the quarter-end close
-    q0 = bd.race_bounds(dates, "q", 0, live)
-    assert q0["e"] is None and q0["label"] == "2026Q4" and dates[q0["s"]] == pd.Timestamp("2026-09-30")
-    q1 = bd.race_bounds(dates, "q", 1, live)
-    assert dates[q1["e"]] == dates[q0["s"]] and q1["label"] == "2026Q3"
-    w0 = bd.race_bounds(dates, "w", 0, live)                    # Wed 09-30 -> the week of 09-28 is in progress
-    assert dates[w0["s"]] == pd.Timestamp("2026-09-25") and w0["label"] == "09/28~10/02"
-    w1 = bd.race_bounds(dates, "w", 1, live)
-    assert dates[w1["e"]] == pd.Timestamp("2026-09-25") and w1["e"] == w0["s"]            # consecutive, non-overlapping
-    d0, d1 = bd.race_bounds(dates, "d", 0, live), bd.race_bounds(dates, "d", 1, live)
-    assert d0["s"] == live and d1["e"] == live and d1["s"] == live - 1
-    h0 = bd.race_bounds(dates, "h", 0, live)
-    assert h0["label"] == "2026H2" and dates[h0["s"]] == pd.Timestamp("2026-06-30")
-    m2 = bd.race_bounds(dates, "m", 0, live)
-    assert m2["label"] == "2026-10" and dates[m2["s"]] == pd.Timestamp("2026-09-30")
-
-
-def test_next_session_skips_weekends_and_holidays():
-    assert bd.next_session(pd.Timestamp("2026-10-02")) == pd.Timestamp("2026-10-05")      # Fri -> Mon
-    assert bd.next_session(pd.Timestamp("2026-11-25")) == pd.Timestamp("2026-11-27")      # Thanksgiving 11-26
-    assert bd.last_session_on_or_before(pd.Timestamp("2026-10-03")) == pd.Timestamp("2026-10-02")
-
-
 def test_recent_prices_are_spliced_onto_the_stored_history():
     import data_loader as dl
     base = pd.DataFrame({"stock_id": "A", "date": pd.to_datetime(["2026-09-29", "2026-09-30"]), "high": [10.1, 10.4],
@@ -173,14 +44,6 @@ def test_recent_prices_are_spliced_onto_the_stored_history():
     out = dl.splice_recent(base, rec)
     assert list(out["date"].dt.strftime("%m-%d")) == ["09-29", "09-30", "10-01"]
     assert abs(out["close"].iloc[-1] - 10.5) < 1e-9                                     # rescaled to the stored basis
-def test_odds_table_is_a_proper_distribution_with_house_edge():
-    sc = pd.Series({"a": 90.0, "b": 60.0, "c": 50.0, "d": 40.0, "e": 30.0, "f": 20.0})
-    od = bd.odds_table(sc)
-    assert abs(od.p_win.sum() - 1) < 1e-6 and abs(od.p_place.sum() - 3) < 1e-6
-    assert od.odds_win.is_monotonic_increasing                    # better score -> lower payout
-    assert (od.p_win * od.odds_win).max() <= 1 - bd.TAKEOUT + 0.1 # house keeps its cut (rounding/floor aside)
-
-
 def test_horse_wording_covers_every_candidate_factor():
     for fid in F.META:
         t0, t1 = F.horse_term(fid, False), F.horse_term(fid, True)
@@ -196,26 +59,6 @@ def test_sprite_frames_differ_so_gallop_animates():
     assert all(ImageChops.difference(fr[i], fr[(i + 1) % 6]).getbbox() for i in range(6))
 
 
-def test_months_back_is_calendar_based():
-    dates = pd.bdate_range("2026-01-01", "2026-09-30")
-    i = len(dates) - 1                                   # 2026-09-30
-    assert dates[bd.months_back(dates, i, 3)] == pd.Timestamp("2026-06-30")
-    assert dates[bd.months_back(dates, i, 1)] == pd.Timestamp("2026-08-28")   # 08-30 is a Sunday
-    assert bd.months_back(dates, 5, 6) == -1             # before the data starts
-
-
-def test_field_is_previous_periods_top_ten():
-    cols = {f"S{i}": [100.0, 100.0 + i, 110.0] for i in range(15)}
-    cols["NEW"] = [np.nan, 150.0, 160.0]                  # no price at the start of the previous period -> not eligible
-    close = pd.DataFrame(cols)
-    field, mom, ok = bd.select_field_prior(close, list(cols), 0, 1)
-    assert field == [f"S{i}" for i in range(14, 4, -1)] and "NEW" not in ok
-def test_total_score_renormalises_missing_factors():
-    pct = pd.DataFrame({"a": [100.0, 50.0], "b": [100.0, np.nan]}, index=["x", "y"])
-    sc = bd.total_score(pct, np.array([0.5, 0.5]))
-    assert sc["x"] == 100.0 and sc["y"] == 50.0           # y's weight moves entirely to factor a
-
-
 def test_parse_ndx_tables_finds_the_constituents_table_and_reports_what_it_saw():
     rows = "".join(f"<tr><td>Co{i}</td><td>{t}</td></tr>" for i, t in enumerate(f"AB{chr(65 + i % 26)}{chr(65 + i // 26)}" for i in range(100)))
     html = ("<table><tr><th>Year</th><th>Index</th></tr><tr><td>1</td><td>2</td></tr></table>"
@@ -225,68 +68,6 @@ def test_parse_ndx_tables_finds_the_constituents_table_and_reports_what_it_saw()
     import pytest as _pt
     with _pt.raises(ValueError, match="saw 1 tables"):
         fe.parse_ndx_tables("<table><tr><th>A</th></tr><tr><td>1</td></tr></table>")
-
-
-def test_nyse_calendar_and_quarter_length():
-    hol = {h.date().isoformat() for h in bd.nyse_holidays(2026)}
-    assert {"2026-11-26", "2026-12-25", "2026-07-03", "2026-04-03"} <= hol      # Thanksgiving, Christmas, July 4 observed, Good Friday
-    assert bd.trading_days_between(pd.Timestamp("2026-09-30"), pd.Timestamp("2026-12-31")) == 64
-
-
-def test_in_play_odds_get_more_expensive_as_the_season_runs():
-    cum = np.array([0.30, 0.10, 0.05, 0.0, -0.05])
-    sig = np.full(5, 0.02)
-    p_open = np.full(5, 0.2)
-    early = bd.live_odds(p_open, np.full(5, 0.6), cum, sig, 60, 0.05)
-    late = bd.live_odds(p_open, np.full(5, 0.6), cum, sig, 10, 0.85)
-    assert abs(early.p_win.sum() - 1) < 1e-6 and abs(late.p_win.sum() - 1) < 1e-6
-    assert late.odds_win.iloc[0] < early.odds_win.iloc[0]          # the leader gets cheaper to back... i.e. pays less
-    assert late.odds_win.iloc[0] < late.odds_win.iloc[-1]          # and pays less than a straggler
-    assert bd.tau(0.0) == bd.TAKEOUT and bd.tau(1.0) == bd.TAKE_END and bd.tau(0.5) > bd.tau(0.2)
-    assert (late.odds_win >= bd.MIN_ODDS).all()
-
-
-def test_live_block_of_the_season_in_progress():
-    d = _doc()
-    for pool in d["pools"].values():
-        up = pool["q"]["races"][0]
-        L = up["live"]
-        assert 0 <= L["u"] <= 1 and L["total_days"] >= L["day"] + 1 and len(L["dates"]) == L["day"] + 1
-        assert L["betting_open"] == (L["day"] <= max(0, math.ceil(L["close_u"] * L["total_days"]) - 1)) and abs(L["tau"] - bd.tau(L["u"])) < 1e-3
-        assert L["next_first_session"] > up["planned_end"] and pd.Timestamp(L["next_first_session"]).weekday() < 5     # the next period starts on a session
-        assert L["close_at"].endswith("Z") and L["close_at"][11:] in ("13:30:00Z", "14:30:00Z")             # 09:30 New York
-        for h in up["horses"]:
-            assert len(h["live_path"]) == L["day"] + 1 and h["live_path"][0] == 0
-            assert h["odds_win"] >= bd.MIN_ODDS and "odds_win_open" in h
-
-
-def test_every_cycle_has_a_live_race_with_capped_odds_and_replayable_history():
-    d = _doc()
-    for pk, pool in d["pools"].items():
-        for dist, blk in pool.items():
-            up = blk["races"][0]
-            assert abs(sum(h["p_win"] for h in up["horses"]) - 1) < 0.02, (pk, dist)
-            for h in up["horses"]:
-                assert bd.MIN_ODDS <= h["odds_win"] <= bd.MAX_ODDS and bd.MIN_ODDS <= h["odds_place"] <= bd.MAX_ODDS
-                assert h["odds_place"] <= h["odds_win"] + 1e-9
-            for r in blk["races"][1:]:                          # every finished period can be replayed and settled
-                assert "dates" in r and all("path" in h for h in r["horses"]) and r["id"] in d["settled"]
-
-
-def test_form_is_the_real_race_record_and_unentered_is_marked():
-    d = _doc()
-    for pk, pool in d["pools"].items():
-        for dist, blk in pool.items():
-            rs = {r["k"]: r for r in blk["races"]}
-            for r in blk["races"]:
-                for h in r["horses"]:
-                    assert len(h["form"]) == 4 and h["n_ran"] == sum(x is not None for x in h["form"])
-                    if h["n_ran"] == 0:
-                        assert h["style"] == "未知" and h["early_rank"] is None and "首次出賽" in h["comment"]
-                    prev = rs.get(r["k"] + 1)                       # form[0] must equal what the horse really did last period
-                    if prev and prev["status"] == "done":
-                        real = next((x["result"] for x in prev["horses"] if x["ticker"] == h["ticker"]), None)
-                        assert h["form"][0] == real, (pk, dist, h["ticker"])
 
 
 def test_missing_earnings_are_filled_from_the_extra_file(monkeypatch, tmp_path):
@@ -303,3 +84,59 @@ def test_missing_earnings_are_filled_from_the_extra_file(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "yfinance", fake)
     out = fe.download_earnings(["MSTR"])
     assert len(out) == 1 and out.iloc[0]["stock_id"] == "MSTR" and out.iloc[0]["date"] == "2026-07-31" and out.iloc[0]["surprise_pct"] == 50.0
+
+
+@pytest.fixture(scope="module")
+def panel(tmp_path_factory):
+    out = tmp_path_factory.mktemp("panel") / "panel.json"
+    old = bp.OUT
+    bp.OUT = out
+    try:
+        bp.main()
+    finally:
+        bp.OUT = old
+    return json.loads(out.read_text())
+
+
+def test_panel_structure_and_alignment(panel):
+    p = panel
+    n = len(p["dates"])
+    assert 250 < n <= bp.N_DATES and p["dates"] == sorted(p["dates"]) and p["asof"] == p["dates"][-1]
+    assert len(p["tk"]) == len(p["px"]) and all(len(r) == n for r in p["px"])
+    assert set(p["pools"]) == {"spx", "ndx", "all"} and set(p["pools"]["spx"]) | set(p["pools"]["ndx"]) == set(p["pools"]["all"])
+    assert set(p["pools"]["all"]) <= set(p["tk"]) and set(p["looks"]) == set(p["tk"]) == set(p["ab"])
+    last = [r[-1] for r in p["px"]]
+    assert sum(v is not None for v in last) / len(last) >= bp.MIN_COVER, "the latest session must have (almost) full coverage"
+    assert all(v > 0 for r in p["px"] for v in r if v is not None)
+    assert len(p["key_factors"]) == 5 and {"1m", "3m", "6m"} == set(p["weights"])
+    for w in p["weights"].values():
+        assert abs(sum(w) - 1) < 1e-3
+    assert set(p["ic_key"]) == {"d", "w", "w2", "m", "q", "h"}
+
+
+def test_panel_abilities_are_percentiles_per_pool(panel):
+    p = panel
+    for pk, ts in p["pools"].items():
+        vals = [p["ab"][t]["pct"][pk] for t in ts]
+        assert all(len(v) == 5 for v in vals)
+        for k in range(5):
+            col = [v[k] for v in vals if v[k] is not None]
+            assert col and 0 <= min(col) and max(col) <= 100 and max(col) > 95
+
+
+def test_every_ticker_has_a_name_and_a_sprite_that_exists(panel):
+    gen = {g["key"] for g in panel["generic"]}
+    for t, l in panel["looks"].items():
+        assert l["zh"] and l["en"]
+        if "sp" in l:
+            assert (D / "assets" / "horses" / f"{l['sp']}.png").exists()
+        else:
+            assert 0 <= l["g"] < len(gen)
+    for g in gen:
+        assert (D / "assets" / "horses" / f"generic_{g}.png").exists()
+
+
+def test_key_factors_have_horse_wording_and_params(panel):
+    for f in panel["key_factors"]:
+        assert f["horse"] and f["meaning"] and f["param"] and f["id"] in F.META
+        assert f["3m"]["ic"] is not None

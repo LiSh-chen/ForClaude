@@ -2,7 +2,7 @@
 
 Every factor is a (dates x tickers) frame using only information available at
 that date's close.  factor_study.py measures which of them actually relate to
-forward returns; build_derby.py turns the winners into horse abilities.
+forward returns; build_panel.py turns the winners into horse abilities.
 
 NOTE on "chip" (籌碼): free US data has no institutional/margin positioning, so
 chip factors are volume-flow proxies (up-volume share, Chaikin money flow, volume surge).
