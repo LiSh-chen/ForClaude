@@ -37,13 +37,14 @@ def test_merge_long_new_wins():
 
 def test_recent_prices_are_spliced_onto_the_stored_history():
     import data_loader as dl
-    base = pd.DataFrame({"stock_id": "A", "date": pd.to_datetime(["2026-09-29", "2026-09-30"]), "high": [10.1, 10.4],
+    base = pd.DataFrame({"stock_id": "A", "date": pd.to_datetime(["2026-09-29", "2026-09-30"]), "open": [9.9, 10.0], "high": [10.1, 10.4],
                          "low": [9.8, 9.9], "close": [10.0, 10.3], "volume": 1, "industry": "IT"})
-    rec = pd.DataFrame({"stock_id": "A", "date": pd.to_datetime(["2026-09-30", "2026-10-01"]), "high": [20.8, 21.2],
+    rec = pd.DataFrame({"stock_id": "A", "date": pd.to_datetime(["2026-09-30", "2026-10-01"]), "open": [20.0, 20.4], "high": [20.8, 21.2],
                         "low": [19.8, 20.0], "close": [20.6, 21.0], "volume": 1})        # re-adjusted: everything x2
     out = dl.splice_recent(base, rec)
     assert list(out["date"].dt.strftime("%m-%d")) == ["09-29", "09-30", "10-01"]
     assert abs(out["close"].iloc[-1] - 10.5) < 1e-9                                     # rescaled to the stored basis
+    assert abs(out["open"].iloc[-1] - 10.2) < 1e-9
 def test_horse_wording_covers_every_candidate_factor():
     for fid in F.META:
         t0, t1 = F.horse_term(fid, False), F.horse_term(fid, True)
@@ -102,7 +103,9 @@ def test_panel_structure_and_alignment(panel):
     p = panel
     n = len(p["dates"])
     assert 250 < n <= bp.N_DATES and p["dates"] == sorted(p["dates"]) and p["asof"] == p["dates"][-1]
-    assert len(p["tk"]) == len(p["px"]) and all(len(r) == n for r in p["px"])
+    assert len(p["tk"]) == len(p["px"]) == len(p["oc"]) and all(len(r) == n for r in p["px"]) and all(len(r) == n for r in p["oc"])
+    opens = [v for r in p["oc"] for v in r[-250:] if v is not None]
+    assert len(opens) > 0.9 * 250 * len(p["tk"]) * 0.9 and max(map(abs, opens)) < 5000, "opens (bp vs close) must be present and sane"
     assert set(p["pools"]) == {"spx", "ndx", "all"} and set(p["pools"]["spx"]) | set(p["pools"]["ndx"]) == set(p["pools"]["all"])
     assert set(p["pools"]["all"]) <= set(p["tk"]) and set(p["looks"]) == set(p["tk"]) == set(p["ab"])
     last = [r[-1] for r in p["px"]]

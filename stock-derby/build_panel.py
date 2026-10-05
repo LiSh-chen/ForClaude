@@ -87,6 +87,7 @@ def main() -> None:
     close = close.iloc[:last + 1]
     rows = close.index[cov.reindex(close.index) >= MIN_COVER][-N_DATES:]
     px = close.loc[rows, allm]
+    oc = (p["open"].reindex(index=rows, columns=allm) / px - 1) * 10000      # open vs close of the same day, basis points
     idx = close.index.get_loc(rows[-1])
 
     pools = {"spx": sorted(spx & set(allm)), "ndx": sorted(ndx & set(allm)), "all": allm}
@@ -98,6 +99,7 @@ def main() -> None:
                                        for k in pools if t in pct[k].index}}
     out = {"asof": str(rows[-1].date()), "dates": [str(d.date()) for d in rows], "tk": allm,
            "px": [[None if pd.isna(v) else round(float(v), 3) for v in px[t].to_numpy()] for t in allm],
+           "oc": [[None if pd.isna(v) else int(round(v)) for v in oc[t].to_numpy()] for t in allm],
            "pools": pools, "ab": ab, "weights": weights(kf), "ic_key": IC_KEY,
            "key_factors": kf, "study": {k: kf_doc[k] for k in ("universe_size", "period", "months")},
            "looks": looks_for(allm, manifest, sector_of),

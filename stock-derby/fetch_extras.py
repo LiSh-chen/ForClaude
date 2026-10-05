@@ -96,7 +96,7 @@ def download(tickers: list[str], start: str) -> pd.DataFrame:
         if d.empty:
             continue
         frames.append(pd.DataFrame({"date": pd.to_datetime(d.index).strftime("%Y-%m-%d"), "stock_id": t,
-                                    "high": d["High"].values, "low": d["Low"].values,
+                                    "open": d["Open"].values, "high": d["High"].values, "low": d["Low"].values,
                                     "close": d["Close"].values, "volume": d["Volume"].values}))
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
@@ -188,6 +188,8 @@ def main() -> None:
         return
 
     old = pd.read_csv(dl.EXTRA_CSV) if dl.EXTRA_CSV.exists() else pd.DataFrame()
+    if len(old) and ("open" not in old.columns or old["open"].isna().mean() > 0.5):
+        old = pd.DataFrame()                  # history saved before opens were kept: download it again in full
     if len(old):
         start = (pd.to_datetime(old["date"]).max() - pd.Timedelta(days=OVERLAP_DAYS)).strftime("%Y-%m-%d")
         new_tickers = [t for t in missing if t not in set(old["stock_id"])]

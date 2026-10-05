@@ -184,8 +184,8 @@
 const $ = id => document.getElementById(id);
 const COLORS = ["#e5484d","#4f8df7","#76b900","#f5a623","#a855f7","#14b8a6","#ec4899","#6b7280","#0ea5e9","#84cc16"];
 const POOL_NAME = { spx: "S&P 500", ndx: "Nasdaq-100", all: "合併" };
-const CYCLES = { d: { n: "1天", c: 1 }, w: { n: "1週", c: 5 }, w2: { n: "2週", c: 10 }, m: { n: "1個月", c: 21, mo: 1 }, q: { n: "季", c: 63, mo: 3 }, h: { n: "半年", c: 126, mo: 6 } };   // c = sessions a race runs; mo = calendar months of one lookback unit (as stock sites count 1M / 3M / 6M)
-const TRAIL = [[5, "1週"], [10, "2週"], [20, "1個月"], [60, "季"], [120, "半年"]];   // trailing returns on the card, short -> long
+const CYCLES = { d: { n: "1天", c: 1 }, w: { n: "1週", c: 5, days: 7 }, w2: { n: "2週", c: 10, days: 14 }, m: { n: "1個月", c: 21, mo: 1 }, q: { n: "季", c: 63, mo: 3 }, h: { n: "半年", c: 126, mo: 6 } };   // c = sessions a race runs; days / mo = calendar span of one lookback unit (as stock sites count 1W / 1M / 3M / 6M); 1天 = since the previous close
+const TRAIL = [{ days: 7, n: "1週" }, { days: 14, n: "2週" }, { mo: 1, n: "1個月" }, { mo: 3, n: "季" }, { mo: 6, n: "半年" }];   // trailing returns on the card, short -> long (calendar spans, like stock sites)
 const FIELD = 10, MAX_RACES = 5, N_HIST = 4, MAX_MULT = 10, TAKEOUT = 0.15, ODDS_TEMP = 30, MAX_ODDS = 99;
 const DURATION = { slow: 45, mid: 25, fast: 12 };               // seconds for a whole replay
 const CATCHUP = { slow: 16, mid: 8, fast: 4 };                  // seconds to run the lookback window on the first screen
@@ -226,38 +226,48 @@ const fmtTime = iso => new Date(iso).toLocaleString("zh-TW", { month: "numeric",
 const price = (t, i) => (i >= 0 && i <= LAST ? P.px[IX[t]][i] : null);
 const members = pl => P.pools[pl];
 function cfgOf() { return { pool, cyc, mult, c: CYCLES[cyc].c }; }
-// start index of a lookback of `m` cycles ending at `end`: calendar months for month-based cycles (like 1M/3M/6M on stock sites), sessions otherwise; -1 if the panel is too short
+// open of a day (the close when the open is unknown).  Stock sites measure "3M" etc. from the OPEN of the first session on/after the date N months ago to the latest close.
+const base = (t, i) => { const c = price(t, i); if (!(c > 0)) return null; const o = P.oc[IX[t]][i]; return o == null ? c : c * (1 + o / 10000); };
+const calStart = (cy, t, i) => CYCLES[cy].mo || CYCLES[cy].days ? base(t, i) : price(t, i);
+function calIdx(end, spec, m = 1) {                       // first session on/after (date of `end` minus m spans); -1 if before the panel starts
+  const [y, mo, da] = P.dates[end].split("-").map(Number);
+  let d;
+  if (spec.mo) { const tot = y * 12 + (mo - 1) - m * spec.mo, yy = Math.floor(tot / 12), mm = tot % 12; d = new Date(Date.UTC(yy, mm, Math.min(da, new Date(Date.UTC(yy, mm + 1, 0)).getUTCDate()))); }
+  else d = new Date(Date.UTC(y, mo - 1, da - m * spec.days));
+  const target = d.toISOString().slice(0, 10);
+  if (target < P.dates[0]) return -1;
+  let i = end; while (i > 0 && P.dates[i - 1] >= target) i--;
+  return i;
+}
+// start index of a lookback of `m` cycles ending at `end`; -1 if the panel is too short
 function backIdx(end, m, cy = cyc) {
   const C = CYCLES[cy];
-  if (!C.mo) return end - m * C.c >= 0 ? end - m * C.c : -1;
-  const d = new Date(P.dates[end] + "T00:00:00Z"); d.setUTCMonth(d.getUTCMonth() - m * C.mo);
-  const target = d.toISOString().slice(0, 10); let i = end;
-  while (i > 0 && P.dates[i] >= target) i--;      // last close strictly before the date N months back (matches TradingView's 1M / 3M / 6M)
-  return P.dates[i] < target ? i : -1;
+  if (C.mo || C.days) return calIdx(end, C, m);
+  return end - m * C.c >= 0 ? end - m * C.c : -1;
 }
-const lookDesc = (m, cy = cyc) => CYCLES[cy].mo ? `${m * CYCLES[cy].mo} 個月` : `${m * CYCLES[cy].c} 個交易日`;
+const lookDesc = (m, cy = cyc) => CYCLES[cy].mo ? `${m * CYCLES[cy].mo} 個月` : CYCLES[cy].days ? `${m * CYCLES[cy].days} 天` : `${m * CYCLES[cy].c} 個交易日`;
 const maxMult = () => { let m = 1; while (m < MAX_MULT && backIdx(LAST - N_HIST * CYCLES[cyc].c, m + 1) >= 0) m++; return m; };
 
 // the 10 best performers over [start, end] (both prices must exist; `need` = extra index that must also have a price)
-function momentum(pl, start, end, need) {
+function momentum(pl, cy, start, end, need) {
   const out = [];
   for (const t of members(pl)) {
-    const a = price(t, start), b = price(t, end);
+    const a = calStart(cy, t, start), b = price(t, end);
     if (a > 0 && b > 0 && (need == null || price(t, need) > 0)) out.push({ t, r: b / a - 1 });
   }
   return out.sort((x, y) => y.r - x.r).slice(0, FIELD);
 }
-function trailing(t, end) { return TRAIL.map(([n]) => { const a = price(t, end - n), b = price(t, end); return a > 0 && b > 0 ? b / a - 1 : null; }); }
+function trailing(t, end) { return TRAIL.map(sp => { const i = calIdx(end, sp), a = i < 0 ? null : base(t, i), b = price(t, end); return a > 0 && b > 0 ? b / a - 1 : null; }); }
 const formCache = {};
 function formScore(pl, t, end) {                          // mean percentile of the horse's trailing returns inside its pool, 0-100
   const key = pl + "|" + end;
-  if (!formCache[key]) formCache[key] = TRAIL.map(([n]) => members(pl).map(u => { const a = price(u, end - n), b = price(u, end); return a > 0 && b > 0 ? b / a - 1 : null; }).filter(v => v != null).sort((x, y) => x - y));
+  if (!formCache[key]) formCache[key] = TRAIL.map(sp => { const i = calIdx(end, sp); return members(pl).map(u => { const a = i < 0 ? null : base(u, i), b = price(u, end); return a > 0 && b > 0 ? b / a - 1 : null; }).filter(v => v != null).sort((x, y) => x - y); });
   const mine = trailing(t, end), ps = [];
   mine.forEach((v, k) => { if (v == null) return; const arr = formCache[key][k]; let lo = 0; while (lo < arr.length && arr[lo] < v) lo++; ps.push(100 * lo / Math.max(1, arr.length - 1)); });
   return ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : 55;
 }
-function earlyRanks(ts, s, e) {                           // rank among the field at the 1/3 point of [s, e]
-  const k = s + Math.max(1, Math.floor((e - s) / 3)), r = ts.map(t => { const a = price(t, s), b = price(t, k); return a > 0 && b > 0 ? b / a : null; });
+function earlyRanks(ts, cy, s, e) {                           // rank among the field at the 1/3 point of [s, e]
+  const k = s + Math.max(1, Math.floor((e - s) / 3)), r = ts.map(t => { const a = calStart(cy, t, s), b = price(t, k); return a > 0 && b > 0 ? b / a : null; });
   return r.map(v => v == null ? null : 1 + r.filter(w => w != null && w > v).length);
 }
 function styleLabel(er) {
@@ -304,7 +314,7 @@ function comment(h, kf) {
 }
 /* the race card for a field chosen at index `end` from the window [start, end].  withOdds: abilities + odds (only meaningful for "now") */
 function makeCard(pl, cy, start, end, withOdds, fixedField) {
-  const mom = fixedField || momentum(pl, start, end), ts = mom.map(m => m.t), looks = looksOf(ts), er = earlyRanks(ts, start, end);
+  const mom = fixedField || momentum(pl, cy, start, end), ts = mom.map(m => m.t), looks = looksOf(ts), er = earlyRanks(ts, cy, start, end);
   let hs = mom.map((m, i) => {
     const trail = trailing(m.t, end), [style, style_desc] = styleLabel(er[i]);
     const h = { ticker: m.t, ...looks[i], trail, style, style_desc, early_rank: er[i], prior_ret: m.r, prior_rank: i + 1, price_start: null };
@@ -320,28 +330,29 @@ function makeCard(pl, cy, start, end, withOdds, fixedField) {
   hs.forEach((h, i) => { h.no = i + 1; h.pred = i + 1; h.comment = comment(h, P.key_factors); });
   return hs;
 }
-function pathOf(t, s, e) {                                // cumulative return from s, last known price carried over missing days
-  const p0 = price(t, s), out = []; let last = 0;
+function pathOf(t, s, e, p0) {                            // cumulative return from p0, last known price carried over missing days
+  const out = []; let last = 0;
   for (let i = s; i <= e; i++) { const p = price(t, i); if (p > 0) last = p / p0 - 1; out.push(+last.toFixed(4)); }
   return out;
 }
 function rankBy(vals) { return vals.map(v => v == null ? null : 1 + vals.filter(w => w != null && w > v).length); }
 
-/* ---- the races the user can look at; every one is turned into the shape the track engine expects ---- */
-function fillRace(base, hs, s, e, finish) {
-  hs.forEach(h => { h.path = pathOf(h.ticker, s, e); h.ret = h.path[h.path.length - 1]; h.price_start = price(h.ticker, s); h.price_end = price(h.ticker, e); });
-  return { ...base, finish, days: e - s, dates: P.dates.slice(s, e + 1), horses: hs };
+/* ---- the races the user can look at; every one is turned into the shape the track engine expects ----
+   openBase: the preliminary (lookback window) is measured from the open of its first day, like stock sites; a race starts from a close */
+function fillRace(meta, hs, s, e, finish, openBase) {
+  hs.forEach(h => { const p0 = openBase ? calStart(cyc, h.ticker, s) : price(h.ticker, s); h.path = pathOf(h.ticker, s, e, p0); h.ret = h.path[h.path.length - 1]; h.price_start = p0; h.price_end = price(h.ticker, e); });
+  return { ...meta, finish, days: e - s, dates: P.dates.slice(s, e + 1), horses: hs };
 }
 let cacheLatest = {};
 function latestRace() {
   const k = JSON.stringify(cfgOf());
-  if (!cacheLatest[k]) { const st0 = backIdx(LAST, mult), hs = makeCard(pool, cyc, st0, LAST, true); cacheLatest[k] = fillRace({ kind: "latest", predLabel: "預測" }, hs, st0, LAST, false); }
+  if (!cacheLatest[k]) { const st0 = backIdx(LAST, mult), hs = makeCard(pool, cyc, st0, LAST, true); cacheLatest[k] = fillRace({ kind: "latest", predLabel: "預測" }, hs, st0, LAST, false, true); }
   return cacheLatest[k];
 }
 function histRace(j) {                                    // the race that would have started j periods ago under the same rules
   const { c } = cfgOf(), e = LAST - (j - 1) * c, s = e - c, w0 = s >= 0 ? backIdx(s, mult) : -1;
   if (w0 < 0) return null;
-  const mom = momentum(pool, w0, s, e);
+  const mom = momentum(pool, cyc, w0, s, e);
   if (mom.length < FIELD) return null;
   const hs = makeCard(pool, cyc, w0, s, false, mom);
   return fillRace({ kind: "hist", j, predLabel: "賽前名次", start: P.dates[s], end: P.dates[e], windowStart: P.dates[w0] }, hs, s, e, true);
