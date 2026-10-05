@@ -184,7 +184,7 @@
 const $ = id => document.getElementById(id);
 const COLORS = ["#e5484d","#4f8df7","#76b900","#f5a623","#a855f7","#14b8a6","#ec4899","#6b7280","#0ea5e9","#84cc16"];
 const POOL_NAME = { spx: "S&P 500", ndx: "Nasdaq-100", all: "合併" };
-const CYCLES = { d: { n: "1天", c: 1 }, w: { n: "1週", c: 5 }, w2: { n: "2週", c: 10 }, m: { n: "1個月", c: 20 }, q: { n: "季", c: 60 }, h: { n: "半年", c: 120 } };
+const CYCLES = { d: { n: "1天", c: 1 }, w: { n: "1週", c: 5 }, w2: { n: "2週", c: 10 }, m: { n: "1個月", c: 21, mo: 1 }, q: { n: "季", c: 63, mo: 3 }, h: { n: "半年", c: 126, mo: 6 } };   // c = sessions a race runs; mo = calendar months of one lookback unit (as stock sites count 1M / 3M / 6M)
 const TRAIL = [[5, "1週"], [10, "2週"], [20, "1個月"], [60, "季"], [120, "半年"]];   // trailing returns on the card, short -> long
 const FIELD = 10, MAX_RACES = 5, N_HIST = 4, MAX_MULT = 10, TAKEOUT = 0.15, ODDS_TEMP = 30, MAX_ODDS = 99;
 const DURATION = { slow: 45, mid: 25, fast: 12 };               // seconds for a whole replay
@@ -225,14 +225,24 @@ const fmtTime = iso => new Date(iso).toLocaleString("zh-TW", { month: "numeric",
 /* ================= data layer: everything is computed here from the daily price panel ================= */
 const price = (t, i) => (i >= 0 && i <= LAST ? P.px[IX[t]][i] : null);
 const members = pl => P.pools[pl];
-function cfgOf() { const c = CYCLES[cyc].c; return { pool, cyc, mult, c, L: mult * c }; }
-const maxMult = c => clamp(Math.floor((LAST - N_HIST * c) / c), 1, MAX_MULT);
+function cfgOf() { return { pool, cyc, mult, c: CYCLES[cyc].c }; }
+// start index of a lookback of `m` cycles ending at `end`: calendar months for month-based cycles (like 1M/3M/6M on stock sites), sessions otherwise; -1 if the panel is too short
+function backIdx(end, m, cy = cyc) {
+  const C = CYCLES[cy];
+  if (!C.mo) return end - m * C.c >= 0 ? end - m * C.c : -1;
+  const d = new Date(P.dates[end] + "T00:00:00Z"); d.setUTCMonth(d.getUTCMonth() - m * C.mo);
+  const target = d.toISOString().slice(0, 10); let i = end;
+  while (i > 0 && P.dates[i] >= target) i--;      // last close strictly before the date N months back (matches TradingView's 1M / 3M / 6M)
+  return P.dates[i] < target ? i : -1;
+}
+const lookDesc = (m, cy = cyc) => CYCLES[cy].mo ? `${m * CYCLES[cy].mo} 個月` : `${m * CYCLES[cy].c} 個交易日`;
+const maxMult = () => { let m = 1; while (m < MAX_MULT && backIdx(LAST - N_HIST * CYCLES[cyc].c, m + 1) >= 0) m++; return m; };
 
-// the 10 best performers over [end-L, end] (both prices must exist; `need` = extra index that must also have a price)
-function momentum(pl, end, L, need) {
+// the 10 best performers over [start, end] (both prices must exist; `need` = extra index that must also have a price)
+function momentum(pl, start, end, need) {
   const out = [];
   for (const t of members(pl)) {
-    const a = price(t, end - L), b = price(t, end);
+    const a = price(t, start), b = price(t, end);
     if (a > 0 && b > 0 && (need == null || price(t, need) > 0)) out.push({ t, r: b / a - 1 });
   }
   return out.sort((x, y) => y.r - x.r).slice(0, FIELD);
@@ -292,9 +302,9 @@ function comment(h, kf) {
   if (miss.length) parts.push(`缺資料：${miss.join("、")}（其餘項目重新配分計算）`);
   return parts.join("，");
 }
-/* the race card for a field chosen at index `end` with window length L.  withOdds: abilities + odds (only meaningful for "now") */
-function makeCard(pl, cy, L, end, withOdds, fixedField) {
-  const mom = fixedField || momentum(pl, end, L), ts = mom.map(m => m.t), looks = looksOf(ts), er = earlyRanks(ts, end - L, end);
+/* the race card for a field chosen at index `end` from the window [start, end].  withOdds: abilities + odds (only meaningful for "now") */
+function makeCard(pl, cy, start, end, withOdds, fixedField) {
+  const mom = fixedField || momentum(pl, start, end), ts = mom.map(m => m.t), looks = looksOf(ts), er = earlyRanks(ts, start, end);
   let hs = mom.map((m, i) => {
     const trail = trailing(m.t, end), [style, style_desc] = styleLabel(er[i]);
     const h = { ticker: m.t, ...looks[i], trail, style, style_desc, early_rank: er[i], prior_ret: m.r, prior_rank: i + 1, price_start: null };
@@ -325,16 +335,16 @@ function fillRace(base, hs, s, e, finish) {
 let cacheLatest = {};
 function latestRace() {
   const k = JSON.stringify(cfgOf());
-  if (!cacheLatest[k]) { const { L } = cfgOf(), hs = makeCard(pool, cyc, L, LAST, true); cacheLatest[k] = fillRace({ kind: "latest", predLabel: "預測" }, hs, LAST - L, LAST, false); }
+  if (!cacheLatest[k]) { const st0 = backIdx(LAST, mult), hs = makeCard(pool, cyc, st0, LAST, true); cacheLatest[k] = fillRace({ kind: "latest", predLabel: "預測" }, hs, st0, LAST, false); }
   return cacheLatest[k];
 }
 function histRace(j) {                                    // the race that would have started j periods ago under the same rules
-  const { c, L } = cfgOf(), e = LAST - (j - 1) * c, s = e - c;
-  if (s - L < 0) return null;
-  const mom = momentum(pool, s, L, e);
+  const { c } = cfgOf(), e = LAST - (j - 1) * c, s = e - c, w0 = s >= 0 ? backIdx(s, mult) : -1;
+  if (w0 < 0) return null;
+  const mom = momentum(pool, w0, s, e);
   if (mom.length < FIELD) return null;
-  const hs = makeCard(pool, cyc, L, s, false, mom);
-  return fillRace({ kind: "hist", j, predLabel: "賽前名次", start: P.dates[s], end: P.dates[e], windowStart: P.dates[s - L] }, hs, s, e, true);
+  const hs = makeCard(pool, cyc, w0, s, false, mom);
+  return fillRace({ kind: "hist", j, predLabel: "賽前名次", start: P.dates[s], end: P.dates[e], windowStart: P.dates[w0] }, hs, s, e, true);
 }
 function myRace(r) {
   const s = P.dates.indexOf(r.asof); if (s < 0) return null;
@@ -350,7 +360,7 @@ function currentRace() {
   return latestRace();
 }
 const ccfg = r => `${POOL_NAME[r.pool]}・${CYCLES[r.cyc].n}賽・回看 ${r.mult}×`;
-const raceTitle = r => r.kind === "latest" ? `${POOL_NAME[pool]}・${CYCLES[cyc].n}賽・最新名單（回看 ${mult}×＝${mult * CYCLES[cyc].c} 個交易日）` : r.kind === "hist" ? `${POOL_NAME[pool]}・${CYCLES[cyc].n}賽・前 ${r.j} 期` : `我的賽事・${ccfg(r.rec)}・${md(r.rec.asof)} 起跑`;
+const raceTitle = r => r.kind === "latest" ? `${POOL_NAME[pool]}・${CYCLES[cyc].n}賽・最新名單（回看 ${lookDesc(mult)}）` : r.kind === "hist" ? `${POOL_NAME[pool]}・${CYCLES[cyc].n}賽・前 ${r.j} 期` : `我的賽事・${ccfg(r.rec)}・${md(r.rec.asof)} 起跑`;
 
 /* settle every user-started race whose last day is now in the panel */
 function settleAll() {
@@ -385,15 +395,15 @@ function showTab(t) {
 function viewKey() { return view.type === "latest" ? "latest" : view.type === "mine" ? "m:" + view.id : "h:" + view.j; }
 function segs() {
   for (const [id, curv] of [["pool", pool], ["cyc", cyc]]) $(id).querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === curv));
-  const { c } = cfgOf(), mm = maxMult(c); if (mult > mm) mult = mm;
-  $("multSel").innerHTML = Array.from({ length: mm }, (_, i) => i + 1).map(m => `<option value="${m}" ${m === mult ? "selected" : ""}>${m}×${CYCLES[cyc].n}＝${m * c} 個交易日</option>`).join("");
-  $("cfgtip").innerHTML = tip("動能週期＝一場賽事要跑多久（跑完才結算）。回看＝用多久以前到現在的漲幅挑出前 10 名參賽；可選週期的整數倍。例如週期選「季」、回看 2×，就是用過去 120 個交易日的漲幅選馬，賽事跑 60 個交易日。");
+  const { c } = cfgOf(), mm = maxMult(); if (mult > mm) mult = mm;
+  $("multSel").innerHTML = Array.from({ length: mm }, (_, i) => i + 1).map(m => `<option value="${m}" ${m === mult ? "selected" : ""}>${m}×${CYCLES[cyc].n}＝${lookDesc(m)}${m === mult ? "（起 " + md(P.dates[backIdx(LAST, m)]) + "）" : ""}</option>`).join("");
+  $("cfgtip").innerHTML = tip("動能週期＝一場賽事要跑多久（跑完才結算）。回看＝用多久以前到現在的漲幅挑出前 10 名參賽；可選週期的整數倍。月／季／半年用日曆月份計算（和看盤網站的 1M／3M／6M 一致），例如週期選「季」、回看 2×，就是用過去 6 個月的漲幅選馬，賽事跑一季（63 個交易日）。1天、1週、2週則以交易日計。");
   const mine = bank.races.slice().reverse(), runs = mine.filter(r => r.status === "running"), done = mine.filter(r => r.status === "done").slice(0, 5);
   let opts = `<option value="latest">🏁 最新名單（截至 ${md(P.asof)}）</option>`;
   const mo = r => `<option value="m:${r.id}">${r.status === "running" ? "▶" : "✔"} 我的賽事・${ccfg(r)}・${md(r.asof)} 起（${r.status === "running" ? `第 ${Math.max(0, Math.min(LAST - P.dates.indexOf(r.asof), r.total))}/${r.total} 日` : "已結束"}）</option>`;
   if (runs.length) opts += `<optgroup label="我的進行中賽事 ${runs.length}/${MAX_RACES}">${runs.map(mo).join("")}</optgroup>`;
   if (done.length) opts += `<optgroup label="我的已結束賽事">${done.map(mo).join("")}</optgroup>`;
-  const hist = []; for (let j = 1; j <= N_HIST; j++) { const e = LAST - (j - 1) * c, s = e - c; if (s - mult * c >= 0) hist.push(`<option value="h:${j}">前 ${j} 期：${md(P.dates[s])} → ${md(P.dates[e])}</option>`); }
+  const hist = []; for (let j = 1; j <= N_HIST; j++) { const e = LAST - (j - 1) * c, s = e - c; if (s >= 0 && backIdx(s, mult) >= 0) hist.push(`<option value="h:${j}">前 ${j} 期：${md(P.dates[s])} → ${md(P.dates[e])}</option>`); }
   if (hist.length) opts += `<optgroup label="歷史（同規則回看 ${N_HIST} 期）">${hist.join("")}</optgroup>`;
   $("perSel").innerHTML = opts; $("perSel").value = viewKey();
 }
@@ -700,7 +710,7 @@ $("betview").addEventListener("click", e => {
     if (slip.stake > bank.balance) { note(`點數不足：目前只有 ${bank.balance} 點，請選較小的金額。`); return; }
     let rec = bank.races.find(x => x.id === id);
     if (!rec) {
-      rec = { id, pool, cyc, mult, asof: P.asof, total: cf.c, L: cf.L, status: "running", createdAt: new Date().toISOString(),
+      rec = { id, pool, cyc, mult, asof: P.asof, total: cf.c, status: "running", createdAt: new Date().toISOString(),
         horses: lr.horses.map(({ path, ret, price_start, price_end, ...rest }) => rest) };
       bank.races.push(rec);
     }
