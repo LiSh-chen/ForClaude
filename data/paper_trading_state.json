@@ -3,34 +3,34 @@
   "strategies": {
     "calendar_spread": {
       "status": "flat",
-      "as_of": "2026-10-02"
+      "as_of": "2026-10-05"
     },
     "low_vol_buyhold": {
       "status": "flat",
-      "as_of": "2026-10-02"
+      "as_of": "2026-10-05"
     },
     "og": {
       "status": "flat",
-      "last_checked_date": "2026-10-02",
-      "as_of": "2026-10-02",
-      "last_trade_date": "2026-10-02",
-      "last_realized_pnl_points": 29.0
+      "last_checked_date": "2026-10-05",
+      "as_of": "2026-10-05",
+      "last_trade_date": "2026-10-05",
+      "last_realized_pnl_points": 160.0
     },
     "lu": {
       "status": "flat",
-      "last_checked_date": "2026-10-02",
-      "as_of": "2026-10-02",
-      "last_trade_date": "2026-10-02",
-      "last_realized_pnl_points": 1.0
+      "last_checked_date": "2026-10-05",
+      "as_of": "2026-10-05",
+      "last_trade_date": "2026-10-05",
+      "last_realized_pnl_points": -37.0
     },
     "re": {
       "status": "flat",
-      "last_checked_date": "2026-10-02",
-      "as_of": "2026-10-02",
+      "last_checked_date": "2026-10-05",
+      "as_of": "2026-10-05",
       "last_trade_date": null,
       "last_realized_pnl_points": null,
       "note": "今天符合高波動體制且12:30-13:00有K棒訊號，但量能濾網未通過(vol_ratio_lag1<1.099965)，不進場"
     }
   },
-  "last_run": "2026-10-02"
+  "last_run": "2026-10-05"
 }
