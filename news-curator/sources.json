@@ -1,0 +1,16 @@
+{
+  "_comment": "RSS/Atom 來源。weight 是對來源品質的先驗 (0~1.0),只在沒有 LLM 時當主要依據,有 LLM 時僅作微調。抓不到的來源會被略過,不會中斷流程。可自行增刪。",
+  "feeds": [
+    {"name": "Quanta Magazine",      "url": "https://www.quantamagazine.org/feed/",                    "weight": 0.95},
+    {"name": "Nature News",          "url": "https://www.nature.com/nature.rss",                       "weight": 0.9},
+    {"name": "Science (AAAS)",       "url": "https://www.science.org/rss/news_current.xml",            "weight": 0.9},
+    {"name": "MIT Technology Review","url": "https://www.technologyreview.com/feed/",                  "weight": 0.8},
+    {"name": "Ars Technica",         "url": "https://feeds.arstechnica.com/arstechnica/index",         "weight": 0.7},
+    {"name": "Aeon",                 "url": "https://aeon.co/feed.rss",                                "weight": 0.8},
+    {"name": "Our World in Data",    "url": "https://ourworldindata.org/atom.xml",                     "weight": 0.9},
+    {"name": "Hacker News (200+ pts)","url": "https://hnrss.org/newest?points=200",                    "weight": 0.6},
+    {"name": "The Economist (Science & Tech)","url": "https://www.economist.com/science-and-technology/rss.xml", "weight": 0.8},
+    {"name": "報導者 The Reporter",   "url": "https://www.twreporter.org/a/rss2.xml",                   "weight": 0.85},
+    {"name": "中央社 CNA 科技",       "url": "https://feeds.feedburner.com/rsscna/technology",          "weight": 0.5}
+  ]
+}
