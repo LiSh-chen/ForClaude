@@ -152,6 +152,12 @@
   .pickrow { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); flex-wrap:wrap; }
   .pickrow .nm { flex:1; min-width:120px; } .pickrow button { padding:5px 9px; font-weight:700; }
   .chalres { border:2px solid var(--accent); border-radius:12px; padding:8px 12px; margin:8px 0; background:var(--card); font-weight:600; }
+  #modal { position:fixed; inset:0; z-index:60; background:#000a; display:flex; align-items:center; justify-content:center; padding:16px; }
+  #modal .dlg { background:var(--card); color:var(--fg); border-radius:16px; padding:16px; width:100%; max-width:420px; max-height:92vh; overflow:auto; box-shadow:0 10px 40px #000a; border:3px solid var(--line); }
+  #modal .dlg.win { border-color:#22c55e; } #modal .dlg.lose { border-color:#ef4444; }
+  #modal h3 { margin:0 0 6px; font-size:1.5rem; text-align:center; } #modal .big { font-size:1.05rem; text-align:center; margin:4px 0 8px; }
+  #modal table { margin:6px 0; font-size:13px; } #modal tr.me td { background:#facc1555; font-weight:700; }
+  #modal .btns { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-top:10px; }
 </style>
 </head>
 <body>
@@ -197,6 +203,7 @@
     <section id="tab-bet" hidden><div id="betview"></div></section>
     <section id="tab-play" hidden><div id="playview"></div></section>
     <div id="toast" hidden></div>
+    <div id="modal" hidden></div>
   </div>
   <footer id="foot"></footer>
 </main>
@@ -624,10 +631,10 @@ function resume() { if (!race) return; if (T >= race.days && race.finish !== fal
 /* ================= card tab ================= */
 function renderCard() {
   race = currentRace();
-  const kf = P.key_factors, hs = race.horses, now = race.kind !== "hist", fin = race.finish !== false;
+  const kf = P.key_factors, hs = race.horses, now = race.kind === "latest" || race.kind === "mine", fin = race.finish !== false;
   $("cinfo").innerHTML = `<div class="box"><b>${esc(raceTitle(race))}</b>${tip(HELP.list)}　<span class="muted">${now ? `馬號＝預測名次${tip(HELP.total)}` : "歷史期別：馬號＝賽前動能名次；能力與賠率只對最新名單計算"}</span></div>`;
   $("cards").innerHTML = hs.map(h => {
-    const form = h.trail.map((v, k) => `<span class="chip ${v == null ? "none" : ""}" title="${TRAIL[k][1]}">${TRAIL[k][1]}<br>${v == null ? "—" : `<b class="${cls(v)}">${pct(v, 1)}</b>`}</span>`).join("");
+    const form = h.trail.map((v, k) => `<span class="chip ${v == null ? "none" : ""}" title="${TRAIL[k].n}">${TRAIL[k].n}<br>${v == null ? "—" : `<b class="${cls(v)}">${pct(v, 1)}</b>`}</span>`).join("");
     const abil = now ? kf.map((f, i) => { const a = h.ability[i];
       return `<div class="arow"><span>${esc(f.horse)}</span><div class="bar"><i style="width:${a ?? 0}%"></i></div><span>${a == null ? "—" : Math.round(a)}</span></div>` +
         `<div class="tt" hidden><b>${esc(f.horse)}</b>：${esc(f.meaning)}。<br>參數：${esc(f.param)}。${a == null ? "缺資料（財報資料未涵蓋或上市未滿一年），這一項不計分、其餘項目重新配分。" : `本馬：${fmtRaw(f, h.raw[i])}（馬群百分位 ${a}）`}</div>`; }).join("") : `<div class="muted">歷史期別不重算能力（五項能力用的是當時的財報與量價資料，這裡只呈現賽果）。</div>`;
@@ -735,7 +742,7 @@ function renderBet() {
       <div class="sum"><span class="muted">下注後${existing ? "加入已開出的賽事" : `用這份名單開出一場 ${cf.c} 個交易日的賽事`}，下個交易日開盤起跑；賠率鎖定 ${odds.toFixed(1)} 倍${enough ? "" : "　<b style=\"color:#b0314a\">點數不足</b>"}</span>
         <span><button id="cancelSlip" style="background:#fff;color:#2a2320">取消</button> <button class="go" id="confirmBet">確認投注</button></span></div></div></td></tr>`;
   };
-  const rows = r.horses.map(h => `<tr><td><span class="saddle" style="background:${COLORS[h.no - 1]}">${h.no}</span></td><td>${esc(h.horse_zh)} <small class="muted" style="color:#8fb59a">${esc(h.ticker)}</small><br><span class="form-dots">${h.trail.slice(2, 5).map((v, i) => `${TRAIL[i + 2][1]}${v == null ? "—" : pct(v, 0)}`).join(" ")}</span></td><td>${led(h, "win")}</td><td>${led(h, "place")}</td></tr>`
+  const rows = r.horses.map(h => `<tr><td><span class="saddle" style="background:${COLORS[h.no - 1]}">${h.no}</span></td><td>${esc(h.horse_zh)} <small class="muted" style="color:#8fb59a">${esc(h.ticker)}</small><br><span class="form-dots">${h.trail.slice(2, 5).map((v, i) => `${TRAIL[i + 2].n}${v == null ? "—" : pct(v, 0)}`).join(" ")}</span></td><td>${led(h, "win")}</td><td>${led(h, "place")}</td></tr>`
     + (slip.ticker === h.ticker ? slipRow(h) : "")).join("");
   const runList = runs.length ? runs.slice().reverse().map(x => `<div class="box"><b>${esc(ccfg(x))}</b>　起跑 ${md(x.asof)}（第 ${Math.min(x.total, LAST - P.dates.indexOf(x.asof))}/${x.total} 日，約 ${estEnd(x)} 結算）　<button data-watch="${x.id}">看賽況</button></div>`).join("") : `<div class="muted">目前沒有進行中的賽事。選好馬群、週期與回看天數，點賠率下注就會開出一場。</div>`;
   $("betview").innerHTML = `
@@ -867,9 +874,26 @@ function onRaceDone() {                                   // reveal the result o
   if (!race || race.kind !== "challenge" || !race.c.pickInfo) return;
   const p = race.c.pickInfo, hs = race.horses;
   const ri = $("rinfo").querySelector(".muted"); if (ri) ri.textContent = "真實歷史賽事｜已結束";
+  showResultModal(p, hs);
   $("chalres").innerHTML = `<div class="chalres">${p.win ? "🎉 押中！" : "😅 沒押中"}　你押 #${p.no} ${esc(p.horse)}（${typeName(p.type)}，${p.odds.toFixed(1)} 倍）→ 實際第 ${p.rank} 名${p.win && !race.c.practice ? `，獲得 ${p.reward} 點` : ""}${race.c.practice ? "（練習不計分）" : ""}<br><span class="muted">賽事日期 ${race.dates[0]} → ${race.dates[race.dates.length - 1]}｜冠軍 ${esc(hs.slice().sort((a, b) => b.ret - a.ret)[0].horse_zh)}</span></div>`;
 }
 
+function showResultModal(p, hs) {
+  const order = hs.slice().sort((a, b) => b.ret - a.ret), my = hs.find(h => h.ticker === p.ticker);
+  const rank = 1 + hs.filter(h => h.ret > my.ret).length;                    // always the rank the race itself shows
+  const prDays = race.dates[0] + " → " + race.dates[race.dates.length - 1];
+  $("modal").innerHTML = `<div class="dlg ${p.win ? "win" : "lose"}"><h3>${p.win ? "🎉 押中了！" : "😅 這次沒押中"}</h3>
+    <div class="big">你押 <b>#${p.no} ${esc(p.horse)}</b>（${typeName(p.type)}，${p.odds.toFixed(1)} 倍）<br>最後跑第 <b>${rank}</b> 名${p.win && !race.c.practice ? `，獲得 <b>${p.reward}</b> 點` : ""}${race.c.practice ? "（練習不計分）" : ""}</div>
+    <table><thead><tr><th>名次</th><th>馬匹</th><th>漲幅</th></tr></thead><tbody>${order.map((h, i) => `<tr class="${h.ticker === p.ticker ? "me" : ""}"><td>${i === 0 ? "🏆" : i + 1}</td><td>${h.no} ${esc(h.horse_zh)} <small class="muted">${esc(h.ticker)}</small>${h.ticker === p.ticker ? " ← 你押的" : ""}</td><td class="${cls(h.ret)}">${pct(h.ret)}</td></tr>`).join("")}</tbody></table>
+    <div class="muted" style="text-align:center">賽事日期 ${prDays}</div>
+    <div class="btns"><button class="primary" id="mdClose">看賽道</button><button id="mdPractice">🎲 再玩一場練習</button><button id="mdPlay">🎯 回挑戰頁</button></div></div>`;
+  $("modal").hidden = false;
+}
+$("modal").onclick = e => {
+  if (e.target === $("modal") || e.target.id === "mdClose") $("modal").hidden = true;
+  else if (e.target.id === "mdPractice") { $("modal").hidden = true; chalCur = buildChal(130 + Math.floor(Math.random() * (LAST - CH_LEN - 129)), true, null); showTab("play"); }
+  else if (e.target.id === "mdPlay") { $("modal").hidden = true; showTab("play"); }
+};
 function renderPlay() {
   const m = M(), lv = level(m.xp), base = 30 * (lv - 1) ** 2, nextXp = 30 * lv ** 2, today = todayStr();
   if (!chalCur) chalCur = dailyChal();
