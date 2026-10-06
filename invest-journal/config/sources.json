@@ -1,0 +1,31 @@
+{
+  "_doc": "新聞來源（RSS）。market 表示該來源主要涵蓋的市場；weight 為來源權重。任何一個來源失敗都不會中斷整體流程。Google News 搜尋 RSS 以 site: 方式涵蓋沒有公開 RSS 的主流財經媒體。",
+  "lookback_hours": 48,
+  "feeds": [
+    {"name": "CNBC Markets", "market": "US", "weight": 1.0, "url": "https://www.cnbc.com/id/10000664/device/rss/rss.html"},
+    {"name": "CNBC Technology", "market": "US", "weight": 1.0, "url": "https://www.cnbc.com/id/19854910/device/rss/rss.html"},
+    {"name": "CNBC Investing", "market": "US", "weight": 1.0, "url": "https://www.cnbc.com/id/15839069/device/rss/rss.html"},
+    {"name": "MarketWatch Top Stories", "market": "US", "weight": 1.0, "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories"},
+    {"name": "MarketWatch MarketPulse", "market": "US", "weight": 1.0, "url": "https://feeds.content.dowjones.io/public/rss/mw_marketpulse"},
+    {"name": "Yahoo Finance", "market": "US", "weight": 0.9, "url": "https://finance.yahoo.com/news/rssindex"},
+    {"name": "Investing.com News", "market": "US", "weight": 0.8, "url": "https://www.investing.com/rss/news.rss"},
+    {"name": "Reuters Business (via Google News)", "market": "US", "weight": 1.2, "url": "https://news.google.com/rss/search?q=site:reuters.com+(markets+OR+stocks+OR+earnings)+when:2d&hl=en-US&gl=US&ceid=US:en"},
+    {"name": "Bloomberg Markets (via Google News)", "market": "US", "weight": 1.2, "url": "https://news.google.com/rss/search?q=site:bloomberg.com+(markets+OR+stocks)+when:2d&hl=en-US&gl=US&ceid=US:en"},
+    {"name": "WSJ Markets (via Google News)", "market": "US", "weight": 1.2, "url": "https://news.google.com/rss/search?q=site:wsj.com+(stocks+OR+markets)+when:2d&hl=en-US&gl=US&ceid=US:en"},
+    {"name": "Barron's (via Google News)", "market": "US", "weight": 1.0, "url": "https://news.google.com/rss/search?q=site:barrons.com+stocks+when:2d&hl=en-US&gl=US&ceid=US:en"},
+    {"name": "Seeking Alpha Market News", "market": "US", "weight": 0.8, "url": "https://seekingalpha.com/market_currents.xml"},
+    {"name": "鉅亨網 台股", "market": "TW", "weight": 1.0, "url": "https://news.cnyes.com/rss/cat/tw_stock"},
+    {"name": "鉅亨網 美股", "market": "US", "weight": 0.9, "url": "https://news.cnyes.com/rss/cat/wd_stock"},
+    {"name": "Yahoo奇摩股市 台股", "market": "TW", "weight": 1.0, "url": "https://tw.stock.yahoo.com/rss?category=tw-market"},
+    {"name": "經濟日報 證券 (via Google News)", "market": "TW", "weight": 1.1, "url": "https://news.google.com/rss/search?q=site:money.udn.com+(台股+OR+產業)+when:2d&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"},
+    {"name": "工商時報 (via Google News)", "market": "TW", "weight": 1.1, "url": "https://news.google.com/rss/search?q=site:ctee.com.tw+(台股+OR+產業)+when:2d&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"},
+    {"name": "中央社 財經 (via Google News)", "market": "TW", "weight": 1.1, "url": "https://news.google.com/rss/search?q=site:cna.com.tw+(財經+OR+台股)+when:2d&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"},
+    {"name": "聯合新聞網 股市 (via Google News)", "market": "TW", "weight": 1.0, "url": "https://news.google.com/rss/search?q=site:udn.com+股市+when:2d&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"},
+    {"name": "Google News 台股", "market": "TW", "weight": 0.9, "url": "https://news.google.com/rss/search?q=台股+產業+when:2d&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"},
+    {"name": "Google News 美股", "market": "US", "weight": 0.9, "url": "https://news.google.com/rss/search?q=stock+market+sector+when:2d&hl=en-US&gl=US&ceid=US:en"}
+  ],
+  "positive_words": ["surge", "soar", "beat", "beats", "record high", "record", "upgrade", "upgraded", "rally", "jumps", "raises guidance", "strong demand", "outperform", "bullish", "boom", "accelerat",
+                     "創高", "創新高", "大漲", "看好", "利多", "受惠", "擴產", "缺貨", "漲價", "訂單", "上修", "優於預期", "強勁", "亮眼", "動能", "成長"],
+  "negative_words": ["plunge", "plummet", "miss", "misses", "downgrade", "downgraded", "slump", "probe", "lawsuit", "cuts guidance", "weak demand", "bearish", "selloff", "sell-off", "recession", "layoff", "ban",
+                     "重挫", "下修", "利空", "衰退", "裁員", "砍單", "禁令", "關稅", "疲弱", "不如預期", "跌深", "崩跌", "示警", "虧損"]
+}

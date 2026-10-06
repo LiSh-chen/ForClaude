@@ -1,0 +1,166 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>方法論｜投資研究日誌</title><style>
+:root{--bg:#f7f7f4;--fg:#1c2421;--card:#fff;--muted:#68726d;--line:#dcdfda;--accent:#1f6f4a;--up:#c0392b;--down:#1a8f4c}
+@media (prefers-color-scheme:dark){:root{--bg:#121614;--fg:#e6eae7;--card:#1a1f1c;--muted:#9aa59f;--line:#2c342f;--accent:#5bbd8a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.7 system-ui,-apple-system,"Noto Sans TC",sans-serif}
+header{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+nav{max-width:1000px;margin:0 auto;padding:10px 16px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+nav b{margin-right:auto}nav a{color:var(--accent);text-decoration:none;font-weight:600}
+main{max-width:1000px;margin:0 auto;padding:12px 16px 60px}
+h1{font-size:1.5rem}h2{margin-top:2rem;border-bottom:1px solid var(--line);padding-bottom:4px}h3{margin-top:1.6rem}
+a{color:var(--accent)}blockquote{margin:10px 0;padding:6px 14px;border-left:4px solid var(--accent);background:var(--card);color:var(--muted)}
+.tw{overflow-x:auto}table{border-collapse:collapse;font-size:13.5px;margin:10px 0;min-width:100%}
+th,td{border:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top}th{background:var(--card)}
+code{background:var(--card);padding:1px 4px;border-radius:4px}.muted{color:var(--muted)}
+ul.arch{list-style:none;padding:0}ul.arch li{padding:6px 0;border-bottom:1px solid var(--line)}
+svg text{fill:var(--fg);font-size:11px}
+footer{max-width:1000px;margin:0 auto;padding:0 16px 40px;color:var(--muted);font-size:12.5px}
+</style></head><body><header><nav><b>📒 投資研究日誌</b><a href="index.html">最新日誌</a><a href="archive.html">日誌列表</a><a href="performance.html">績效追蹤</a><a href="reviews.html">檢討報告</a><a href="methodology.html">方法論</a></nav></header><main><h1>方法論</h1>
+<p>本系統每天自動完成「讀新聞 → 找產業 → 找龍頭/績優股 → 估目標價 → 寫日誌」，並定期「驗證過往預測 → 檢討 → 回饋參數」。以下說明每一步怎麼做、為什麼這樣做、已知限制。</p>
+<blockquote>
+<p>免責：本站為研究與教育用途，<strong>不構成投資建議</strong>。所有目標價都是模型估算，一定有誤差；本站公開追蹤並檢討這些誤差。</p>
+</blockquote>
+<h2>1. 每日流程</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>步驟</th>
+<th>內容</th>
+<th>程式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>① 新聞掃描</td>
+<td>讀取約 20 個 RSS 來源（CNBC、MarketWatch、Reuters/Bloomberg/WSJ/Barron's 經 Google News、鉅亨網、Yahoo 奇摩股市、經濟日報、工商時報、中央社、聯合報…），只取近 48 小時</td>
+<td><code>news.py</code></td>
+</tr>
+<tr>
+<td>② 產業評分</td>
+<td>17 個產業 × 台/美兩個市場，各自計分並排名，取前 5 為「重點產業」</td>
+<td><code>selection.py</code></td>
+</tr>
+<tr>
+<td>③ 個股評分</td>
+<td>全宇宙約 150 檔逐一計算 7 個因子與估值</td>
+<td><code>selection.py</code></td>
+</tr>
+<tr>
+<td>④ 篩選</td>
+<td>龍頭或財務績優、流動性、市值、估值上檔、各估值方法一致性；同產業最多 2 檔</td>
+<td><code>selection.py</code></td>
+</tr>
+<tr>
+<td>⑤ 目標價</td>
+<td>四種方法加權＋情境分析</td>
+<td><code>valuation.py</code></td>
+</tr>
+<tr>
+<td>⑥ 日誌</td>
+<td>把全部證據與計算過程寫成 Markdown，渲染成網頁</td>
+<td><code>journal.py</code> <code>site.py</code></td>
+</tr>
+</tbody>
+</table></div>
+<h2>2. 產業評分</h2>
+<p><code>產業分數 = 新聞熱度 × 35% + 價格動能 × 40% + 基本面成長 × 25%</code>（皆為跨產業的百分位排名，權重可被回饋調整）</p>
+<ul>
+<li><strong>新聞熱度</strong>：標題/摘要命中該產業關鍵字（中英文）的報導數，依來源權重與時效（12 小時內 1.0、24 小時內 0.7、48 小時內 0.4）加權；另計情緒（利多/利空詞）。另一市場的新聞以 0.5 權重外溢（全球題材）。累積滿 5 天歷史後，加入「相對近 20 日均值的升溫幅度」作為「新聞升溫」標籤。</li>
+<li><strong>價格動能</strong>：成分股近 3、6 個月相對大盤的超額報酬（70%），加上站上 50 日線的比例（30%）。</li>
+<li><strong>基本面成長</strong>：成分股營收與獲利年增率平均。</li>
+<li><strong>標籤</strong>：市場焦點（新聞熱度前 1/3）、潛力（基本面成長前 1/3 但動能尚未過熱）、成長動能、新聞升溫。</li>
+</ul>
+<h2>3. 龍頭股與財務績優股</h2>
+<ul>
+<li><strong>龍頭</strong>：同產業、同市場的市值排名（第 1 名 100 分，依序遞減）。</li>
+<li><strong>財務品質分</strong>（0–100，缺項重新正規化，至少 3 項）：ROE、營業利益率、毛利率、自由現金流率、負債權益比、流動比率。</li>
+<li>入選資格：產業市值前一半（龍頭分 ≥ 50）<strong>或</strong>品質分 ≥ 65；且品質分 ≥ 45、獲利為正。</li>
+</ul>
+<h2>4. 綜合評分（預設權重）</h2>
+<p><code>sector 20% + leader 10% + quality 25% + growth 10% + valuation 15% + momentum 12% + news 8%</code></p>
+<ul>
+<li>valuation：目標價上檔空間（60%）＋ PEG（40%），預估本益比超過 60 倍打 8 折。</li>
+<li>momentum：相對大盤 3/6 個月強度與均線排列；高於 200 日線 50% 以上視為過熱扣分。</li>
+</ul>
+<h2>5. 目標價（參考賣方研究報告的做法）</h2>
+<p>大型券商的初次覆蓋報告通常包含：投資論點、催化劑、<strong>多種估值法交叉驗證</strong>、<strong>bull/base/bear 情境</strong>、12 個月目標價與評等、風險。本系統照這個結構做：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>公式</th>
+<th>預設權重</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>同業相對本益比</td>
+<td>預估 EPS × 目標本益比；目標本益比＝同產業同市場中位數 × 成長調整（0.8–1.3）</td>
+<td>40%</td>
+</tr>
+<tr>
+<td>PEG</td>
+<td>預估 EPS × (成長率% × 1.3)，本益比限制 8–45</td>
+<td>15%</td>
+</tr>
+<tr>
+<td>兩階段 DCF</td>
+<td>每股自由現金流成長 10 年，由前期成長率線性收斂到永續成長 2.5%；折現率 = 無風險利率 + Beta × 5% ERP，限制 7%–13%</td>
+<td>20%</td>
+</tr>
+<tr>
+<td>券商共識目標價</td>
+<td>yfinance 提供的分析師平均目標價（僅作交叉檢驗）</td>
+<td>25%</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>離群剔除</strong>：任一方法算出的價值低於現價 0.35 倍或高於 3 倍，視為資料/假設失真而剔除。</li>
+<li><strong>一致性檢查</strong>：方法間分歧度（(最高−最低)/平均）超過 80% 的標的不入選；分歧度與方法數決定「估值信心」高/中/低。</li>
+<li><strong>target_shrink</strong>：base = 現價 × (1 + (加權值/現價 − 1) × target_shrink)。預設 1.0；若檢討發現目標價系統性偏樂觀，會被自動調低。</li>
+<li><strong>情境</strong>：離散度 d = 0.5 × 方法分歧度 + 0.25 × 年化波動，限制 12%–40%。bull = base × (1+d)，bear = base × (1−1.5d)（下檔較陡，反映評價壓縮風險）。機率 20/55/25，計算機率加權期望值與風險報酬比。</li>
+<li><strong>參考停損</strong>：2.5 × ATR(14)，限制在 6%–18%。</li>
+<li>預估 EPS 一律用「價格 ÷ 預估本益比」反推，避免 ADR（財報幣別≠交易幣別）造成幣別錯誤；幣別不一致時不使用 DCF。</li>
+</ul>
+<h2>6. 績效追蹤</h2>
+<ul>
+<li>進場價＝推薦日收盤價；追蹤 5/20/60/120 個交易日與迄今的報酬，基準為台股加權指數（台股）、S&amp;P 500（美股），計算超額報酬。</li>
+<li>是否觸及 base 目標價、是否跌破參考停損（以盤中高低點判斷）。</li>
+<li>12 個月目標價無法在短期內驗證，因此另外檢驗「隱含路徑」：把 12 個月上檔空間按複利攤到 N 日作為預期報酬，與實際比較。</li>
+<li><strong>候選池追蹤</strong>：每天把全宇宙所有評分過的股票（不只入選者）一併存檔並追蹤其後續報酬，用來檢驗「因子本身有沒有預測力」，避免只看被選中的股票而產生倖存者偏誤。</li>
+</ul>
+<h2>7. 檢討與回饋</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>頻率</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>每週六</td>
+<td>週度檢討報告：績效總覽、最佳/最差個股、選股附加價值、因子 IC、目標價偏差、產業別表現、診斷與改進行動</td>
+</tr>
+<tr>
+<td>每月第一個週六</td>
+<td>月度檢討，並在樣本足夠時回饋 <code>config/params.json</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>回饋規則（<code>tuning.py</code>，參數在 <code>params.json</code> 的 <code>tuning</code>）：</p>
+<ol>
+<li><strong>因子/估值方法權重</strong>：以「日均 Rank IC（20 日超額報酬）」為依據，<code>新權重 = 舊權重 × (1 + clip(1.5 × IC, ±10%))</code>，再限制在 3%–35% 並正規化。需至少 20 個有效日期。</li>
+<li><strong>target_shrink</strong>：至少 40 筆到期推薦，且 20 日實際報酬相對隱含路徑的平均偏差超過 ±5pp，才以 0.05 為步幅調整（範圍 0.6–1.0，不會往上超過 1.0）。</li>
+<li>樣本不足就不調整，報告會明說「未調整及原因」。</li>
+<li>每次調整寫入 <code>config/params_history.json</code>，日誌第八節會揭露最近一次參數回饋。</li>
+</ol>
+<h2>8. 已知限制（請務必閱讀）</h2>
+<ul>
+<li><strong>資料品質</strong>：價格與財報來自 yfinance（Yahoo Finance 非官方介面），台股/小型股的預估 EPS、共識目標價可能缺漏或過時；缺漏時系統會減少估值方法或直接不推薦。</li>
+<li><strong>新聞分析以關鍵字與情緒詞為主</strong>，無法理解反諷、否定句與細緻語意；設定 <code>ANTHROPIC_API_KEY</code> 後 LLM 只負責撰寫敘事評論，不改變選股與目標價。</li>
+<li><strong>短期績效統計不可靠</strong>：相鄰日期的推薦高度重疊，且共同受大盤影響，有效樣本遠少於筆數；數週內的勝率、IC 幾乎是雜訊。因此調參門檻設得很高、幅度很小。</li>
+<li><strong>未計交易成本、稅費、滑價</strong>，且以收盤價成交為假設；實際績效會較差。</li>
+<li><strong>股票宇宙是人工維護的清單</strong>（<code>config/universe.json</code>，約 150 檔、17 個產業），可能遺漏新興題材與個股；清單本身的選擇也帶有偏誤。</li>
+<li>估值模型是啟發式，不能取代對公司的深入研究。</li>
+</ul></main><footer>本站內容由系統自動產生，僅供研究與教育用途，不構成投資建議；目標價為模型估算，投資有風險。</footer></body></html>

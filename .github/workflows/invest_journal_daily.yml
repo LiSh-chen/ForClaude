@@ -1,0 +1,49 @@
+name: Invest Journal Daily
+
+# 每個交易日（台股、美股都收盤後）：掃描財經新聞 → 產業評分 → 龍頭/績優股篩選 → 台美各 5 檔含目標價 → 寫研究日誌。
+# 跑完後 commit 回 repo；"Stock Derby Daily Build" 會以 workflow_run 接手把 invest-journal/site 發佈到 GitHub Pages 的 /journal/。
+# 選用：在 repo Settings → Secrets 新增 ANTHROPIC_API_KEY，日誌會多一段 AI 撰寫的市場摘要與個股評論（量化選股不受影響）。
+
+on:
+  schedule:
+    - cron: "30 22 * * 1-5"   # 22:30 UTC：美股收盤後（夏/冬令皆已收盤）、台股隔天開盤前
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "同一基準日已有日誌時仍重新產生"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: invest-journal
+  cancel-in-progress: false
+
+jobs:
+  daily:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: invest-journal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: invest-journal/requirements.txt }
+      - run: pip install -r requirements.txt
+      - name: Update tracking of past picks (so today's journal quotes fresh performance)
+        run: python -m ijournal track
+      - name: Write today's journal
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m ijournal daily ${{ inputs.force && '--force' || '' }}
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data journal reviews site config
+          git diff --cached --quiet || git commit -m "journal: daily research journal $(date -u +%F)"
+          git pull --rebase -q origin "${GITHUB_REF_NAME}" && git push

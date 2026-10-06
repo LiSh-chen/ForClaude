@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "updated": "2026-10-06",
+  "note": "初始參數。之後由 `ijournal review --tune` 依據績效檢討在『有足夠樣本』時以小步幅自動調整，並把每次變更記錄在 config/params_history.json。",
+  "sector_weights": {"news": 0.35, "momentum": 0.40, "fundamental": 0.25},
+  "factor_weights": {"sector": 0.20, "leader": 0.10, "quality": 0.25, "growth": 0.10, "valuation": 0.15, "momentum": 0.12, "news": 0.08},
+  "method_weights": {"pe": 0.40, "peg": 0.15, "dcf": 0.20, "consensus": 0.25},
+  "target_shrink": 1.0,
+  "scenario_prob": {"bull": 0.20, "base": 0.55, "bear": 0.25},
+  "valuation": {
+    "rf": {"US": 0.042, "TW": 0.016},
+    "erp": 0.05,
+    "terminal_growth": 0.025,
+    "wacc_bounds": [0.07, 0.13],
+    "peg_target": 1.3,
+    "pe_bounds": [8, 45],
+    "growth_clip": [-0.10, 0.40],
+    "max_upside": 1.0
+  },
+  "selection": {
+    "picks_per_market": 5,
+    "focus_sectors_per_market": 5,
+    "max_per_sector": 2,
+    "min_market_cap": {"US": 15000000000, "TW": 80000000000},
+    "min_avg_turnover": {"US": 50000000, "TW": 300000000},
+    "min_upside": 0.05,
+    "max_method_spread": 0.8,
+    "leader_or_quality": {"leader_score": 50, "quality_score": 65},
+    "min_quality_score": 45
+  },
+  "tuning": {
+    "min_dates": 20,
+    "horizon_days": 20,
+    "min_obs_per_date": 15,
+    "ic_gain": 1.5,
+    "max_step": 0.10,
+    "min_weight": 0.03,
+    "max_weight": 0.35,
+    "shrink_bounds": [0.6, 1.0],
+    "shrink_step": 0.05,
+    "bias_threshold": 0.05,
+    "min_matured_picks": 40
+  }
+}

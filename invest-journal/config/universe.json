@@ -1,0 +1,150 @@
+{
+  "_doc": "tickers 格式: 代號|名稱|別名(逗號分隔)。.TW=上市, .TWO=上櫃, 其餘視為美股。龍頭股由『同產業同市場的市值排名』動態判定，不在此硬編。",
+  "benchmarks": {"US": "^GSPC", "TW": "^TWII"},
+  "indices": [
+    {"t": "^GSPC", "name": "S&P 500"},
+    {"t": "^IXIC", "name": "Nasdaq 綜合"},
+    {"t": "^SOX", "name": "費城半導體"},
+    {"t": "^VIX", "name": "VIX 恐慌指數"},
+    {"t": "^TWII", "name": "台灣加權指數"},
+    {"t": "TWD=X", "name": "美元兌台幣"}
+  ],
+  "sectors": [
+    {
+      "id": "ai_chips", "name": "AI 晶片與先進製程",
+      "keywords_zh": ["AI晶片", "AI 晶片", "先進製程", "CoWoS", "先進封裝", "晶圓代工", "GPU", "ASIC", "輝達", "2奈米", "3奈米", "HBM"],
+      "keywords_en": ["AI chip", "GPU", "foundry", "Nvidia", "advanced packaging", "CoWoS", "ASIC", "semiconductor", "chipmaker", "2nm", "3nm", "Blackwell", "Rubin"],
+      "risk": "美中出口管制、AI 資本支出放緩、地緣政治（台海）風險、估值已反映高成長預期",
+      "tickers": ["NVDA|NVIDIA|Nvidia,輝達", "AVGO|Broadcom|博通", "AMD|AMD|超微", "TSM|台積電 ADR|TSMC", "MRVL|Marvell|邁威爾",
+                  "2330.TW|台積電|TSMC", "2454.TW|聯發科|MediaTek", "3711.TW|日月光投控|ASE", "3034.TW|聯詠|", "2379.TW|瑞昱|", "3443.TW|創意|", "3661.TW|世芯-KY|"]
+    },
+    {
+      "id": "ai_servers", "name": "AI 伺服器與組裝",
+      "keywords_zh": ["AI伺服器", "AI 伺服器", "伺服器", "GB200", "GB300", "資料中心", "雲端資本支出", "ODM", "機櫃"],
+      "keywords_en": ["AI server", "server", "data center", "datacenter", "hyperscaler", "capex", "GB200", "GB300", "rack"],
+      "risk": "雲端大廠資本支出循環、毛利率偏低、客戶集中、庫存與零組件缺料",
+      "tickers": ["SMCI|Super Micro|美超微", "DELL|Dell Technologies|戴爾", "HPE|Hewlett Packard Enterprise|",
+                  "2382.TW|廣達|Quanta", "3231.TW|緯創|Wistron", "6669.TW|緯穎|Wiwynn", "2317.TW|鴻海|Foxconn,Hon Hai", "2356.TW|英業達|Inventec", "2376.TW|技嘉|Gigabyte"]
+    },
+    {
+      "id": "cooling_power", "name": "散熱、電源與資料中心基礎建設",
+      "keywords_zh": ["散熱", "液冷", "水冷", "電源供應", "UPS", "不斷電", "電源管理", "機房"],
+      "keywords_en": ["liquid cooling", "cooling", "power supply", "thermal", "data center power", "UPS"],
+      "risk": "客戶認證/規格變動、題材過熱導致評價偏高、同業價格競爭",
+      "tickers": ["VRT|Vertiv|維諦", "ETN|Eaton|伊頓",
+                  "2308.TW|台達電|Delta Electronics", "3017.TW|奇鋐|AVC", "3324.TWO|雙鴻|", "2301.TW|光寶科|Lite-On"]
+    },
+    {
+      "id": "networking_optics", "name": "網通與光通訊",
+      "keywords_zh": ["光通訊", "矽光子", "CPO", "交換器", "網通", "800G", "1.6T", "光模組", "高速傳輸"],
+      "keywords_en": ["optical", "photonics", "co-packaged optics", "CPO", "networking", "switch", "800G", "1.6T", "transceiver", "Ethernet"],
+      "risk": "技術路線變動（CPO 取代可插拔）、客戶集中、題材股波動大",
+      "tickers": ["ANET|Arista Networks|", "CSCO|Cisco|思科", "CIEN|Ciena|", "COHR|Coherent|", "CRDO|Credo|",
+                  "2345.TW|智邦|Accton", "3081.TWO|聯亞|", "4979.TWO|華星光|", "3363.TWO|上詮|", "6442.TW|光聖|"]
+    },
+    {
+      "id": "memory_storage", "name": "記憶體與儲存",
+      "keywords_zh": ["記憶體", "DRAM", "NAND", "HBM", "快閃記憶體", "儲存", "DDR5", "報價上漲", "合約價"],
+      "keywords_en": ["memory", "DRAM", "NAND", "HBM", "flash", "storage", "DDR5", "memory prices"],
+      "risk": "景氣循環劇烈、供給擴張導致價格反轉、高度依賴報價",
+      "tickers": ["MU|Micron|美光", "WDC|Western Digital|", "STX|Seagate|", "SNDK|Sandisk|",
+                  "2408.TW|南亞科|Nanya", "2344.TW|華邦電|Winbond", "2337.TW|旺宏|Macronix", "8299.TWO|群聯|Phison"]
+    },
+    {
+      "id": "semi_equipment", "name": "半導體設備與材料",
+      "keywords_zh": ["半導體設備", "設備商", "EUV", "晶圓廠", "擴產", "蝕刻", "濕製程", "廠務"],
+      "keywords_en": ["semiconductor equipment", "wafer fab", "EUV", "lithography", "etch", "fab expansion", "WFE"],
+      "risk": "出口管制（中國營收占比）、晶圓廠資本支出循環",
+      "tickers": ["AMAT|Applied Materials|應材", "LRCX|Lam Research|科林", "KLAC|KLA|", "ASML|ASML|艾司摩爾",
+                  "3131.TWO|弘塑|", "6196.TW|帆宣|", "2404.TW|漢唐|", "1560.TW|中砂|", "3583.TW|辛耘|"]
+    },
+    {
+      "id": "pcb_materials", "name": "PCB、載板與先進材料",
+      "keywords_zh": ["PCB", "載板", "ABF", "CCL", "銅箔基板", "玻纖布", "高階板", "印刷電路板"],
+      "keywords_en": ["PCB", "printed circuit", "substrate", "ABF", "CCL", "laminate", "glass fiber"],
+      "risk": "原物料（銅、玻纖）價格波動、高階規格認證不確定、價格競爭",
+      "tickers": ["GLW|Corning|康寧", "TTMI|TTM Technologies|",
+                  "3037.TW|欣興|Unimicron", "8046.TW|南電|", "2368.TW|金像電|", "2383.TW|台光電|", "6274.TWO|台燿|"]
+    },
+    {
+      "id": "cloud_software", "name": "雲端、AI 軟體與資安",
+      "keywords_zh": ["雲端", "生成式AI", "生成式 AI", "AI代理", "SaaS", "軟體", "資安", "大型語言模型", "Copilot"],
+      "keywords_en": ["cloud", "generative AI", "AI agent", "SaaS", "software", "cybersecurity", "LLM", "Azure", "AWS", "Copilot"],
+      "risk": "AI 變現速度不如預期、高估值對利率敏感、開源/價格競爭",
+      "tickers": ["MSFT|Microsoft|微軟", "ORCL|Oracle|甲骨文", "PLTR|Palantir|", "CRM|Salesforce|", "NOW|ServiceNow|", "SNOW|Snowflake|",
+                  "CRWD|CrowdStrike|", "PANW|Palo Alto Networks|", "FTNT|Fortinet|"]
+    },
+    {
+      "id": "internet_platforms", "name": "網路平台、廣告與消費電子",
+      "keywords_zh": ["廣告", "社群", "搜尋", "串流", "蘋果", "iPhone", "AI手機", "AI PC", "AI 手機", "AI眼鏡"],
+      "keywords_en": ["advertising", "search", "social media", "streaming", "iPhone", "Apple", "AI PC", "smartphone", "Alphabet", "Meta"],
+      "risk": "反壟斷與監管、廣告景氣、消費電子換機週期",
+      "tickers": ["GOOGL|Alphabet|Google,谷歌", "META|Meta Platforms|Facebook,臉書", "NFLX|Netflix|網飛", "AAPL|Apple|蘋果", "AMZN|Amazon|亞馬遜",
+                  "3008.TW|大立光|Largan", "4938.TW|和碩|Pegatron", "2474.TW|可成|Catcher"]
+    },
+    {
+      "id": "power_grid", "name": "電力設備、電網與能源轉型",
+      "keywords_zh": ["電網", "重電", "變壓器", "核能", "電力", "再生能源", "儲能", "強韌電網", "電價", "天然氣發電"],
+      "keywords_en": ["power grid", "transformer", "nuclear", "electricity demand", "utilities", "energy storage", "renewable", "gas turbine", "grid"],
+      "risk": "政策補貼變動、專案交期與成本、題材性評價偏高",
+      "tickers": ["CEG|Constellation Energy|", "VST|Vistra|", "GEV|GE Vernova|", "NEE|NextEra Energy|", "PWR|Quanta Services|",
+                  "1519.TW|華城|Fortune Electric", "1513.TW|中興電|", "1503.TW|士電|", "1504.TW|東元|", "1514.TW|亞力|"]
+    },
+    {
+      "id": "healthcare", "name": "生技醫療與減重藥",
+      "keywords_zh": ["生技", "新藥", "減重藥", "GLP-1", "FDA", "醫療器材", "臨床試驗", "學名藥"],
+      "keywords_en": ["biotech", "pharma", "GLP-1", "obesity drug", "FDA approval", "medical device", "clinical trial", "weight loss"],
+      "risk": "臨床/審批失敗、藥價政策（美國定價改革）、專利懸崖",
+      "tickers": ["LLY|Eli Lilly|禮來", "NVO|Novo Nordisk|諾和諾德", "ISRG|Intuitive Surgical|", "VRTX|Vertex|", "REGN|Regeneron|", "ABBV|AbbVie|",
+                  "6446.TW|藥華藥|PharmaEssentia", "1795.TW|美時|", "4743.TWO|合一|"]
+    },
+    {
+      "id": "financials", "name": "金融與支付",
+      "keywords_zh": ["金控", "銀行", "升息", "降息", "利差", "壽險", "股利", "配息", "支付"],
+      "keywords_en": ["bank", "banks earnings", "interest rate", "rate cut", "net interest", "insurance", "payments", "dividend"],
+      "risk": "利率與信用循環、監管資本要求、權益市場波動影響投資收益",
+      "tickers": ["JPM|JPMorgan|摩根大通", "GS|Goldman Sachs|高盛", "MS|Morgan Stanley|摩根士丹利", "V|Visa|", "MA|Mastercard|", "BRK-B|Berkshire Hathaway|波克夏",
+                  "2881.TW|富邦金|", "2882.TW|國泰金|", "2891.TW|中信金|", "2886.TW|兆豐金|", "2884.TW|玉山金|", "5880.TW|合庫金|"]
+    },
+    {
+      "id": "shipping", "name": "航運與運輸",
+      "keywords_zh": ["航運", "貨櫃", "運價", "SCFI", "散裝", "航空", "紅海", "運費"],
+      "keywords_en": ["shipping", "container", "freight rates", "airline", "logistics", "Red Sea", "freight"],
+      "risk": "運價高度波動、運力供給過剩、地緣政治與關稅政策",
+      "tickers": ["ZIM|ZIM Integrated Shipping|", "MATX|Matson|", "UPS|UPS|",
+                  "2603.TW|長榮|Evergreen Marine", "2609.TW|陽明|Yang Ming", "2615.TW|萬海|Wan Hai", "2618.TW|長榮航|EVA Air", "2610.TW|華航|China Airlines"]
+    },
+    {
+      "id": "defense_aero", "name": "國防與航太",
+      "keywords_zh": ["國防", "軍工", "航太", "無人機", "飛彈", "國防預算", "軍購"],
+      "keywords_en": ["defense", "aerospace", "drone", "missile", "defense budget", "military", "Pentagon"],
+      "risk": "預算與政治週期、專案延遲、題材消退後評價回落",
+      "tickers": ["LMT|Lockheed Martin|洛克希德", "RTX|RTX|雷神", "NOC|Northrop Grumman|", "GE|GE Aerospace|", "GD|General Dynamics|", "HWM|Howmet|",
+                  "2634.TW|漢翔|AIDC", "8033.TWO|雷虎|", "2645.TW|長榮航太|"]
+    },
+    {
+      "id": "robotics_auto", "name": "機器人、自動化與電動車",
+      "keywords_zh": ["機器人", "人形機器人", "自動化", "電動車", "自駕", "工業4.0", "Robotaxi", "減速機"],
+      "keywords_en": ["robot", "humanoid", "automation", "electric vehicle", "EV", "self-driving", "robotaxi", "autonomous"],
+      "risk": "題材先行、獲利尚未驗證、電動車需求與價格戰",
+      "tickers": ["TSLA|Tesla|特斯拉", "ROK|Rockwell Automation|", "SYM|Symbotic|", "TER|Teradyne|",
+                  "2049.TW|上銀|HIWIN", "1590.TW|亞德客-KY|AirTAC", "2207.TW|和泰車|", "1536.TW|和大|", "2360.TW|致茂|Chroma"]
+    },
+    {
+      "id": "consumer", "name": "消費與零售",
+      "keywords_zh": ["零售", "消費", "百貨", "餐飲", "通膨", "內需", "觀光", "運動鞋"],
+      "keywords_en": ["retail", "consumer spending", "restaurant", "inflation", "tariff", "same-store sales", "consumer confidence"],
+      "risk": "消費力與通膨、關稅成本轉嫁、庫存",
+      "tickers": ["COST|Costco|好市多", "WMT|Walmart|沃爾瑪", "HD|Home Depot|", "MCD|McDonald's|麥當勞", "NKE|Nike|耐吉",
+                  "2912.TW|統一超|", "9910.TW|豐泰|", "8454.TW|富邦媒|momo", "2727.TW|王品|"]
+    },
+    {
+      "id": "energy_materials", "name": "傳統能源與原物料",
+      "keywords_zh": ["原油", "油價", "石化", "鋼鐵", "水泥", "黃金", "銅價", "原物料", "OPEC"],
+      "keywords_en": ["oil prices", "crude", "OPEC", "natural gas", "gold prices", "copper", "steel", "commodity"],
+      "risk": "商品價格波動、需求循環、地緣政治衝擊",
+      "tickers": ["XOM|Exxon Mobil|埃克森美孚", "CVX|Chevron|雪佛龍", "FCX|Freeport-McMoRan|", "NEM|Newmont|",
+                  "6505.TW|台塑化|", "1301.TW|台塑|", "1101.TW|台泥|", "2002.TW|中鋼|"]
+    }
+  ]
+}
