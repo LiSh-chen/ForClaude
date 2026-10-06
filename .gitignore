@@ -18,7 +18,3 @@ data/*.db-shm
 # experimental sprite styles are regenerable (tools/make_sprites.py --styles)
 stock-derby/assets/horses_styles/
 stock-derby/data/panel.json
-
-# invest-journal
-__pycache__/
-.pytest_cache/
