@@ -883,7 +883,7 @@ function showResultModal(p, hs) {
   const rank = 1 + hs.filter(h => h.ret > my.ret).length;                    // always the rank the race itself shows
   const prDays = race.dates[0] + " → " + race.dates[race.dates.length - 1];
   $("modal").innerHTML = `<div class="dlg ${p.win ? "win" : "lose"}"><h3>${p.win ? "🎉 押中了！" : "😅 這次沒押中"}</h3>
-    <div class="big">你押 <b>#${p.no} ${esc(p.horse)}</b>（${typeName(p.type)}，${p.odds.toFixed(1)} 倍）<br>最後跑第 <b>${rank}</b> 名${p.win && !race.c.practice ? `，獲得 <b>${p.reward}</b> 點` : ""}${race.c.practice ? "（練習不計分）" : ""}</div>
+    <div class="big">你押 <b>#${p.no} ${esc(p.horse)}（${esc(p.ticker)}）</b>（${typeName(p.type)}，${p.odds.toFixed(1)} 倍）<br>最後跑第 <b>${rank}</b> 名${p.win && !race.c.practice ? `，獲得 <b>${p.reward}</b> 點` : ""}${race.c.practice ? "（練習不計分）" : ""}</div>
     <table><thead><tr><th>名次</th><th>馬匹</th><th>漲幅</th></tr></thead><tbody>${order.map((h, i) => `<tr class="${h.ticker === p.ticker ? "me" : ""}"><td>${i === 0 ? "🏆" : i + 1}</td><td>${h.no} ${esc(h.horse_zh)} <small class="muted">${esc(h.ticker)}</small>${h.ticker === p.ticker ? " ← 你押的" : ""}</td><td class="${cls(h.ret)}">${pct(h.ret)}</td></tr>`).join("")}</tbody></table>
     <div class="muted" style="text-align:center">賽事日期 ${prDays}</div>
     <div class="btns"><button class="primary" id="mdClose">看賽道</button><button id="mdPractice">🎲 再玩一場練習</button><button id="mdPlay">🎯 回挑戰頁</button></div></div>`;
@@ -902,7 +902,7 @@ function renderPlay() {
   if (!c) card = `<div class="muted">資料不足，暫時無法出題。</div>`;
   else if (done) {
     const p = c.pickInfo;
-    card = `<div>${c.practice ? "練習賽" : "今日挑戰"}已完成：你押 #${p.no} ${esc(p.horse)}（${typeName(p.type)}）→ 第 ${p.rank} 名，${p.win ? `🎉 押中${c.practice ? "" : "，+" + p.reward + " 點"}` : "😅 沒押中"}。</div>
+    card = `<div>${c.practice ? "練習賽" : "今日挑戰"}已完成：你押 #${p.no} ${esc(p.horse)}（${esc(p.ticker)}，${typeName(p.type)}）→ 第 ${p.rank} 名，${p.win ? `🎉 押中${c.practice ? "" : "，+" + p.reward + " 點"}` : "😅 沒押中"}。</div>
       <div class="controls"><button class="primary" id="chalReplay">▶ 看回放</button><button id="chalPractice">🎲 再玩一場練習（不計分）</button></div>
       ${doneToday && !c.practice ? `<div class="muted">明天會有新的每日挑戰；連續天數 ${m.streak.n} 天。</div>` : ""}`;
   } else {
@@ -920,7 +920,7 @@ function renderPlay() {
 }
 $("playview").addEventListener("click", e => {
   const cp = e.target.closest("[data-cp]");
-  if (cp) { const h = chalCur.horses.find(x => x.ticker === cp.dataset.cp); if (confirm(`確定押 #${h.no} ${h.horse_zh}（${typeName(cp.dataset.type)}）？`)) chalPick(cp.dataset.cp, cp.dataset.type); return; }
+  if (cp) { const h = chalCur.horses.find(x => x.ticker === cp.dataset.cp); if (confirm(`確定押 #${h.no} ${h.horse_zh}（${h.ticker}，${typeName(cp.dataset.type)}）？`)) chalPick(cp.dataset.cp, cp.dataset.type); return; }
   if (e.target.id === "chalReplay") { view = { type: "challenge" }; showTab("race"); setTimeout(() => { if (race && race.kind === "challenge") replay(); }, 350); return; }
   if (e.target.id === "chalPractice") { chalCur = buildChal(130 + Math.floor(Math.random() * (LAST - CH_LEN - 129)), true, null); renderPlay(); }
 });
