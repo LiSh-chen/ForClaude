@@ -16,7 +16,7 @@ REPO = HERE.parent
 SNAPSHOTS = ["us_prices_snapshot.parquet", "us_prices_snapshot.part2.parquet"]
 EXTRA_CSV = HERE / "data" / "extra_prices.csv"
 RECENT_CSV = HERE / "data" / "recent_prices.csv"        # last ~2 weeks for every ticker, refreshed by fetch_extras.py
-COLS = ["date", "stock_id", "high", "low", "close", "volume"]
+COLS = ["date", "stock_id", "open", "high", "low", "close", "volume"]
 
 
 def load_long(since: str = "2009-01-01") -> pd.DataFrame:
@@ -24,6 +24,8 @@ def load_long(since: str = "2009-01-01") -> pd.DataFrame:
              if (REPO / "data" / f).exists()]
     if EXTRA_CSV.exists():
         ex = pd.read_csv(EXTRA_CSV, parse_dates=["date"])
+        if "open" not in ex.columns:
+            ex["open"] = float("nan")             # saved before opens were kept; the next fetch_extras run fills them
         ex["industry"] = ""
         parts.append(ex[COLS + ["industry"]])
     df = pd.concat(parts, ignore_index=True)
@@ -32,6 +34,8 @@ def load_long(since: str = "2009-01-01") -> pd.DataFrame:
     df = df.drop_duplicates(["date", "stock_id"], keep="last")
     if RECENT_CSV.exists():
         rec = pd.read_csv(RECENT_CSV, parse_dates=["date"]).dropna(subset=["close"])
+        if "open" not in rec.columns:
+            rec["open"] = float("nan")
         df = splice_recent(df, rec)
     return df
 
@@ -47,7 +51,7 @@ def splice_recent(base: pd.DataFrame, recent: pd.DataFrame) -> pd.DataFrame:
     ratio = (m["close_b"] / m["close_r"]).rename("ratio")
     new = recent.join(last, on="stock_id").join(ratio, on="stock_id")
     new = new[new["last_base"].notna() & new["ratio"].notna() & (new["date"] > new["last_base"])].copy()
-    for c in ("high", "low", "close"):
+    for c in ("open", "high", "low", "close"):
         new[c] = new[c] * new["ratio"]
     new["industry"] = new["stock_id"].map(base.sort_values("date").drop_duplicates("stock_id", keep="last").set_index("stock_id")["industry"]).fillna("")
     return pd.concat([base, new[base.columns]], ignore_index=True)
@@ -55,7 +59,7 @@ def splice_recent(base: pd.DataFrame, recent: pd.DataFrame) -> pd.DataFrame:
 
 def panels(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     out = {c: df.pivot(index="date", columns="stock_id", values=c).sort_index()
-           for c in ["high", "low", "close", "volume"]}
+           for c in ["open", "high", "low", "close", "volume"]}
     out["turnover"] = out["close"] * out["volume"]
     return out
 
