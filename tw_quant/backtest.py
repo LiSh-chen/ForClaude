@@ -72,6 +72,12 @@ class TradeRecord:
     exit_price: float
     pnl: float
     pnl_pct: float
+    # 2026-10-14 新增，選填：出場原因（例如 factor_backtest.py 的
+    # "REBALANCE"/"STOP_LOSS"），預設 None 維持完全回溯相容——這個
+    # dataclass 是 tw_quant/backtest.py、factor_backtest.py 兩個引擎共用，
+    # 既有的 TW 主引擎呼叫端完全不用改就能繼續用（不想替換成某個具體原因，
+    # None 比硬套一個不準確的預設值更誠實）。
+    exit_reason: str | None = None
 
 
 @dataclass

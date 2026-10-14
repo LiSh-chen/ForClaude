@@ -35,6 +35,12 @@ class FactorConfig:
     rebalance_freq_days: int = 21  # 調倉頻率（交易日），21 約等於月調倉，63 約等於季調倉
     top_n: int = 20  # 每次調倉持有的檔數（等權重）
     ascending: bool = False  # False=買排名前段（動量／追強勢）；True=買排名後段（反轉／買弱勢）
+    # 2026-10-14 新增，選填：個股固定停損百分比（例如 0.15 = 從進場價跌 15%
+    # 就停損），None = 不停損，完全維持原本「只在調倉日換股、期間不管個股
+    # 跌多少」的行為。這是從進場價固定算的停損，不是像 tw_quant/backtest.py
+    # 那種「只上調不下調」的吊燈停利（移動停損）——使用者問的是單純的
+    # 固定跌幅停損，兩者是不同機制，不要混用。
+    stop_loss_pct: float | None = None
 
 
 def run_factor_backtest(
@@ -48,7 +54,19 @@ def run_factor_backtest(
     membership: pd.DataFrame | None = None,
 ) -> BacktestResult:
     """月/季調倉動能因子組合：固定頻率對魚池內個股依排名，等權重持有
-    前 N 檔，只有在下次調倉日才換股，期間不做個股停損停利。
+    前 N 檔，只有在下次調倉日才換股；factor_cfg.stop_loss_pct 給定時，
+    期間個股跌破固定停損價會提前出場（見該欄位說明），不給的話（預設）
+    維持原本「期間完全不管個股跌多少，只等下次調倉」的行為。
+
+    停損觸發/成交機制跟 tw_quant.backtest.run_backtest 的吊燈停利完全
+    一致（刻意保持一樣的反未來函數慣例，不是另外發明一套）：用「今日
+    收盤價」判斷是否跌破停損價，觸發後排進「明日開盤」才出場，不假設
+    當天盤中就能在停損價那一刻搶先賣掉（tw_quant/intraday_roundtrip.py
+    已經說明過，這個資料管線只有日線 OHLC，不假設日內價格順序，用盤中
+    低點觸發停損對回測來說過於樂觀）。停損出場跟調倉出場都會真實扣成本
+    （cost_module.exit_proceeds），調倉頻率越高、停損越容易被打到，換手
+    成本疊加停損成本可能讓淨報酬比「不停損」更差，不是加了風控機制就
+    一定更好，要看實際回測數字。
 
     魚池沿用 signals.build_pool_mask（T-1 流動性 + 站上 60 日均線的多頭排列
     篩選）。排名依據預設是 T-1 日為止的 momentum_window 日報酬率（shift(1)
@@ -122,9 +140,39 @@ def run_factor_backtest(
     positions: dict[str, Position] = {}
     trades: list[TradeRecord] = []
     equity_rows: list[tuple[pd.Timestamp, float]] = []
+    pending_stop_exits: set[str] = set()  # 昨日收盤觸發停損、今日開盤才出場
 
     for date, day_df in master.groupby("date", sort=True):
         row_by_stock = day_df.set_index("stock_id")
+
+        # 0) 昨日收盤觸發停損的部位，今天開盤出場（跟 tw_quant.backtest.run_backtest
+        # 的 pending_exits 機制同一套反未來函數慣例，見本函式開頭說明）。
+        # 永遠在調倉邏輯之前處理，這樣同一天如果恰好也是調倉日，排名用的
+        # 現金水位跟持股狀態已經先反映了停損出場。
+        for stock_id in list(pending_stop_exits):
+            pending_stop_exits.discard(stock_id)
+            if stock_id not in positions or stock_id not in row_by_stock.index:
+                continue
+            pos = positions.pop(stock_id)
+            exit_price = row_by_stock.loc[stock_id, "open"]
+            _, net_proceeds = cost_module.exit_proceeds(exit_price, pos.shares, cfg.costs)
+            cash += net_proceeds
+            pnl = net_proceeds - pos.cost_basis
+            trades.append(
+                TradeRecord(
+                    stock_id=stock_id,
+                    industry=pos.industry,
+                    strategy="FACTOR",
+                    shares=pos.shares,
+                    entry_date=pos.entry_date,
+                    entry_price=pos.entry_price,
+                    exit_date=date,
+                    exit_price=exit_price,
+                    pnl=pnl,
+                    pnl_pct=pnl / pos.cost_basis if pos.cost_basis else 0.0,
+                    exit_reason="STOP_LOSS",
+                )
+            )
 
         if date in rebalance_dates:
             eligible = day_df[day_df["pool"] & day_df["momentum"].notna()]
@@ -151,6 +199,7 @@ def run_factor_backtest(
                         exit_price=exit_price,
                         pnl=pnl,
                         pnl_pct=pnl / pos.cost_basis if pos.cost_basis else 0.0,
+                        exit_reason="REBALANCE",
                     )
                 )
 
@@ -181,6 +230,9 @@ def run_factor_backtest(
                 if shares < cfg.sizing.lot_size or total_cost > cash:
                     continue
                 cash -= total_cost
+                stop_price = (
+                    entry_price * (1 - factor_cfg.stop_loss_pct) if factor_cfg.stop_loss_pct is not None else 0.0
+                )
                 positions[stock_id] = Position(
                     stock_id=stock_id,
                     industry=row_by_stock.loc[stock_id, "industry"],
@@ -188,9 +240,22 @@ def run_factor_backtest(
                     shares=shares,
                     entry_price=entry_price,
                     entry_date=date,
-                    stop_price=0.0,
+                    stop_price=stop_price,
                     cost_basis=total_cost,
                 )
+
+        # 以今日收盤判斷是否跌破固定停損價（見本函式開頭「停損觸發/成交
+        # 機制」說明：今日收盤觸發，排進明日開盤才出場，不是今天立刻賣）。
+        # 刻意放在調倉邏輯之後，這樣今天如果剛好也是調倉日、剛買進的新
+        # 部位，一樣會被檢查到（極端情況：買進當天就跌破停損價，明天
+        # 開盤出場，不會因為是「今天剛買」而被放過）。
+        if factor_cfg.stop_loss_pct is not None:
+            for stock_id, pos in positions.items():
+                if stock_id not in row_by_stock.index:
+                    continue
+                close_price = row_by_stock.loc[stock_id, "close"]
+                if pd.notna(close_price) and close_price <= pos.stop_price:
+                    pending_stop_exits.add(stock_id)
 
         mtm = cash
         for stock_id, pos in positions.items():

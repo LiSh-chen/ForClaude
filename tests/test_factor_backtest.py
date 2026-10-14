@@ -212,6 +212,107 @@ def test_top_n_one_still_enters_despite_fee_on_top_of_full_budget():
     assert len(result.trades) > 0 or len(result.open_positions) > 0
 
 
+def _two_stock_prices_with_crash(n_days: int, crash_day: int, crash_pct: float) -> pd.DataFrame:
+    """跟 _two_stock_prices 一樣兩檔股票長期上漲（滿足 pool 的 60 日均線、
+    min_history_days 門檻），但 FAST 在 crash_day 這一天收盤重挫 crash_pct，
+    之後開高低收全部壓在新低點、不再回升（刻意不讓它延續原本漲勢，否則
+    幾天內就會漲回停損價之上，測不到「停損後不會立刻被原本的強勢排名
+    撿回來」這件事），用來測試停損機制會不會在重挫後、下次排定調倉日
+    之前就先出場。
+    """
+    df = _two_stock_prices(n_days=n_days)
+    dates = sorted(df["date"].unique())
+    crash_date = dates[crash_day]
+
+    crash_mask = (df["stock_id"] == "FAST") & (df["date"] == crash_date)
+    pre_crash_close = df.loc[crash_mask, "close"].iloc[0]
+    new_close = pre_crash_close * (1 - crash_pct)
+    df.loc[crash_mask, ["close", "high", "low"]] = new_close
+
+    after_mask = (df["stock_id"] == "FAST") & (df["date"] > crash_date)
+    df.loc[after_mask, ["open", "high", "low", "close"]] = new_close
+
+    return df.sort_values(["stock_id", "date"]).reset_index(drop=True)
+
+
+def test_stop_loss_none_never_produces_stop_loss_exits():
+    """stop_loss_pct=None（預設）時，即使個股重挫，也完全不該提前出場——
+    維持原本「只在調倉日換股」的行為，不能因為加了這個選填參數就偷偷
+    改變沒有用到它的既有呼叫端的結果。
+    """
+    prices = _two_stock_prices_with_crash(n_days=450, crash_day=330, crash_pct=0.30)
+    cfg = build_us_config()
+    factor_cfg = FactorConfig(momentum_window=20, rebalance_freq_days=60, top_n=1, ascending=False)
+
+    result = run_factor_backtest(prices, cfg, factor_cfg, cost_module=us_costs)
+
+    assert result.trades.empty or not (result.trades["exit_reason"] == "STOP_LOSS").any()
+
+
+def test_stop_loss_triggers_exit_before_next_rebalance_at_next_day_open():
+    """FAST 動量最強會在第一次有足夠歷史的調倉日被選中（rebalance_freq_days=60，
+    所以下一次排定調倉在 60 個交易日後）；crash_day=330 在重挫 30%，遠早於
+    下次調倉——15% 的固定停損應該在重挫當天收盤觸發，排進次日開盤出場，
+    不用等到排定的下次調倉。出場價必須精確等於重挫後那個新低點（次日
+    開盤價，不是重挫當天的收盤價——驗證「今日收盤觸發、明日開盤出場」
+    這個反未來函數機制真的照設計運作，不是提前用重挫當天的價格搶跑）。
+    """
+    crash_pct = 0.30
+    prices = _two_stock_prices_with_crash(n_days=450, crash_day=330, crash_pct=crash_pct)
+    dates = sorted(prices["date"].unique())
+    cfg = build_us_config()
+    factor_cfg = FactorConfig(
+        momentum_window=20, rebalance_freq_days=60, top_n=1, ascending=False, stop_loss_pct=0.15
+    )
+
+    result = run_factor_backtest(prices, cfg, factor_cfg, cost_module=us_costs)
+
+    stop_loss_trades = result.trades[result.trades["exit_reason"] == "STOP_LOSS"]
+    assert len(stop_loss_trades) == 1
+    trade = stop_loss_trades.iloc[0]
+    assert trade["stock_id"] == "FAST"
+
+    crash_date = dates[330]
+    next_rebalance_date = dates[360]
+    assert crash_date < trade["exit_date"] < next_rebalance_date
+
+    expected_exit_price = prices.loc[
+        (prices["stock_id"] == "FAST") & (prices["date"] == trade["exit_date"]), "open"
+    ].iloc[0]
+    assert trade["exit_price"] == expected_exit_price
+    # 出場價應該就是重挫後的新低點，不是重挫當天還沒反映崩盤的舊價格——
+    # 這個新低點必須真的低於觸發停損的那個固定停損價（entry_price 是
+    # 更早的調倉日買進價，中間 FAST 還繼續漲了一段，所以不能直接拿
+    # crash_pct 套在 entry_price 上去推算，只能跟停損價本身比較）。
+    assert trade["exit_price"] <= trade["entry_price"] * (1 - factor_cfg.stop_loss_pct)
+
+
+def test_stop_loss_pct_changes_trade_count_versus_no_stop_loss():
+    """同一組資料、同一組排名參數，有無停損應該產生不同的出場結果——
+    停損版本的 FAST 應該在重挫後立刻出場（exit_reason=STOP_LOSS，出場日
+    早於下次調倉），沒加停損的版本則撐到下次排定調倉日才换股
+    （exit_reason=REBALANCE）。這個情境下兩邊剛好都只有一筆已實現交易
+    （top_n=1，中途沒有別的換股事件），所以不能拿交易筆數來比較，要直接
+    比出場日期跟出場原因。
+    """
+    prices = _two_stock_prices_with_crash(n_days=450, crash_day=330, crash_pct=0.30)
+    cfg = build_us_config()
+    base_factor_cfg = FactorConfig(momentum_window=20, rebalance_freq_days=60, top_n=1, ascending=False)
+    stop_loss_factor_cfg = FactorConfig(
+        momentum_window=20, rebalance_freq_days=60, top_n=1, ascending=False, stop_loss_pct=0.15
+    )
+
+    no_stop_result = run_factor_backtest(prices, cfg, base_factor_cfg, cost_module=us_costs)
+    stop_loss_result = run_factor_backtest(prices, cfg, stop_loss_factor_cfg, cost_module=us_costs)
+
+    no_stop_trade = no_stop_result.trades.iloc[0]
+    stop_loss_trade = stop_loss_result.trades.iloc[0]
+
+    assert no_stop_trade["exit_reason"] == "REBALANCE"
+    assert stop_loss_trade["exit_reason"] == "STOP_LOSS"
+    assert stop_loss_trade["exit_date"] < no_stop_trade["exit_date"]
+
+
 def test_signal_fn_overrides_default_momentum_ranking():
     """signal_fn 讓呼叫端替換排名依據（例如跳空幅度、當日盤中報酬），不用
     被限制在「落後報酬率」——用來測試 scripts/test_lagged_gap_signal_from_db.py
