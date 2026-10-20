@@ -1,6 +1,6 @@
 {
   "start_date": "2026-09-30",
-  "last_run": "2026-10-19",
+  "last_run": "2026-10-20",
   "strategies": {
     "low_vol_buyhold": {
       "kind": "swing",
@@ -15,7 +15,7 @@
       "last_realized_pnl_points": null,
       "last_trade_date": null,
       "note": null,
-      "as_of": "2026-10-19"
+      "as_of": "2026-10-20"
     },
     "calendar_spread": {
       "kind": "swing",
@@ -30,7 +30,7 @@
       "last_realized_pnl_points": null,
       "last_trade_date": null,
       "note": null,
-      "as_of": "2026-10-19"
+      "as_of": "2026-10-20"
     },
     "og": {
       "kind": "intraday",
@@ -42,10 +42,10 @@
       "sim_entry_date": null,
       "sim_entry_price": null,
       "unrealized_pnl_points": null,
-      "last_realized_pnl_points": 2.0,
-      "last_trade_date": "2026-10-19",
+      "last_realized_pnl_points": -68.0,
+      "last_trade_date": "2026-10-20",
       "note": null,
-      "as_of": "2026-10-19"
+      "as_of": "2026-10-20"
     },
     "lu": {
       "kind": "intraday",
@@ -57,10 +57,10 @@
       "sim_entry_date": null,
       "sim_entry_price": null,
       "unrealized_pnl_points": null,
-      "last_realized_pnl_points": -25.0,
-      "last_trade_date": "2026-10-19",
+      "last_realized_pnl_points": 137.0,
+      "last_trade_date": "2026-10-20",
       "note": null,
-      "as_of": "2026-10-19"
+      "as_of": "2026-10-20"
     },
     "re": {
       "kind": "intraday",
@@ -72,10 +72,10 @@
       "sim_entry_date": null,
       "sim_entry_price": null,
       "unrealized_pnl_points": null,
-      "last_realized_pnl_points": 26.0,
-      "last_trade_date": "2026-10-19",
+      "last_realized_pnl_points": -155.0,
+      "last_trade_date": "2026-10-20",
       "note": null,
-      "as_of": "2026-10-19"
+      "as_of": "2026-10-20"
     }
   },
   "log": [
@@ -455,6 +455,45 @@
       "real_exit_date": "2026-10-19",
       "realized_pnl_points": 26.0,
       "note": "盤中翻多觸發"
+    },
+    {
+      "sim_date": "2026-10-20",
+      "strategy_id": "og",
+      "event": "trade",
+      "direction": "long",
+      "sim_entry_price": 46434.0,
+      "sim_exit_price": 46366.0,
+      "sim_entry_date": "2026-10-20",
+      "real_entry_date": "2026-10-20",
+      "real_exit_date": "2026-10-20",
+      "realized_pnl_points": -68.0,
+      "note": "開盤上衝觸發"
+    },
+    {
+      "sim_date": "2026-10-20",
+      "strategy_id": "lu",
+      "event": "trade",
+      "direction": "short",
+      "sim_entry_price": 46597.0,
+      "sim_exit_price": 46460.0,
+      "sim_entry_date": "2026-10-20",
+      "real_entry_date": "2026-10-20",
+      "real_exit_date": "2026-10-20",
+      "realized_pnl_points": 137.0,
+      "note": "午盤放空觸發"
+    },
+    {
+      "sim_date": "2026-10-20",
+      "strategy_id": "re",
+      "event": "trade",
+      "direction": "long",
+      "sim_entry_price": 46460.0,
+      "sim_exit_price": 46305.0,
+      "sim_entry_date": "2026-10-20",
+      "real_entry_date": "2026-10-20",
+      "real_exit_date": "2026-10-20",
+      "realized_pnl_points": -155.0,
+      "note": "盤中翻多觸發"
     }
   ],
   "equity": [
@@ -535,6 +574,12 @@
       "realized": -29100.0,
       "unrealized": 0.0,
       "total": -29100.0
+    },
+    {
+      "date": "2026-10-20",
+      "realized": -33400.0,
+      "unrealized": 0.0,
+      "total": -33400.0
     }
   ],
   "margin": {
@@ -548,11 +593,11 @@
     "theoretical_max_lots": 3,
     "theoretical_max_margin": 525750,
     "low_vol_risk": {
-      "reference_price": 46769.0,
-      "stop_points": 3741.5,
-      "stop_amount": 187076.0,
-      "buffer_ratio": 4.59,
-      "recommended_capital_per_lot": 321576.0,
+      "reference_price": 46341.0,
+      "stop_points": 3707.3,
+      "stop_amount": 185364.0,
+      "buffer_ratio": 4.55,
+      "recommended_capital_per_lot": 319864.0,
       "is_live_position": false
     }
   }
