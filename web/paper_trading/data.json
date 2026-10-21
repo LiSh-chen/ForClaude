@@ -1,6 +1,6 @@
 {
   "start_date": "2026-09-30",
-  "last_run": "2026-10-20",
+  "last_run": "2026-10-21",
   "strategies": {
     "low_vol_buyhold": {
       "kind": "swing",
@@ -15,7 +15,7 @@
       "last_realized_pnl_points": null,
       "last_trade_date": null,
       "note": null,
-      "as_of": "2026-10-20"
+      "as_of": "2026-10-21"
     },
     "calendar_spread": {
       "kind": "swing",
@@ -30,7 +30,7 @@
       "last_realized_pnl_points": null,
       "last_trade_date": null,
       "note": null,
-      "as_of": "2026-10-20"
+      "as_of": "2026-10-21"
     },
     "og": {
       "kind": "intraday",
@@ -44,8 +44,8 @@
       "unrealized_pnl_points": null,
       "last_realized_pnl_points": -68.0,
       "last_trade_date": "2026-10-20",
-      "note": null,
-      "as_of": "2026-10-20"
+      "note": "今天符合高波動體制，但抓不到當天1分K資料（可能TAIFEX還沒公告），暫緩，下次排程重試",
+      "as_of": "2026-10-21"
     },
     "lu": {
       "kind": "intraday",
@@ -59,8 +59,8 @@
       "unrealized_pnl_points": null,
       "last_realized_pnl_points": 137.0,
       "last_trade_date": "2026-10-20",
-      "note": null,
-      "as_of": "2026-10-20"
+      "note": "今天符合高波動體制，但抓不到當天1分K資料（可能TAIFEX還沒公告），暫緩，下次排程重試",
+      "as_of": "2026-10-21"
     },
     "re": {
       "kind": "intraday",
@@ -74,8 +74,8 @@
       "unrealized_pnl_points": null,
       "last_realized_pnl_points": -155.0,
       "last_trade_date": "2026-10-20",
-      "note": null,
-      "as_of": "2026-10-20"
+      "note": "今天符合高波動體制，但抓不到當天1分K資料（可能TAIFEX還沒公告），暫緩，下次排程重試",
+      "as_of": "2026-10-21"
     }
   },
   "log": [
@@ -580,6 +580,12 @@
       "realized": -33400.0,
       "unrealized": 0.0,
       "total": -33400.0
+    },
+    {
+      "date": "2026-10-21",
+      "realized": -33400.0,
+      "unrealized": 0.0,
+      "total": -33400.0
     }
   ],
   "margin": {
@@ -593,11 +599,11 @@
     "theoretical_max_lots": 3,
     "theoretical_max_margin": 525750,
     "low_vol_risk": {
-      "reference_price": 46341.0,
-      "stop_points": 3707.3,
-      "stop_amount": 185364.0,
-      "buffer_ratio": 4.55,
-      "recommended_capital_per_lot": 319864.0,
+      "reference_price": 46648.0,
+      "stop_points": 3731.8,
+      "stop_amount": 186592.0,
+      "buffer_ratio": 4.58,
+      "recommended_capital_per_lot": 321092.0,
       "is_live_position": false
     }
   }
