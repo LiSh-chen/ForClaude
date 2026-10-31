@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podcast Studio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Ctext y=%2712%27 font-size=%2712%27%3E%F0%9F%8E%99%3C/text%3E%3C/svg%3E">
+<style>
+:root{--bg:#f6f5f2;--card:#fff;--ink:#1d1d1f;--mute:#6b6b70;--line:#e3e1dc;--acc:#2f5bea;--acc-ink:#fff;--ok:#1a7f4b;--warn:#a15c00;--err:#b3261e;--r:12px}
+@media (prefers-color-scheme:dark){:root{--bg:#141416;--card:#1e1e21;--ink:#f1f0ee;--mute:#9a9aa0;--line:#2e2e33;--acc:#6f8cff;--acc-ink:#0d0d10;--ok:#4cc38a;--warn:#e0a040;--err:#ff7b72}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,"Noto Sans TC","PingFang TC",sans-serif}
+main{max-width:860px;margin:0 auto;padding:24px 16px 80px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:18px;margin:0 0 12px}
+.sub{color:var(--mute);margin:0 0 20px}
+.banner{background:color-mix(in srgb,var(--warn) 14%,var(--card));border:1px solid var(--warn);color:var(--ink);padding:10px 14px;border-radius:var(--r);margin-bottom:16px;font-size:14px}
+.steps{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+.step{flex:1;min-width:120px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--mute);font-size:14px;text-align:center}
+.step.on{border-color:var(--acc);color:var(--ink);font-weight:600}
+.step.done{color:var(--ok)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:16px}
+label{display:block;font-size:14px;color:var(--mute);margin:12px 0 4px}
+input[type=text],input[type=number],textarea,select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+textarea{resize:vertical;min-height:90px}
+.row{display:flex;gap:12px;flex-wrap:wrap}.row>*{flex:1;min-width:140px}
+button{font:inherit;padding:9px 16px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+button.pri{background:var(--acc);color:var(--acc-ink);border-color:var(--acc);font-weight:600}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.sm{padding:4px 9px;font-size:13px}
+.actions{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;align-items:center}
+.hint{font-size:13px;color:var(--mute)}.err{color:var(--err);font-size:14px;margin-top:8px}.ok{color:var(--ok)}
+.prompt{border:1px dashed var(--line);border-radius:10px;padding:10px 12px;margin:8px 0;background:var(--bg)}
+.prompt b{color:var(--acc)}
+.sample{display:flex;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.sample audio{height:34px;flex:1;min-width:180px}
+.seg{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--bg)}
+.seg .top{display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap;align-items:center}
+.seg select{width:auto}.seg textarea{min-height:60px}
+.rec{color:var(--err);font-weight:600}
+.bar{height:10px;background:var(--line);border-radius:6px;overflow:hidden;margin:10px 0}
+.bar>i{display:block;height:100%;background:var(--acc);width:0;transition:width .3s}
+.consent{display:flex;gap:10px;align-items:flex-start;margin-top:12px;font-size:14px}
+.consent input{margin-top:5px}
+</style>
+</head>
+<body>
+<main>
+  <h1>🎙️ Podcast Studio</h1>
+  <p class="sub">錄幾段聲音、給個主題，自動生成劇本，確認後用你的聲音產出 Podcast。</p>
+  <div id="banner"></div>
+  <div class="steps" id="steps"></div>
+  <div id="view"></div>
+</main>
+
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const EMO = {neutral:'平穩',excited:'興奮',curious:'好奇',thoughtful:'沉思',warm:'溫暖',serious:'認真',surprised:'驚訝',laughing:'笑'};
+const PROMPTS = [
+  ['平穩','今天想跟大家聊聊，我最近觀察到的一個有趣現象。'],
+  ['興奮','哇！你知道嗎？這個結果真的完全超出我的預期，太厲害了吧！'],
+  ['好奇','欸，等一下，所以你的意思是…到底為什麼會這樣啊？'],
+  ['感性','說真的，那一刻我有點說不出話來，心裡暖暖的，也有一點點捨不得。'],
+  ['自由','（請自由聊 30 秒：你今天做了什麼、或最近在想什麼，像跟朋友聊天那樣）']
+];
+
+let cfg = {}, proj = null, step = 0, pollTimer = null;
+let rec = {mr:null, chunks:[], stream:null, t0:0, tick:null};
+
+async function api(path, opts={}) {
+  const r = await fetch('/api' + path, opts);
+  let body = null; try { body = await r.json(); } catch {}
+  if (!r.ok) throw new Error((body && body.detail) ? (typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)) : r.statusText);
+  return body;
+}
+const jpost = (p, b, m='POST') => api(p, {method:m, headers:{'content-type':'application/json'}, body: b===undefined?undefined:JSON.stringify(b)});
+
+function renderSteps() {
+  const names = ['① 聲音樣本','② 主題與重點','③ 確認劇本','④ 生成與試聽'];
+  $('#steps').innerHTML = names.map((n,i)=>`<div class="step ${i===step?'on':''} ${i<step?'done':''}">${n}</div>`).join('');
+}
+function setErr(msg){ const e=$('#err'); if(e) e.textContent = msg||''; }
+
+/* ---------- Step 0: samples ---------- */
+function view0() {
+  const has = !!proj;
+  const total = has ? proj.samples.reduce((a,s)=>a+s.seconds,0) : 0;
+  $('#view').innerHTML = `
+  <div class="card">
+    <h2>聲音授權</h2>
+    ${has ? `<p class="ok">✓ 已建立專案，聲音本人：${esc(proj.consent.name)}</p>` : `
+    <label>節目名稱</label><input type="text" id="title" placeholder="例如：每週一聊">
+    <label>聲音本人姓名</label><input type="text" id="cname" placeholder="必須是錄音的本人">
+    <div class="consent"><input type="checkbox" id="consent"><label style="margin:0;color:var(--ink)" for="consent">我確認以下錄音是<b>我本人</b>的聲音，同意系統用它合成語音；產出的音檔會標示為 AI 合成，我不會用來冒充他人。</label></div>
+    <div class="actions"><button class="pri" id="create">建立專案</button></div>`}
+  </div>
+  ${has ? `
+  <div class="card">
+    <h2>錄製或上傳聲音樣本</h2>
+    <p class="hint">建議 1～5 分鐘、安靜環境、離麥克風一個拳頭。<b>多錄不同情緒</b>，合成時的語氣起伏會更自然。</p>
+    ${PROMPTS.map(([e,t],i)=>`<div class="prompt"><b>${e}</b>　${esc(t)}</div>`).join('')}
+    <div class="actions">
+      <button id="recBtn">⏺ 開始錄音</button><span id="recInfo" class="rec"></span>
+      <label style="margin:0">或 <input type="file" id="file" accept="audio/*" style="width:auto"></label>
+    </div>
+    <div id="samples">${proj.samples.map(s=>`
+      <div class="sample"><span>${esc(s.file)} · ${s.seconds}s</span>
+      <audio controls src="/api/projects/${proj.id}/samples/${s.file}"></audio>
+      <button class="sm" data-del="${s.file}">刪除</button></div>`).join('')}</div>
+    <p class="hint">已累積 ${total.toFixed(0)} 秒${total<30?'（建議至少 30 秒，越長越像）':' ✓'}</p>
+  </div>
+  <div class="actions"><button class="pri" id="next" ${proj.samples.length?'':'disabled'}>下一步：主題與重點 →</button></div>` : ''}
+  <div class="err" id="err"></div>`;
+  if (!has) {
+    $('#create').onclick = async () => {
+      try {
+        proj = await jpost('/projects', {title:$('#title').value, consent:$('#consent').checked, consent_name:$('#cname').value});
+        localStorage.setItem('pid', proj.id); view0();
+      } catch(e){ setErr(e.message); }
+    };
+    return;
+  }
+  $('#recBtn').onclick = toggleRec;
+  $('#file').onchange = e => e.target.files[0] && upload(e.target.files[0]);
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { proj = await api(`/projects/${proj.id}/samples/${b.dataset.del}`, {method:'DELETE'}); view0(); });
+  $('#next').onclick = () => go(1);
+}
+
+async function upload(file) {
+  setErr('');
+  const fd = new FormData(); fd.append('file', file, file.name || 'rec.webm');
+  try { proj = await api(`/projects/${proj.id}/samples`, {method:'POST', body:fd}); view0(); }
+  catch(e){ setErr(e.message); }
+}
+async function toggleRec() {
+  if (rec.mr && rec.mr.state === 'recording') { rec.mr.stop(); return; }
+  try {
+    rec.stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:true}});
+  } catch { setErr('無法使用麥克風，請允許權限，或改用上傳檔案。'); return; }
+  rec.chunks = []; rec.mr = new MediaRecorder(rec.stream);
+  rec.mr.ondataavailable = e => e.data.size && rec.chunks.push(e.data);
+  rec.mr.onstop = () => {
+    clearInterval(rec.tick); rec.stream.getTracks().forEach(t=>t.stop());
+    upload(new File(rec.chunks, 'rec.webm', {type: rec.mr.mimeType}));
+  };
+  rec.mr.start(); rec.t0 = Date.now();
+  $('#recBtn').textContent = '⏹ 停止並儲存';
+  rec.tick = setInterval(()=>{ $('#recInfo').textContent = '● 錄音中 ' + Math.floor((Date.now()-rec.t0)/1000) + 's'; }, 250);
+}
+
+/* ---------- Step 1: brief ---------- */
+function view1() {
+  const b = proj.brief || {};
+  $('#view').innerHTML = `
+  <div class="card">
+    <h2>這集要聊什麼？</h2>
+    <label>主題</label><input type="text" id="topic" value="${esc(b.topic||'')}" placeholder="例如：為什麼開會總是開不完">
+    <label>重點（一行一個，最多 12 個）</label>
+    <textarea id="points" placeholder="會議沒有明確目標&#10;人太多、沒人負責決策&#10;三個讓會議變短的做法">${esc((b.points||[]).join('\n'))}</textarea>
+    <div class="row">
+      <div><label>風格</label><input type="text" id="style" value="${esc(b.style||'輕鬆、親切、有點幽默')}"></div>
+      <div><label>目標長度（分鐘）</label><input type="number" id="minutes" min="1" max="20" value="${b.minutes||5}"></div>
+      <div><label>形式</label><select id="mode"><option value="solo">單人（只用你的聲音）</option><option value="dual" ${b.mode==='dual'?'selected':''}>雙人對談（你 + AI 搭檔）</option></select></div>
+    </div>
+    <div class="actions"><button id="back">← 返回</button><button class="pri" id="gen">生成劇本</button><span id="busy" class="hint"></span></div>
+    <div class="err" id="err"></div>
+  </div>`;
+  $('#back').onclick = () => go(0);
+  $('#gen').onclick = async () => {
+    const points = $('#points').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    if (!$('#topic').value.trim() || !points.length) { setErr('請輸入主題與至少一個重點'); return; }
+    setErr(''); $('#gen').disabled = true; $('#busy').textContent = '劇本生成中，約需 10～60 秒…';
+    try {
+      proj = await jpost(`/projects/${proj.id}/script/generate`, {topic:$('#topic').value.trim(), points, style:$('#style').value, minutes:+$('#minutes').value, mode:$('#mode').value});
+      go(2);
+    } catch(e){ setErr(e.message); $('#gen').disabled = false; $('#busy').textContent = ''; }
+  };
+}
+
+/* ---------- Step 2: script review ---------- */
+let draft = null;
+function view2() {
+  if (!proj.script) return go(1);
+  if (!draft) draft = JSON.parse(JSON.stringify(proj.script));
+  const chars = draft.segments.reduce((a,s)=>a+s.text.length,0);
+  const mins = (chars / cfg.chars_per_min).toFixed(1);
+  $('#view').innerHTML = `
+  ${draft.mock ? '<div class="banner">目前是「試跑模式」的範本劇本（尚未設定 ANTHROPIC_API_KEY）。</div>' : ''}
+  <div class="card">
+    <h2>確認劇本</h2>
+    <label>標題</label><input type="text" id="stitle" value="${esc(draft.title)}">
+    <p class="hint">共 ${draft.segments.length} 段、${chars} 字，約 ${mins} 分鐘。可直接改字、換情緒、增刪或調整順序。</p>
+    <div id="segs">${draft.segments.map((s,i)=>`
+      <div class="seg" data-i="${i}">
+        <div class="top">
+          <select data-f="speaker"><option value="host" ${s.speaker==='host'?'selected':''}>主持人（你）</option><option value="guest" ${s.speaker==='guest'?'selected':''}>搭檔（AI）</option></select>
+          <select data-f="emotion">${cfg.emotions.map(e=>`<option value="${e}" ${s.emotion===e?'selected':''}>${EMO[e]||e}</option>`).join('')}</select>
+          <span style="flex:1"></span>
+          <button class="sm" data-act="up">↑</button><button class="sm" data-act="down">↓</button>
+          <button class="sm" data-act="add">＋下方新增</button><button class="sm" data-act="del">刪除</button>
+        </div>
+        <textarea data-f="text">${esc(s.text)}</textarea>
+      </div>`).join('')}</div>
+    <div class="actions">
+      <button id="back">← 修改主題重點（會重新生成）</button>
+      <button class="pri" id="ok">確認劇本，去生成音檔 →</button>
+    </div>
+    <div class="err" id="err"></div>
+  </div>`;
+  const sync = () => {
+    draft.title = $('#stitle').value;
+    document.querySelectorAll('.seg').forEach(el => {
+      const s = draft.segments[+el.dataset.i];
+      el.querySelectorAll('[data-f]').forEach(f => s[f.dataset.f] = f.value);
+    });
+  };
+  document.querySelectorAll('.seg [data-act]').forEach(b => b.onclick = () => {
+    sync(); const i = +b.closest('.seg').dataset.i, a = draft.segments, act = b.dataset.act;
+    if (act==='del' && a.length>1) a.splice(i,1);
+    if (act==='add') a.splice(i+1,0,{speaker:a[i].speaker, emotion:'neutral', text:''});
+    if (act==='up' && i>0) [a[i-1],a[i]] = [a[i],a[i-1]];
+    if (act==='down' && i<a.length-1) [a[i+1],a[i]] = [a[i],a[i+1]];
+    view2();
+  });
+  $('#back').onclick = () => { draft = null; go(1); };
+  $('#ok').onclick = async () => {
+    sync(); setErr('');
+    try {
+      await jpost(`/projects/${proj.id}/script`, {title:draft.title, segments:draft.segments.filter(s=>s.text.trim())}, 'PUT');
+      proj = await jpost(`/projects/${proj.id}/script/confirm`);
+      draft = null; go(3);
+    } catch(e){ setErr(e.message); }
+  };
+}
+
+/* ---------- Step 3: render ---------- */
+function view3() {
+  const r = proj.render;
+  const pct = r.total ? Math.round(100*r.done/r.total) : 0;
+  const mock = cfg.mock_tts;
+  $('#view').innerHTML = `
+  ${mock ? '<div class="banner">目前是「試跑模式」：聲音是用音調代替，不是你的聲音（尚未設定 ELEVENLABS_API_KEY）。流程與串接都是真的。</div>' : ''}
+  <div class="card">
+    <h2>生成音檔</h2>
+    <p class="hint">劇本已確認（${proj.script.segments.length} 段）。按下後會克隆你的聲音並逐段合成，修改劇本後重跑只會重新合成有改動的段落。</p>
+    ${r.state==='running' ? `<div class="bar"><i style="width:${pct}%"></i></div><p class="hint">${r.total?`合成中 ${r.done}/${r.total}`:'準備中（建立克隆聲音）…'}</p>` : ''}
+    ${r.state==='error' ? `<div class="err">失敗：${esc(r.error)}</div>` : ''}
+    ${proj.final ? `
+      <h2 style="margin-top:16px">成品 · ${proj.final.seconds}s</h2>
+      <audio controls style="width:100%" src="/api/projects/${proj.id}/audio?t=${Date.now()}"></audio>
+      <div class="actions"><a href="/api/projects/${proj.id}/audio?download=1"><button>⬇ 下載 mp3</button></a></div>
+      <p class="hint">檔案 metadata 已標註為 AI 合成語音；發佈到平台時請依規定揭露。</p>` : ''}
+    <div class="actions">
+      <button id="back" ${r.state==='running'?'disabled':''}>← 回去改劇本</button>
+      <button class="pri" id="go" ${r.state==='running'?'disabled':''}>${proj.final?'重新生成':'生成音檔'}</button>
+    </div>
+    <div class="err" id="err"></div>
+  </div>`;
+  $('#back').onclick = () => go(2);
+  $('#go').onclick = async () => { try { proj = await jpost(`/projects/${proj.id}/render`); view3(); poll(); } catch(e){ setErr(e.message); } };
+  if (r.state === 'running') poll();
+}
+function poll() {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    try { proj = await api(`/projects/${proj.id}`); } catch { return; }
+    if (step !== 3) { clearInterval(pollTimer); return; }
+    view3();
+    if (proj.render.state !== 'running') clearInterval(pollTimer);
+  }, 1000);
+}
+
+function go(n) {
+  step = n; clearInterval(pollTimer); renderSteps();
+  [view0, view1, view2, view3][n]();
+}
+
+(async function init() {
+  cfg = await api('/config');
+  const bn = [];
+  if (cfg.mock_llm) bn.push('劇本：試跑模式（設定 ANTHROPIC_API_KEY 啟用 Claude）');
+  if (cfg.mock_tts) bn.push('聲音：試跑模式（設定 ELEVENLABS_API_KEY 啟用聲音克隆）');
+  $('#banner').innerHTML = bn.length ? `<div class="banner">${bn.join('<br>')}</div>` : '';
+  const pid = localStorage.getItem('pid');
+  if (pid) { try { proj = await api('/projects/' + pid); } catch { localStorage.removeItem('pid'); } }
+  go(proj && proj.final ? 3 : proj && proj.script ? (proj.script_confirmed ? 3 : 2) : proj && proj.samples.length ? 1 : 0);
+})();
+</script>
+</body>
+</html>
