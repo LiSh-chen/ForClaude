@@ -3,33 +3,33 @@
   "strategies": {
     "calendar_spread": {
       "status": "flat",
-      "as_of": "2026-10-30"
+      "as_of": "2026-11-02"
     },
     "low_vol_buyhold": {
       "status": "flat",
-      "as_of": "2026-10-30"
+      "as_of": "2026-11-02"
     },
     "og": {
       "status": "flat",
-      "last_checked_date": "2026-10-30",
-      "as_of": "2026-10-30",
-      "last_trade_date": "2026-10-30",
-      "last_realized_pnl_points": -41.0
+      "last_checked_date": "2026-11-02",
+      "as_of": "2026-11-02",
+      "last_trade_date": "2026-11-02",
+      "last_realized_pnl_points": -246.0
     },
     "lu": {
       "status": "flat",
-      "last_checked_date": "2026-10-30",
-      "as_of": "2026-10-30",
-      "last_trade_date": "2026-10-30",
-      "last_realized_pnl_points": -142.0
+      "last_checked_date": "2026-11-02",
+      "as_of": "2026-11-02",
+      "last_trade_date": "2026-11-02",
+      "last_realized_pnl_points": -45.0
     },
     "re": {
       "status": "flat",
-      "last_checked_date": "2026-10-30",
-      "as_of": "2026-10-30",
-      "last_trade_date": "2026-10-30",
-      "last_realized_pnl_points": -32.0
+      "last_checked_date": "2026-11-02",
+      "as_of": "2026-11-02",
+      "last_trade_date": "2026-11-02",
+      "last_realized_pnl_points": -49.0
     }
   },
-  "last_run": "2026-10-30"
+  "last_run": "2026-11-02"
 }
