@@ -1,6 +1,6 @@
 {
   "start_date": "2026-09-30",
-  "last_run": "2026-11-06",
+  "last_run": "2026-11-09",
   "strategies": {
     "low_vol_buyhold": {
       "kind": "swing",
@@ -15,7 +15,7 @@
       "last_realized_pnl_points": null,
       "last_trade_date": null,
       "note": null,
-      "as_of": "2026-11-06"
+      "as_of": "2026-11-09"
     },
     "calendar_spread": {
       "kind": "swing",
@@ -26,11 +26,11 @@
       "direction": "short",
       "sim_entry_date": "2026-11-05",
       "sim_entry_price": -59.0,
-      "unrealized_pnl_points": 8.0,
+      "unrealized_pnl_points": 23.0,
       "last_realized_pnl_points": null,
       "last_trade_date": null,
       "note": null,
-      "as_of": "2026-11-06"
+      "as_of": "2026-11-09"
     },
     "og": {
       "kind": "intraday",
@@ -42,10 +42,10 @@
       "sim_entry_date": null,
       "sim_entry_price": null,
       "unrealized_pnl_points": null,
-      "last_realized_pnl_points": -405.0,
-      "last_trade_date": "2026-11-05",
-      "note": "今天符合高波動體制，但08:45-09:00沒有偵測到進出場K棒（資料缺漏）",
-      "as_of": "2026-11-06"
+      "last_realized_pnl_points": 398.0,
+      "last_trade_date": "2026-11-09",
+      "note": null,
+      "as_of": "2026-11-09"
     },
     "lu": {
       "kind": "intraday",
@@ -57,10 +57,10 @@
       "sim_entry_date": null,
       "sim_entry_price": null,
       "unrealized_pnl_points": null,
-      "last_realized_pnl_points": 220.0,
-      "last_trade_date": "2026-11-05",
-      "note": "今天符合高波動體制，但12:00-12:30沒有偵測到進出場K棒（資料缺漏）",
-      "as_of": "2026-11-06"
+      "last_realized_pnl_points": -50.0,
+      "last_trade_date": "2026-11-09",
+      "note": null,
+      "as_of": "2026-11-09"
     },
     "re": {
       "kind": "intraday",
@@ -72,10 +72,10 @@
       "sim_entry_date": null,
       "sim_entry_price": null,
       "unrealized_pnl_points": null,
-      "last_realized_pnl_points": -91.0,
-      "last_trade_date": "2026-11-05",
-      "note": "今天符合高波動體制，但12:30-13:00沒有偵測到進出場K棒（資料缺漏）",
-      "as_of": "2026-11-06"
+      "last_realized_pnl_points": -164.0,
+      "last_trade_date": "2026-11-09",
+      "note": null,
+      "as_of": "2026-11-09"
     }
   },
   "log": [
@@ -780,6 +780,45 @@
       "real_exit_date": "2026-11-05",
       "realized_pnl_points": -91.0,
       "note": "盤中翻多觸發"
+    },
+    {
+      "sim_date": "2026-11-09",
+      "strategy_id": "og",
+      "event": "trade",
+      "direction": "long",
+      "sim_entry_price": 40099.0,
+      "sim_exit_price": 40497.0,
+      "sim_entry_date": "2026-11-09",
+      "real_entry_date": "2026-11-09",
+      "real_exit_date": "2026-11-09",
+      "realized_pnl_points": 398.0,
+      "note": "開盤上衝觸發"
+    },
+    {
+      "sim_date": "2026-11-09",
+      "strategy_id": "lu",
+      "event": "trade",
+      "direction": "short",
+      "sim_entry_price": 41871.0,
+      "sim_exit_price": 41921.0,
+      "sim_entry_date": "2026-11-09",
+      "real_entry_date": "2026-11-09",
+      "real_exit_date": "2026-11-09",
+      "realized_pnl_points": -50.0,
+      "note": "午盤放空觸發"
+    },
+    {
+      "sim_date": "2026-11-09",
+      "strategy_id": "re",
+      "event": "trade",
+      "direction": "long",
+      "sim_entry_price": 41921.0,
+      "sim_exit_price": 41757.0,
+      "sim_entry_date": "2026-11-09",
+      "real_entry_date": "2026-11-09",
+      "real_exit_date": "2026-11-09",
+      "realized_pnl_points": -164.0,
+      "note": "盤中翻多觸發"
     }
   ],
   "equity": [
@@ -926,6 +965,12 @@
       "realized": -54700.0,
       "unrealized": 400.0,
       "total": -54300.0
+    },
+    {
+      "date": "2026-11-09",
+      "realized": -45500.0,
+      "unrealized": 1150.0,
+      "total": -44350.0
     }
   ],
   "margin": {
@@ -939,11 +984,11 @@
     "theoretical_max_lots": 3,
     "theoretical_max_margin": 525750,
     "low_vol_risk": {
-      "reference_price": 39652.0,
-      "stop_points": 3172.2,
-      "stop_amount": 158608.0,
-      "buffer_ratio": 3.89,
-      "recommended_capital_per_lot": 293108.0,
+      "reference_price": 41478.0,
+      "stop_points": 3318.2,
+      "stop_amount": 165912.0,
+      "buffer_ratio": 4.07,
+      "recommended_capital_per_lot": 300412.0,
       "is_live_position": false
     }
   }
