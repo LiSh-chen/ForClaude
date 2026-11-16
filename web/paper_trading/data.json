@@ -1,6 +1,6 @@
 {
   "start_date": "2026-09-30",
-  "last_run": "2026-11-13",
+  "last_run": "2026-11-16",
   "strategies": {
     "low_vol_buyhold": {
       "kind": "swing",
@@ -15,7 +15,7 @@
       "last_realized_pnl_points": null,
       "last_trade_date": null,
       "note": null,
-      "as_of": "2026-11-13"
+      "as_of": "2026-11-16"
     },
     "calendar_spread": {
       "kind": "swing",
@@ -26,11 +26,11 @@
       "direction": "short",
       "sim_entry_date": "2026-11-05",
       "sim_entry_price": -59.0,
-      "unrealized_pnl_points": 19.0,
+      "unrealized_pnl_points": 29.0,
       "last_realized_pnl_points": null,
       "last_trade_date": null,
       "note": null,
-      "as_of": "2026-11-13"
+      "as_of": "2026-11-16"
     },
     "og": {
       "kind": "intraday",
@@ -44,8 +44,8 @@
       "unrealized_pnl_points": null,
       "last_realized_pnl_points": 105.0,
       "last_trade_date": "2026-11-13",
-      "note": null,
-      "as_of": "2026-11-13"
+      "note": "今天符合高波動體制，但抓不到當天1分K資料（可能TAIFEX還沒公告），暫緩，下次排程重試",
+      "as_of": "2026-11-16"
     },
     "lu": {
       "kind": "intraday",
@@ -59,8 +59,8 @@
       "unrealized_pnl_points": null,
       "last_realized_pnl_points": -107.0,
       "last_trade_date": "2026-11-13",
-      "note": null,
-      "as_of": "2026-11-13"
+      "note": "今天符合高波動體制，但抓不到當天1分K資料（可能TAIFEX還沒公告），暫緩，下次排程重試",
+      "as_of": "2026-11-16"
     },
     "re": {
       "kind": "intraday",
@@ -74,8 +74,8 @@
       "unrealized_pnl_points": null,
       "last_realized_pnl_points": -83.0,
       "last_trade_date": "2026-11-13",
-      "note": null,
-      "as_of": "2026-11-13"
+      "note": "今天符合高波動體制，但抓不到當天1分K資料（可能TAIFEX還沒公告），暫緩，下次排程重試",
+      "as_of": "2026-11-16"
     }
   },
   "log": [
@@ -1138,6 +1138,12 @@
       "realized": -51200.0,
       "unrealized": 950.0,
       "total": -50250.0
+    },
+    {
+      "date": "2026-11-16",
+      "realized": -51200.0,
+      "unrealized": 1450.0,
+      "total": -49750.0
     }
   ],
   "margin": {
@@ -1151,11 +1157,11 @@
     "theoretical_max_lots": 3,
     "theoretical_max_margin": 525750,
     "low_vol_risk": {
-      "reference_price": 43839.0,
-      "stop_points": 3507.1,
-      "stop_amount": 175356.0,
-      "buffer_ratio": 4.3,
-      "recommended_capital_per_lot": 309856.0,
+      "reference_price": 40781.0,
+      "stop_points": 3262.5,
+      "stop_amount": 163124.0,
+      "buffer_ratio": 4.0,
+      "recommended_capital_per_lot": 297624.0,
       "is_live_position": false
     }
   }
