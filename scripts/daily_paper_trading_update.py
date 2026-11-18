@@ -320,11 +320,21 @@ def process_intraday_strategies(state: dict, run_date: str) -> list[dict]:
     is_high_vol = today_row["regime_lag1"] == 1.0
     re_vol_ok = pd.notna(today_row["vol_ratio_lag1"]) and today_row["vol_ratio_lag1"] >= RE_VOLUME_FILTER_THRESHOLD
 
-    def mark_flat(sid: str, note: str) -> None:
-        state["strategies"][sid] = dict(status="flat", last_checked_date=run_date, as_of=run_date,
-                                          last_trade_date=state["strategies"].get(sid, {}).get("last_trade_date"),
-                                          last_realized_pnl_points=state["strategies"].get(sid, {}).get("last_realized_pnl_points"),
-                                          note=note)
+    def mark_flat(sid: str, note: str, checked: bool = True) -> None:
+        prev_sid = state["strategies"].get(sid, {})
+        # checked=False代表這次只是「抓資料失敗」，不是真的確認過今天沒訊號
+        # ——last_checked_date故意不前進到run_date，讓下次排程對同一天重試
+        # fetch，而不是被「今天已經檢查過」的冪等鎖永久鎖死(實測這個環境的
+        # 網路偶爾會抓1分K zip逾時失敗，但重試幾秒後就能抓到，不是TAIFEX
+        # 真的沒資料，鎖死會造成本可避免的資料永久遺失)。
+        state["strategies"][sid] = dict(
+            status="flat",
+            last_checked_date=run_date if checked else prev_sid.get("last_checked_date"),
+            as_of=run_date,
+            last_trade_date=prev_sid.get("last_trade_date"),
+            last_realized_pnl_points=prev_sid.get("last_realized_pnl_points"),
+            note=note,
+        )
 
     if not is_high_vol:
         for sid in INTRADAY_LABELS:
@@ -333,10 +343,12 @@ def process_intraday_strategies(state: dict, run_date: str) -> list[dict]:
 
     onemin = fetch_taifex_tick_1min.fetch_and_save(run_date)
     if onemin is None:
-        # 抓不到今天的1分K（TAIFEX還沒公告、或今天非交易日），跳過今天，
-        # 不要用「昨天」的1分K冒充今天——寧可漏記一天，不要記錯資料。
+        # 抓不到今天的1分K（重試後仍失敗：可能TAIFEX還沒公告、今天非交易
+        # 日、或剛好網路一直不順），不要用「昨天」的1分K冒充今天——但也
+        # 不鎖定last_checked_date，讓下次排程對「今天」重新嘗試抓資料。
         for sid in INTRADAY_LABELS:
-            mark_flat(sid, "今天符合高波動體制，但抓不到當天1分K資料（可能TAIFEX還沒公告），暫緩，下次排程重試")
+            mark_flat(sid, "今天符合高波動體制，但抓不到當天1分K資料（可能TAIFEX還沒公告），暫緩，下次排程重試",
+                       checked=False)
         return events
 
     # og

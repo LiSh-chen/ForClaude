@@ -35,18 +35,25 @@ OUT_DIR = REPO_ROOT / "data" / "raw" / "taifex_tick_1min"
 ENDPOINT = "https://www.taifex.com.tw/file/taifex/Dailydownload/DailydownloadCSV/Daily_{y}_{m}_{d}.zip"
 
 
-def fetch_daily_zip(trading_date: str) -> bytes | None:
+def fetch_daily_zip(trading_date: str, attempts: int = 3) -> bytes | None:
     """trading_date格式 YYYY-MM-DD。回傳zip檔bytes，抓不到(例如那天不是
-    交易日、或超過30天窗口)回傳None。"""
+    交易日、或超過30天窗口)回傳None。
+
+    實測發現這個環境的網路/proxy偶爾會在下載4~5MB的zip檔中途卡住逾時
+    (約60秒只傳到不到1MB)，但同一個檔案幾秒後重試就能正常抓到——這是
+    暫時性的連線問題，不是TAIFEX真的沒有資料，所以這裡加重試，避免把
+    單次網路抽風誤判成「這天沒有資料」。"""
     y, m, d = trading_date.split("-")
     url = ENDPOINT.format(y=y, m=m, d=d)
-    result = subprocess.run(["curl", "-sSL", "-m", "60", url], capture_output=True, timeout=65)
-    if result.returncode != 0 or len(result.stdout) < 1000:
-        return None
-    # 官方查無資料時可能回傳一個小的錯誤頁而非zip，用zip檔頭簽章("PK")確認
-    if result.stdout[:2] != b"PK":
-        return None
-    return result.stdout
+    for attempt in range(1, attempts + 1):
+        result = subprocess.run(["curl", "-sSL", "-m", "150", url], capture_output=True, timeout=155)
+        if result.returncode == 0 and len(result.stdout) >= 1000 and result.stdout[:2] == b"PK":
+            return result.stdout
+        if attempt < attempts:
+            continue
+    # 官方查無資料時可能回傳一個小的錯誤頁而非zip，用zip檔頭簽章("PK")確認；
+    # 重試用盡仍失敗才視為真的抓不到(非交易日、超過30天窗口、或TAIFEX尚未公告)
+    return None
 
 
 def parse_tx_1min(zip_bytes: bytes, trading_date: str) -> pd.DataFrame:
