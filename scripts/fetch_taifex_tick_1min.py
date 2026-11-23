@@ -111,6 +111,17 @@ def fetch_and_save(trading_date: str) -> pd.DataFrame | None:
     agg = parse_tx_1min(zip_bytes, trading_date)
     if agg.empty:
         return None
+    # 這份檔案本來就橫跨前一晚夜盤到今天日盤——實測發現網路不穩時偶爾會
+    # 抓到一個「zip檔頭/格式都正常、能順利打開，但內容被截斷」的半份檔案
+    # (例如只有夜盤那段、完全沒有今天08:45-13:45的日盤K棒)，不會被
+    # fetch_daily_zip的PK簽章檢查擋下來。這裡額外確認「今天日盤」這段
+    # 真的有資料，沒有的話視為抓取失敗(回傳None讓上層重試)，不要讓
+    # og/lu/re三腳策略拿一份不完整的資料去判斷「沒有訊號」。
+    day_session_start = pd.Timestamp(f"{trading_date} 08:45:00")
+    day_session_end = pd.Timestamp(f"{trading_date} 13:45:00")
+    has_day_session = ((agg["datetime"] >= day_session_start) & (agg["datetime"] <= day_session_end)).any()
+    if not has_day_session:
+        return None
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     agg.to_parquet(out_path, index=False)
     return agg
